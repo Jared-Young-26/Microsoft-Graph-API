@@ -1,0 +1,214 @@
+from microsoft import ServiceClient, PowerShellModuleClient
+from pathlib import Path
+
+
+def _ps_quote(value):
+    return str(value).replace("'", "''")
+
+
+def _ps_value(value):
+    if isinstance(value, bool):
+        return "$true" if value else "$false"
+    if value is None:
+        return "$null"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (list, tuple, set)):
+        return "@(" + ",".join(_ps_value(v) for v in value) + ")"
+    return f"'{_ps_quote(value)}'"
+
+
+def _ps_params(params):
+    parts = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        parts.append(f"-{key} {_ps_value(value)}")
+    return " " + " ".join(parts) if parts else ""
+
+
+class SharePointClient(ServiceClient):
+    def __init__(self, graph_session, powershell=None, powershell_options=None):
+        super().__init__(graph_session)
+        self._powershell = powershell
+        self._powershell_options = powershell_options or {}
+
+    def _get_powershell(self, **overrides):
+        if self._powershell is None:
+            options = {**self._powershell_options, **overrides}
+            self._powershell = SharePointPowerShellClient(**options)
+        return self._powershell
+
+    def connect_powershell(self, **options):
+        return self._get_powershell(**options).connect()
+
+    def disconnect_powershell(self):
+        if self._powershell:
+            return self._powershell.disconnect()
+        return True
+
+    def run_powershell(self, script, **options):
+        return self._get_powershell(**options).run(script)
+
+    def run_powershell_json(self, script, **options):
+        return self._get_powershell(**options).run_json(script)
+
+    def list_sites(self, search="*"):
+        response = self.get("/sites", params={"search": search})
+        return response.json().get("value", [])
+
+    def get_site(self, site_id):
+        response = self.get(f"/sites/{site_id}")
+        return response.json()
+
+    def list_lists(self, site_id):
+        response = self.get(f"/sites/{site_id}/lists")
+        return response.json().get("value", [])
+
+    def list_list_items(self, site_id, list_id, top=100):
+        response = self.get(f"/sites/{site_id}/lists/{list_id}/items", params={"$top": top})
+        return response.json().get("value", [])
+
+    def get_list_item(self, site_id, list_id, item_id):
+        response = self.get(f"/sites/{site_id}/lists/{list_id}/items/{item_id}")
+        return response.json()
+
+    def get_site_by_path(self, hostname, site_path):
+        response = self.get(f"/sites/{hostname}:/sites/{site_path}")
+        return response.json()
+
+    def list_site_drives(self, site_id):
+        response = self.get(f"/sites/{site_id}/drives")
+        return response.json().get("value", [])
+
+    def get_site_drive(self, site_id):
+        response = self.get(f"/sites/{site_id}/drive")
+        return response.json()
+
+    def list_site_drive_root_items(self, site_id):
+        response = self.get(f"/sites/{site_id}/drive/root/children")
+        return response.json().get("value", [])
+
+    def upload_file_to_site_drive(self, site_id, source_path, parent_folder_id=None):
+        file_name = Path(source_path).name
+        if parent_folder_id:
+            url = f"/sites/{site_id}/drive/items/{parent_folder_id}:/{file_name}:/content"
+        else:
+            url = f"/sites/{site_id}/drive/root:/{file_name}:/content"
+
+        with open(source_path, "rb") as file:
+            response = self.put(url, data=file)
+        return response.json()
+
+    def list_site_pages(self, site_id):
+        response = self.get(f"/sites/{site_id}/pages")
+        return response.json().get("value", [])
+
+    def get_page(self, site_id, page_id):
+        response = self.get(f"/sites/{site_id}/pages/{page_id}")
+        return response.json()
+
+    def list_list_columns(self, site_id, list_id):
+        response = self.get(f"/sites/{site_id}/lists/{list_id}/columns")
+        return response.json().get("value", [])
+
+    def create_list(self, site_id, display_name, columns=None, template="genericList", description=None):
+        payload = {"displayName": display_name, "list": {"template": template}}
+        if description:
+            payload["description"] = description
+        if columns:
+            payload["columns"] = columns
+        response = self.post(f"/sites/{site_id}/lists", json=payload)
+        return response.json()
+
+    def create_list_item(self, site_id, list_id, fields):
+        payload = {"fields": fields}
+        response = self.post(f"/sites/{site_id}/lists/{list_id}/items", json=payload)
+        return response.json()
+
+    def update_list_item_fields(self, site_id, list_id, item_id, fields):
+        response = self.patch(f"/sites/{site_id}/lists/{list_id}/items/{item_id}/fields", json=fields)
+        return response.json()
+
+    def delete_list_item(self, site_id, list_id, item_id):
+        self.delete(f"/sites/{site_id}/lists/{list_id}/items/{item_id}")
+        return True
+
+    def list_sites_powershell(self, include_personal=False, limit="All", filter_query=None, **powershell_options):
+        params = {"IncludePersonalSite": include_personal, "Limit": limit}
+        if filter_query:
+            params["Filter"] = filter_query
+        cmd = "Get-SPOSite" + _ps_params(params)
+        return self._get_powershell(**powershell_options).run_json(cmd)
+
+    def get_site_powershell(self, site_url, **powershell_options):
+        cmd = "Get-SPOSite" + _ps_params({"Identity": site_url})
+        return self._get_powershell(**powershell_options).run_json(cmd)
+
+    def create_site_collection_powershell(
+        self,
+        url,
+        title,
+        owner,
+        template="STS#3",
+        storage_quota=None,
+        time_zone_id=None,
+        **powershell_options,
+    ):
+        params = {
+            "Url": url,
+            "Title": title,
+            "Owner": owner,
+            "Template": template,
+            "StorageQuota": storage_quota,
+            "TimeZoneId": time_zone_id,
+        }
+        cmd = "New-SPOSite" + _ps_params(params)
+        return self._get_powershell(**powershell_options).run_json(cmd)
+
+    def set_site_properties_powershell(self, site_url, **properties):
+        params = {"Identity": site_url}
+        params.update(properties)
+        cmd = "Set-SPOSite" + _ps_params(params)
+        return self._get_powershell().run(cmd)
+
+    def delete_site_collection_powershell(self, site_url, **powershell_options):
+        cmd = "Remove-SPOSite" + _ps_params({"Identity": site_url, "Confirm": False})
+        return self._get_powershell(**powershell_options).run(cmd)
+
+    def restore_deleted_site_powershell(self, site_url, **powershell_options):
+        cmd = "Restore-SPODeletedSite" + _ps_params({"Identity": site_url})
+        return self._get_powershell(**powershell_options).run(cmd)
+
+    def list_site_users_powershell(self, site_url, login_name=None, **powershell_options):
+        params = {"Site": site_url}
+        if login_name:
+            params["LoginName"] = login_name
+        cmd = "Get-SPOUser" + _ps_params(params)
+        return self._get_powershell(**powershell_options).run_json(cmd)
+
+    def set_site_user_powershell(self, site_url, login_name, is_site_collection_admin=None, **powershell_options):
+        params = {"Site": site_url, "LoginName": login_name, "IsSiteCollectionAdmin": is_site_collection_admin}
+        cmd = "Set-SPOUser" + _ps_params(params)
+        return self._get_powershell(**powershell_options).run(cmd)
+
+
+class SharePointPowerShellClient(PowerShellModuleClient):
+    def __init__(self, session=None, admin_url=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        super().__init__(session=session, pwsh_path=pwsh_path)
+        self.admin_url = admin_url
+        self.connect_script = connect_script
+        self.disconnect_script = disconnect_script
+
+    def _connect_script(self):
+        if self.connect_script:
+            return self.connect_script
+        if not self.admin_url:
+            return None
+        return (
+            "Import-Module Microsoft.Online.SharePoint.PowerShell;"
+            f"Connect-SPOService -Url '{_ps_quote(self.admin_url)}'"
+        )
+
+    def _disconnect_script(self):
+        return self.disconnect_script

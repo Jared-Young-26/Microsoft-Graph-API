@@ -1,0 +1,8 @@
+fastapi
+flask
+msal
+pydantic
+python-dotenv
+requests
+uvicorn[standard]
+keyring
