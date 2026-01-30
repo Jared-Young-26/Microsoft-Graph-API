@@ -154,6 +154,11 @@ const lastOutputs = {};
 const outputTimers = new Map();
 const outputStartTimes = new Map();
 const outputStatusPrefixes = new Map();
+const lastActionContext = {};
+const tableRowCurrent = new WeakMap();
+const tableRowOriginal = new WeakMap();
+const prettyRowCurrent = new WeakMap();
+const prettyRowOriginal = new WeakMap();
 
 const subtitles = {
   dashboard: "Graph-first operations with PowerShell fallback",
@@ -294,6 +299,11 @@ const ACTIONS_UI = {
   },
   teams: {
     list_joined_teams: { label: "List joined teams", mode: "graph", fields: [] },
+    list_channels: {
+      label: "List channels",
+      mode: "graph",
+      fields: [{ key: "team_id", label: "Team ID" }],
+    },
     create_channel: {
       label: "Create channel",
       mode: "graph",
@@ -743,6 +753,54 @@ const ACTIONS_UI = {
       label: "List compliance actions",
       mode: "powershell",
       fields: [{ key: "search_name", label: "Search name (optional)" }],
+    },
+  },
+};
+
+const UPDATE_CONTEXT_MAP = {
+  exchange: {
+    list_events: {
+      updateAction: "update_event",
+      idField: "id",
+      idParam: "event_id",
+      payloadKey: "updates",
+      contextKeys: ["user_id"],
+    },
+  },
+  onedrive: {
+    list_drive_items: {
+      updateAction: "update_item",
+      idField: "id",
+      idParam: "item_id",
+      payloadKey: "updates",
+      contextKeys: [],
+    },
+  },
+  sharepoint: {
+    list_list_items: {
+      updateAction: "update_list_item_fields",
+      idField: "id",
+      idParam: "item_id",
+      payloadKey: "fields",
+      contextKeys: ["site_id", "list_id"],
+    },
+  },
+  teams: {
+    list_channels: {
+      updateAction: "update_channel",
+      idField: "id",
+      idParam: "channel_id",
+      payloadKey: "updates",
+      contextKeys: ["team_id"],
+    },
+  },
+  entra: {
+    list_users: {
+      updateAction: "update_user",
+      idField: "id",
+      idParam: "user_id",
+      payloadKey: "updates",
+      contextKeys: [],
     },
   },
 };
@@ -5629,6 +5687,200 @@ function getSummaryFields(item) {
   return results.slice(0, 3);
 }
 
+function isPrimitive(value) {
+  return value === null || value === undefined || typeof value !== "object";
+}
+
+function isEditableValue(value) {
+  return isPrimitive(value);
+}
+
+function coerceValue(inputValue, originalValue) {
+  if (originalValue === null || originalValue === undefined) {
+    return inputValue === "" ? null : inputValue;
+  }
+  if (typeof originalValue === "number") {
+    if (inputValue === "") return null;
+    const num = Number(inputValue);
+    return Number.isNaN(num) ? originalValue : num;
+  }
+  if (typeof originalValue === "boolean") {
+    return inputValue === "true";
+  }
+  return inputValue === "" ? null : inputValue;
+}
+
+function getUpdateCapability(service) {
+  const context = lastActionContext[service];
+  if (!context) return null;
+  const mapping = UPDATE_CONTEXT_MAP?.[service] || {};
+  const config = mapping[context.action];
+  if (!config) return null;
+  return { ...config, context };
+}
+
+function shouldStoreContext(service, action) {
+  return Boolean(UPDATE_CONTEXT_MAP?.[service]?.[action]);
+}
+
+function buildUpdateParams(updateConfig, itemId, updates) {
+  const params = {};
+  const context = updateConfig.context?.params || {};
+  updateConfig.contextKeys?.forEach((key) => {
+    if (context[key] !== undefined) {
+      params[key] = context[key];
+    }
+  });
+  params[updateConfig.idParam || "id"] = itemId;
+  params[updateConfig.payloadKey || "updates"] = updates;
+  return params;
+}
+
+function applyUpdatePayload(current, updates, updateConfig) {
+  const next = cloneRecord(current || {});
+  if (updateConfig?.payloadKey === "fields") {
+    if (!next.fields || typeof next.fields !== "object") {
+      next.fields = {};
+    }
+    Object.entries(updates || {}).forEach(([key, value]) => {
+      next.fields[key] = value;
+    });
+  } else {
+    Object.assign(next, updates || {});
+  }
+  return next;
+}
+
+async function executeUpdate(service, updateConfig, itemId, updates) {
+  const params = buildUpdateParams(updateConfig, itemId, updates);
+  try {
+    const res = await fetch("/api/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ service, action: updateConfig.updateAction, params }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, error: data.error || "Update failed", data };
+    }
+    return { ok: true, data: data.data };
+  } catch (err) {
+    return { ok: false, error: err.message || "Update failed" };
+  }
+}
+
+async function executeBulkUpdate(service, updateConfig, items) {
+  const context = updateConfig.context?.params || {};
+  try {
+    const res = await fetch("/api/task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service,
+        action: "bulk_update",
+        params: {
+          update_action: updateConfig.updateAction,
+          items,
+          context,
+        },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, error: data.error || "Bulk update failed", data };
+    }
+    return { ok: true, data: data.data };
+  } catch (err) {
+    return { ok: false, error: err.message || "Bulk update failed" };
+  }
+}
+
+function renderValueTree(value) {
+  const container = document.createElement("div");
+  container.classList.add("pretty-tree");
+
+  if (isPrimitive(value)) {
+    const leaf = document.createElement("div");
+    leaf.classList.add("pretty-leaf");
+    leaf.textContent = formatValue(value);
+    container.appendChild(leaf);
+    return container;
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      const empty = document.createElement("div");
+      empty.classList.add("pretty-empty");
+      empty.textContent = "[]";
+      container.appendChild(empty);
+      return container;
+    }
+    value.forEach((item, index) => {
+      const row = document.createElement("div");
+      row.classList.add("pretty-node");
+      const key = document.createElement("div");
+      key.classList.add("pretty-key");
+      key.textContent = `[${index}]`;
+      const val = document.createElement("div");
+      val.classList.add("pretty-value");
+      if (isPrimitive(item)) {
+        val.textContent = formatValue(item);
+      } else {
+        const details = document.createElement("details");
+        details.classList.add("pretty-details");
+        details.open = true;
+        const summary = document.createElement("summary");
+        summary.textContent = Array.isArray(item) ? `Array(${item.length})` : "Object";
+        details.appendChild(summary);
+        details.appendChild(renderValueTree(item));
+        val.appendChild(details);
+      }
+      row.appendChild(key);
+      row.appendChild(val);
+      container.appendChild(row);
+    });
+    return container;
+  }
+
+  const entries = Object.entries(value || {});
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("pretty-empty");
+    empty.textContent = "{}";
+    container.appendChild(empty);
+    return container;
+  }
+  entries.forEach(([keyName, valRaw]) => {
+    const row = document.createElement("div");
+    row.classList.add("pretty-node");
+    const key = document.createElement("div");
+    key.classList.add("pretty-key");
+    key.textContent = keyName;
+    const val = document.createElement("div");
+    val.classList.add("pretty-value");
+    if (isPrimitive(valRaw)) {
+      val.textContent = formatValue(valRaw);
+    } else {
+      const details = document.createElement("details");
+      details.classList.add("pretty-details");
+      details.open = false;
+      const summary = document.createElement("summary");
+      if (Array.isArray(valRaw)) {
+        summary.textContent = `Array(${valRaw.length})`;
+      } else {
+        summary.textContent = "Object";
+      }
+      details.appendChild(summary);
+      details.appendChild(renderValueTree(valRaw));
+      val.appendChild(details);
+    }
+    row.appendChild(key);
+    row.appendChild(val);
+    container.appendChild(row);
+  });
+  return container;
+}
+
 function getOutputSearchQuery(service) {
   return (outputSearchQueries[service] || "").toLowerCase().trim();
 }
@@ -5750,6 +6002,8 @@ function ensureModal() {
       <div class="modal-header">
         <div class="modal-title" id="modal-title">Details</div>
         <div class="modal-actions">
+          <button class="ghost small" id="modal-expand">Expand all</button>
+          <button class="ghost small" id="modal-collapse">Collapse all</button>
           <button class="ghost small" id="modal-edit">Edit</button>
           <button class="primary small" id="modal-save">Save</button>
           <button class="ghost small" id="modal-close">Close</button>
@@ -5770,6 +6024,22 @@ function ensureModal() {
     modal.classList.remove("open");
   });
 
+  const expandButton = modal.querySelector("#modal-expand");
+  const collapseButton = modal.querySelector("#modal-collapse");
+  const toggleModalDetails = (open) => {
+    const body = modal.querySelector("#modal-body");
+    if (!body) return;
+    body.querySelectorAll("details.pretty-details").forEach((detail) => {
+      detail.open = open;
+    });
+  };
+  if (expandButton) {
+    expandButton.addEventListener("click", () => toggleModalDetails(true));
+  }
+  if (collapseButton) {
+    collapseButton.addEventListener("click", () => toggleModalDetails(false));
+  }
+
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       modal.classList.remove("open");
@@ -5786,6 +6056,8 @@ function showModal(title, data, service) {
   const bodyEl = modal.querySelector("#modal-body");
   const editButton = modal.querySelector("#modal-edit");
   const saveButton = modal.querySelector("#modal-save");
+  const expandButton = modal.querySelector("#modal-expand");
+  const collapseButton = modal.querySelector("#modal-collapse");
   titleEl.textContent = title;
   bodyEl.innerHTML = "";
 
@@ -5841,14 +6113,24 @@ function showModal(title, data, service) {
     const label = document.createElement("div");
     label.classList.add("detail-key");
     label.textContent = key;
-    const val = document.createElement("pre");
+    const val = document.createElement("div");
     val.classList.add("detail-value");
-    val.textContent = formatValue(value);
+    if (isPrimitive(value)) {
+      val.textContent = formatValue(value);
+    } else {
+      val.appendChild(renderValueTree(value));
+    }
     row.appendChild(label);
     row.appendChild(val);
     bodyEl.appendChild(row);
     detailMap.set(key, val);
   });
+
+  if (expandButton && collapseButton) {
+    const hasNested = Boolean(bodyEl.querySelector("details.pretty-details"));
+    expandButton.style.display = hasNested ? "inline-flex" : "none";
+    collapseButton.style.display = hasNested ? "inline-flex" : "none";
+  }
 
   const editable = isEditableUserRecord(service, data);
   let editInputs = {};
@@ -5968,15 +6250,20 @@ function showModal(title, data, service) {
         updates,
       });
 
-      if (result?.ok) {
-        Object.assign(data, updates);
-        Object.assign(original, updates);
-        Object.entries(updates).forEach(([key, value]) => {
-          const el = detailMap.get(key);
-          if (el) {
-            el.textContent = formatValue(value);
-          }
-        });
+        if (result?.ok) {
+          Object.assign(data, updates);
+          Object.assign(original, updates);
+          Object.entries(updates).forEach(([key, value]) => {
+            const el = detailMap.get(key);
+            if (el) {
+              el.innerHTML = "";
+              if (isPrimitive(value)) {
+                el.textContent = formatValue(value);
+              } else {
+                el.appendChild(renderValueTree(value));
+              }
+            }
+          });
         modal.classList.remove("editing");
         if (saveButton) saveButton.style.display = "none";
         if (editButton) editButton.textContent = "Edit";
@@ -5992,6 +6279,8 @@ function renderPretty(service, parsed) {
   const container = getPrettyPanel(service);
   if (!container) return;
   container.innerHTML = "";
+  const updateConfig = getUpdateCapability(service);
+  const canEdit = Boolean(updateConfig);
   if (!parsed) {
     const empty = document.createElement("div");
     empty.classList.add("pretty-empty");
@@ -6004,10 +6293,108 @@ function renderPretty(service, parsed) {
   if (list) {
     const listEl = document.createElement("div");
     listEl.classList.add("pretty-list");
+    if (canEdit) {
+      const toolbar = document.createElement("div");
+      toolbar.classList.add("pretty-toolbar");
+      const selectAll = document.createElement("input");
+      selectAll.type = "checkbox";
+      selectAll.classList.add("pretty-select-all");
+      const selectLabel = document.createElement("span");
+      selectLabel.textContent = "Select all";
+      const editSelected = document.createElement("button");
+      editSelected.type = "button";
+      editSelected.classList.add("ghost", "small");
+      editSelected.textContent = "Edit selected";
+      const saveSelected = document.createElement("button");
+      saveSelected.type = "button";
+      saveSelected.classList.add("primary", "small");
+      saveSelected.textContent = "Save selected";
+      const cancelSelected = document.createElement("button");
+      cancelSelected.type = "button";
+      cancelSelected.classList.add("ghost", "small");
+      cancelSelected.textContent = "Cancel";
+      toolbar.appendChild(selectAll);
+      toolbar.appendChild(selectLabel);
+      toolbar.appendChild(editSelected);
+      toolbar.appendChild(saveSelected);
+      toolbar.appendChild(cancelSelected);
+      listEl.appendChild(toolbar);
+
+      selectAll.addEventListener("change", () => {
+        const checked = selectAll.checked;
+        listEl.querySelectorAll(".pretty-row .row-select").forEach((input) => {
+          input.checked = checked;
+        });
+      });
+
+      editSelected.addEventListener("click", () => {
+        listEl.querySelectorAll(".pretty-row").forEach((row) => {
+          const checkbox = row.querySelector(".row-select");
+          if (checkbox?.checked) {
+            enterPrettyEdit(row);
+          }
+        });
+      });
+
+      cancelSelected.addEventListener("click", () => {
+        listEl.querySelectorAll(".pretty-row").forEach((row) => {
+          const checkbox = row.querySelector(".row-select");
+          if (checkbox?.checked) {
+            exitPrettyEdit(row, true);
+          }
+        });
+      });
+
+      saveSelected.addEventListener("click", async () => {
+        const selected = Array.from(listEl.querySelectorAll(".pretty-row")).filter((row) =>
+          row.querySelector(".row-select")?.checked
+        );
+        if (!selected.length) {
+          showToast("No rows selected");
+          return;
+        }
+        const payloads = [];
+        const optimistic = [];
+        selected.forEach((row) => {
+          const result = collectPrettyRowUpdates(row);
+          if (!result) return;
+          const { updates, original, current } = result;
+          if (!Object.keys(updates).length) return;
+          optimistic.push({ row, original, current });
+          payloads.push({
+            id: current?.[updateConfig.idField || "id"],
+            updates,
+          });
+          const optimisticData = applyUpdatePayload(current, updates, updateConfig);
+          applyPrettyRowUpdates(row, optimisticData);
+        });
+        if (!payloads.length) {
+          showToast("No changes to save");
+          return;
+        }
+        const response = await executeBulkUpdate(service, updateConfig, payloads);
+        if (!response.ok) {
+          optimistic.forEach(({ row, original }) => applyPrettyRowUpdates(row, original));
+          showToast(response.error || "Bulk update failed");
+          return;
+        }
+        const results = response.data?.results || [];
+        results.forEach((entry) => {
+          if (entry.ok) return;
+          const failed = optimistic.find((item) => item.current?.[updateConfig.idField] === entry.id);
+          if (failed) {
+            applyPrettyRowUpdates(failed.row, failed.original);
+          }
+        });
+        showToast("Bulk update completed");
+      });
+    }
     list.forEach((item) => {
       const row = document.createElement("div");
       row.classList.add("pretty-row");
       row.dataset.search = buildSearchIndex(item);
+      prettyRowCurrent.set(row, cloneRecord(item));
+      prettyRowOriginal.set(row, cloneRecord(item));
 
       const title = document.createElement("div");
       title.classList.add("pretty-title");
@@ -6025,16 +6412,122 @@ function renderPretty(service, parsed) {
 
       const actions = document.createElement("div");
       actions.classList.add("pretty-actions");
+      if (canEdit) {
+        const select = document.createElement("input");
+        select.type = "checkbox";
+        select.classList.add("row-select");
+        actions.appendChild(select);
+      }
       const viewBtn = document.createElement("button");
       viewBtn.type = "button";
       viewBtn.classList.add("ghost", "small");
       viewBtn.textContent = "View";
-      viewBtn.addEventListener("click", () => showModal(getPrimaryLabel(item), item, service));
+      viewBtn.addEventListener("click", () =>
+        showModal(getPrimaryLabel(item), prettyRowCurrent.get(row), service)
+      );
+      const expandBtn = document.createElement("button");
+      expandBtn.type = "button";
+      expandBtn.classList.add("ghost", "small");
+      expandBtn.textContent = "Expand";
       actions.appendChild(viewBtn);
+      actions.appendChild(expandBtn);
+      if (canEdit) {
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.classList.add("ghost", "small");
+        editBtn.textContent = "Edit";
+        const saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.classList.add("primary", "small");
+        saveBtn.textContent = "Save";
+        saveBtn.style.display = "none";
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.classList.add("ghost", "small");
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.style.display = "none";
+        editBtn.addEventListener("click", () => {
+          enterPrettyEdit(row);
+          editBtn.style.display = "none";
+          saveBtn.style.display = "inline-flex";
+          cancelBtn.style.display = "inline-flex";
+        });
+        cancelBtn.addEventListener("click", () => {
+          exitPrettyEdit(row, true);
+          editBtn.style.display = "inline-flex";
+          saveBtn.style.display = "none";
+          cancelBtn.style.display = "none";
+        });
+        saveBtn.addEventListener("click", async () => {
+          const result = collectPrettyRowUpdates(row);
+          if (!result) return;
+          const { updates, original, current } = result;
+          if (!Object.keys(updates).length) {
+            showToast("No changes to save");
+            exitPrettyEdit(row, false);
+            editBtn.style.display = "inline-flex";
+            saveBtn.style.display = "none";
+            cancelBtn.style.display = "none";
+            return;
+          }
+          const optimisticData = applyUpdatePayload(current, updates, updateConfig);
+          applyPrettyRowUpdates(row, optimisticData);
+          const response = await executeUpdate(service, updateConfig, current?.[updateConfig.idField], updates);
+          if (!response.ok) {
+            applyPrettyRowUpdates(row, original);
+            showToast(response.error || "Update failed");
+          } else {
+            showToast("Row updated");
+          }
+          exitPrettyEdit(row, false);
+          editBtn.style.display = "inline-flex";
+          saveBtn.style.display = "none";
+          cancelBtn.style.display = "none";
+        });
+        actions.appendChild(editBtn);
+        actions.appendChild(saveBtn);
+        actions.appendChild(cancelBtn);
+      }
 
       row.appendChild(title);
       row.appendChild(meta);
       row.appendChild(actions);
+      const detail = document.createElement("details");
+      detail.classList.add("pretty-expand");
+      detail.open = false;
+      const summaryRow = document.createElement("summary");
+      summaryRow.textContent = "Full details";
+      detail.appendChild(summaryRow);
+      detail.appendChild(renderValueTree(item));
+      row.appendChild(detail);
+      expandBtn.addEventListener("click", () => {
+        detail.open = !detail.open;
+        expandBtn.textContent = detail.open ? "Collapse" : "Expand";
+      });
+      expandBtn.textContent = "Expand";
+      if (canEdit) {
+        const editPanel = document.createElement("div");
+        editPanel.classList.add("pretty-edit");
+        editPanel.style.display = "none";
+        const editFields = document.createElement("div");
+        editFields.classList.add("pretty-edit-fields");
+        let editableKeys = Object.keys(item || {}).filter((key) => isEditableValue(item[key]));
+        if (updateConfig?.payloadKey === "fields" && item?.fields && typeof item.fields === "object") {
+          editableKeys = Object.keys(item.fields).map((key) => `fields.${key}`);
+        }
+        editableKeys.forEach((key) => {
+          const field = document.createElement("label");
+          field.classList.add("pretty-edit-field");
+          field.textContent = key;
+          const value = key.startsWith("fields.") ? item.fields?.[key.slice(7)] : item[key];
+          const editor = buildCellEditor(value);
+          editor.dataset.key = key;
+          field.appendChild(editor);
+          editFields.appendChild(field);
+        });
+        editPanel.appendChild(editFields);
+        row.appendChild(editPanel);
+      }
       listEl.appendChild(row);
     });
     container.appendChild(listEl);
@@ -6050,8 +6543,205 @@ function renderPretty(service, parsed) {
   viewBtn.textContent = "View details";
   viewBtn.addEventListener("click", () => showModal(getPrimaryLabel(parsed), parsed, service));
   card.appendChild(viewBtn);
+  card.appendChild(renderValueTree(parsed));
   container.appendChild(card);
   applyOutputSearch(service);
+}
+
+function buildCellEditor(value) {
+  if (typeof value === "boolean") {
+    const select = document.createElement("select");
+    const optTrue = document.createElement("option");
+    optTrue.value = "true";
+    optTrue.textContent = "true";
+    const optFalse = document.createElement("option");
+    optFalse.value = "false";
+    optFalse.textContent = "false";
+    select.appendChild(optTrue);
+    select.appendChild(optFalse);
+    select.value = value ? "true" : "false";
+    return select;
+  }
+  const input = document.createElement("input");
+  input.type = typeof value === "number" ? "number" : "text";
+  input.value = value === null || value === undefined ? "" : String(value);
+  return input;
+}
+
+function enterTableEdit(tr, columns) {
+  if (tr.dataset.editing === "true") return;
+  const current = tableRowCurrent.get(tr) || {};
+  columns.forEach((col) => {
+    const td = tr.querySelector(`td[data-key="${col}"]`);
+    if (!td) return;
+    const value = getColumnValue(current, col);
+    if (!isEditableValue(value)) return;
+    td.innerHTML = "";
+    const editor = buildCellEditor(value);
+    editor.dataset.original = value;
+    td.appendChild(editor);
+  });
+  tr.dataset.editing = "true";
+}
+
+function exitTableEdit(tr, columns, revert) {
+  const current = tableRowCurrent.get(tr) || {};
+  if (revert) {
+    applyRowUpdates(tr, columns, current);
+  } else {
+    applyRowUpdates(tr, columns, current);
+  }
+  tr.dataset.editing = "false";
+}
+
+function collectTableRowUpdates(tr, columns, updateConfig) {
+  const current = tableRowCurrent.get(tr) || {};
+  const original = cloneRecord(current);
+  const updates = {};
+  columns.forEach((col) => {
+    if (updateConfig?.payloadKey === "fields" && !col.startsWith("fields.")) {
+      return;
+    }
+    const td = tr.querySelector(`td[data-key="${col}"]`);
+    if (!td) return;
+    const input = td.querySelector("input, select");
+    if (!input) return;
+    const originalValue = getColumnValue(current, col);
+    if (!isEditableValue(originalValue)) return;
+    const nextValue = coerceValue(input.value, originalValue);
+    if (nextValue !== originalValue) {
+      if (col.startsWith("fields.")) {
+        updates[col.slice(7)] = nextValue;
+      } else {
+        updates[col] = nextValue;
+      }
+    }
+  });
+  return { updates, original, current };
+}
+
+function applyRowUpdates(tr, columns, data) {
+  tableRowCurrent.set(tr, cloneRecord(data));
+  tr.dataset.search = buildSearchIndex(data);
+  columns.forEach((col) => {
+    const td = tr.querySelector(`td[data-key="${col}"]`);
+    if (!td) return;
+    const value = getColumnValue(data, col);
+    const formatted = formatCellValue(value);
+    const shortValue = trimText(formatted, 140);
+    td.textContent = shortValue;
+    if (formatted && formatted !== shortValue) {
+      td.title = formatted.slice(0, 600);
+    } else {
+      td.removeAttribute("title");
+    }
+  });
+  tr.dataset.editing = "false";
+}
+
+function getColumnValue(data, col) {
+  if (col.startsWith("fields.")) {
+    const key = col.slice(7);
+    return data?.fields?.[key];
+  }
+  return data?.[col];
+}
+
+function setColumnValue(data, col, value) {
+  if (col.startsWith("fields.")) {
+    const key = col.slice(7);
+    if (!data.fields || typeof data.fields !== "object") {
+      data.fields = {};
+    }
+    data.fields[key] = value;
+    return;
+  }
+  data[col] = value;
+}
+
+function updatePrettyRowDisplay(row, data) {
+  prettyRowCurrent.set(row, cloneRecord(data));
+  row.dataset.search = buildSearchIndex(data);
+  const title = row.querySelector(".pretty-title");
+  if (title) title.textContent = getPrimaryLabel(data);
+  const meta = row.querySelector(".pretty-meta");
+  if (meta) {
+    meta.innerHTML = "";
+    const summary = getSummaryFields(data);
+    summary.forEach((field) => {
+      const chip = document.createElement("span");
+      chip.classList.add("meta-chip");
+      chip.textContent = `${field.key}: ${field.value}`;
+      meta.appendChild(chip);
+    });
+  }
+  const detail = row.querySelector(".pretty-expand");
+  if (detail) {
+    detail.querySelectorAll(".pretty-tree").forEach((node) => node.remove());
+    detail.appendChild(renderValueTree(data));
+  }
+  const editPanel = row.querySelector(".pretty-edit");
+  if (editPanel) {
+    editPanel.querySelectorAll("input, select").forEach((input) => {
+      const key = input.dataset.key;
+      if (!key) return;
+      const value = data?.[key];
+      if (input.tagName === "SELECT") {
+        input.value = value ? "true" : "false";
+      } else {
+        input.value = value === null || value === undefined ? "" : String(value);
+      }
+    });
+  }
+}
+
+function enterPrettyEdit(row) {
+  if (row.dataset.editing === "true") return;
+  const panel = row.querySelector(".pretty-edit");
+  if (panel) {
+    panel.style.display = "grid";
+  }
+  row.dataset.editing = "true";
+}
+
+function exitPrettyEdit(row, revert) {
+  if (revert) {
+    const current = prettyRowCurrent.get(row) || {};
+    updatePrettyRowDisplay(row, current);
+  }
+  const panel = row.querySelector(".pretty-edit");
+  if (panel) {
+    panel.style.display = "none";
+  }
+  row.dataset.editing = "false";
+}
+
+function collectPrettyRowUpdates(row) {
+  const current = prettyRowCurrent.get(row) || {};
+  const original = cloneRecord(current);
+  const updates = {};
+  const panel = row.querySelector(".pretty-edit");
+  if (!panel) return { updates, original, current };
+  panel.querySelectorAll("input, select").forEach((input) => {
+    const key = input.dataset.key;
+    if (!key) return;
+    const originalValue = key.startsWith("fields.") ? current?.fields?.[key.slice(7)] : current?.[key];
+    if (!isEditableValue(originalValue)) return;
+    const nextValue = coerceValue(input.value, originalValue);
+    if (nextValue !== originalValue) {
+      if (key.startsWith("fields.")) {
+        updates[key.slice(7)] = nextValue;
+      } else {
+        updates[key] = nextValue;
+      }
+    }
+  });
+  return { updates, original, current };
+}
+
+function applyPrettyRowUpdates(row, data) {
+  updatePrettyRowDisplay(row, data);
+  row.dataset.editing = "false";
 }
 
 function renderTable(service, parsed) {
@@ -6071,14 +6761,129 @@ function renderTable(service, parsed) {
     if (row && typeof row === "object") return row;
     return { value: row };
   });
-  const columns = computeTableColumns(normalized);
+  let columns = computeTableColumns(normalized);
+  const updateConfig = getUpdateCapability(service);
+  const canEdit = Boolean(updateConfig);
+  if (updateConfig?.payloadKey === "fields") {
+    const fieldColumns = new Set();
+    normalized.forEach((row) => {
+      const fields = row?.fields;
+      if (fields && typeof fields === "object") {
+        Object.keys(fields).forEach((key) => fieldColumns.add(`fields.${key}`));
+      }
+    });
+    columns = columns.filter((col) => col !== "fields");
+    columns = columns.concat(Array.from(fieldColumns));
+  }
 
   const wrap = document.createElement("div");
   wrap.classList.add("table-wrap");
+  if (canEdit) {
+    const toolbar = document.createElement("div");
+    toolbar.classList.add("table-toolbar");
+    const selectAll = document.createElement("input");
+    selectAll.type = "checkbox";
+    selectAll.classList.add("table-select-all");
+    const selectLabel = document.createElement("span");
+    selectLabel.textContent = "Select all";
+    const editSelected = document.createElement("button");
+    editSelected.type = "button";
+    editSelected.classList.add("ghost", "small");
+    editSelected.textContent = "Edit selected";
+    const saveSelected = document.createElement("button");
+    saveSelected.type = "button";
+    saveSelected.classList.add("primary", "small");
+    saveSelected.textContent = "Save selected";
+    const cancelSelected = document.createElement("button");
+    cancelSelected.type = "button";
+    cancelSelected.classList.add("ghost", "small");
+    cancelSelected.textContent = "Cancel";
+    toolbar.appendChild(selectAll);
+    toolbar.appendChild(selectLabel);
+    toolbar.appendChild(editSelected);
+    toolbar.appendChild(saveSelected);
+    toolbar.appendChild(cancelSelected);
+    wrap.appendChild(toolbar);
+
+    selectAll.addEventListener("change", () => {
+      const checked = selectAll.checked;
+      wrap.querySelectorAll("tbody .row-select").forEach((input) => {
+        input.checked = checked;
+      });
+    });
+
+    editSelected.addEventListener("click", () => {
+      wrap.querySelectorAll("tbody tr").forEach((tr) => {
+        const checkbox = tr.querySelector(".row-select");
+        if (checkbox?.checked) {
+          enterTableEdit(tr, columns);
+        }
+      });
+    });
+
+    cancelSelected.addEventListener("click", () => {
+      wrap.querySelectorAll("tbody tr").forEach((tr) => {
+        const checkbox = tr.querySelector(".row-select");
+        if (checkbox?.checked) {
+          exitTableEdit(tr, columns, true);
+        }
+      });
+    });
+
+    saveSelected.addEventListener("click", async () => {
+      const selected = Array.from(wrap.querySelectorAll("tbody tr")).filter((tr) =>
+        tr.querySelector(".row-select")?.checked
+      );
+      if (!selected.length) {
+        showToast("No rows selected");
+        return;
+      }
+      const payloads = [];
+      const optimistic = [];
+      selected.forEach((tr) => {
+        const result = collectTableRowUpdates(tr, columns, updateConfig);
+        if (!result) return;
+        const { updates, original, current } = result;
+        if (!Object.keys(updates).length) return;
+        optimistic.push({ tr, original, current });
+        payloads.push({
+          id: current?.[updateConfig.idField || "id"],
+          updates,
+        });
+        const optimisticData = applyUpdatePayload(current, updates, updateConfig);
+        applyRowUpdates(tr, columns, optimisticData);
+      });
+      if (!payloads.length) {
+        showToast("No changes to save");
+        return;
+      }
+      const response = await executeBulkUpdate(service, updateConfig, payloads);
+      if (!response.ok) {
+        optimistic.forEach(({ tr, original }) => applyRowUpdates(tr, columns, original));
+        showToast(response.error || "Bulk update failed");
+        return;
+      }
+      const results = response.data?.results || [];
+      results.forEach((entry) => {
+        if (entry.ok) return;
+        const failed = optimistic.find((item) => item.current?.[updateConfig.idField] === entry.id);
+        if (failed) {
+          applyRowUpdates(failed.tr, columns, failed.original);
+        }
+      });
+      showToast("Bulk update completed");
+    });
+  }
+
   const table = document.createElement("table");
   table.classList.add("data-table");
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
+  if (canEdit) {
+    const thSelect = document.createElement("th");
+    thSelect.textContent = "";
+    headerRow.appendChild(thSelect);
+  }
   columns.forEach((col) => {
     const th = document.createElement("th");
     th.textContent = col;
@@ -6094,9 +6899,20 @@ function renderTable(service, parsed) {
   normalized.forEach((row) => {
     const tr = document.createElement("tr");
     tr.dataset.search = buildSearchIndex(row);
+    tableRowCurrent.set(tr, cloneRecord(row));
+    tableRowOriginal.set(tr, cloneRecord(row));
+    if (canEdit) {
+      const tdSelect = document.createElement("td");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.classList.add("row-select");
+      tdSelect.appendChild(checkbox);
+      tr.appendChild(tdSelect);
+    }
     columns.forEach((col) => {
       const td = document.createElement("td");
-      const rawValue = row?.[col];
+      td.dataset.key = col;
+      const rawValue = getColumnValue(row, col);
       const formatted = formatCellValue(rawValue);
       const shortValue = trimText(formatted, 140);
       td.textContent = shortValue;
@@ -6110,8 +6926,65 @@ function renderTable(service, parsed) {
     viewBtn.type = "button";
     viewBtn.classList.add("ghost", "small");
     viewBtn.textContent = "View";
-    viewBtn.addEventListener("click", () => showModal(getPrimaryLabel(row), row, service));
+    viewBtn.addEventListener("click", () => showModal(getPrimaryLabel(row), tableRowCurrent.get(tr), service));
     actionTd.appendChild(viewBtn);
+    if (canEdit) {
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.classList.add("ghost", "small");
+      editBtn.textContent = "Edit";
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.classList.add("primary", "small");
+      saveBtn.textContent = "Save";
+      saveBtn.style.display = "none";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.classList.add("ghost", "small");
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.style.display = "none";
+      editBtn.addEventListener("click", () => {
+        enterTableEdit(tr, columns);
+        editBtn.style.display = "none";
+        saveBtn.style.display = "inline-flex";
+        cancelBtn.style.display = "inline-flex";
+      });
+      cancelBtn.addEventListener("click", () => {
+        exitTableEdit(tr, columns, true);
+        editBtn.style.display = "inline-flex";
+        saveBtn.style.display = "none";
+        cancelBtn.style.display = "none";
+      });
+      saveBtn.addEventListener("click", async () => {
+        const result = collectTableRowUpdates(tr, columns, updateConfig);
+        if (!result) return;
+        const { updates, original, current } = result;
+        if (!Object.keys(updates).length) {
+          showToast("No changes to save");
+          exitTableEdit(tr, columns, false);
+          editBtn.style.display = "inline-flex";
+          saveBtn.style.display = "none";
+          cancelBtn.style.display = "none";
+          return;
+        }
+        const optimisticData = applyUpdatePayload(current, updates, updateConfig);
+        applyRowUpdates(tr, columns, optimisticData);
+        const response = await executeUpdate(service, updateConfig, current?.[updateConfig.idField], updates);
+        if (!response.ok) {
+          applyRowUpdates(tr, columns, original);
+          showToast(response.error || "Update failed");
+        } else {
+          showToast("Row updated");
+        }
+        exitTableEdit(tr, columns, false);
+        editBtn.style.display = "inline-flex";
+        saveBtn.style.display = "none";
+        cancelBtn.style.display = "none";
+      });
+      actionTd.appendChild(editBtn);
+      actionTd.appendChild(saveBtn);
+      actionTd.appendChild(cancelBtn);
+    }
     tr.appendChild(actionTd);
     tbody.appendChild(tr);
   });
@@ -6252,6 +7125,9 @@ async function runAction(service, action, params = {}, options = {}) {
       addActivity(`Failed: ${activityLabel(service, action)}`);
       updateMetrics();
       return { ok: false, data };
+    }
+    if (shouldStoreContext(service, action)) {
+      lastActionContext[service] = { action, params };
     }
     setOutput(service, data.data);
     setOutputStatus(service, {

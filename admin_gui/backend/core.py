@@ -666,6 +666,52 @@ def _gpo_link_audit_report(ou_dn):
     }
 
 
+def _bulk_update(service, update_action, items, context=None):
+    if not update_action:
+        raise ValueError("update_action is required for bulk updates.")
+    if not items:
+        raise ValueError("items are required for bulk updates.")
+    context = context or {}
+
+    def _get_client(name):
+        if name == "onedrive":
+            return STATE.get_client("onedrive")
+        return STATE.get_client(name)
+
+    handlers = {
+        "update_event": lambda client, item, ctx: client.update_event(
+            item["id"], item["updates"], user_id=ctx.get("user_id", "me")
+        ),
+        "update_item": lambda client, item, ctx: client.update_item(item["id"], item["updates"]),
+        "update_list_item_fields": lambda client, item, ctx: client.update_list_item_fields(
+            ctx.get("site_id"), ctx.get("list_id"), item["id"], item["updates"]
+        ),
+        "update_channel": lambda client, item, ctx: client.update_channel(
+            ctx.get("team_id"), item["id"], item["updates"]
+        ),
+        "update_user": lambda client, item, ctx: client.update_user(item["id"], item["updates"]),
+        "update_group": lambda client, item, ctx: client.update_group(item["id"], item["updates"]),
+    }
+
+    if update_action not in handlers:
+        raise ValueError(f"Bulk update action '{update_action}' is not supported.")
+
+    client = _get_client(service)
+    results = []
+    for entry in items:
+        try:
+            item_id = entry.get("id")
+            updates = entry.get("updates") or {}
+            if not item_id:
+                raise ValueError("Missing item id for bulk update.")
+            result = handlers[update_action](client, {"id": item_id, "updates": updates}, context)
+            results.append({"id": item_id, "ok": True, "data": _jsonable(result)})
+        except Exception as exc:
+            results.append({"id": entry.get("id"), "ok": False, "error": str(exc)})
+    ok = all(item.get("ok") for item in results) if results else True
+    return {"ok": ok, "count": len(results), "results": results}
+
+
 ACTIONS = {
     "exchange": {
         "enable_shared_sent_items": {
@@ -676,24 +722,32 @@ ACTIONS = {
         "list_mail_folders": {"method": "list_mail_folders"},
         "list_messages": {"method": "list_messages", "defaults": {"top": 10}},
         "list_events": {"method": "list_events", "defaults": {"top": 10}},
+        "update_event": {"method": "update_event", "required": ["event_id", "updates"]},
     },
     "onedrive": {
         "list_drive_items": {"method": "list_drive_items"},
         "get_user_drive_id": {"method": "get_user_drive_id"},
         "create_upload_session": {"method": "create_upload_session", "required": ["item_path"]},
         "list_personal_sites": {"method": "list_personal_sites_powershell"},
+        "update_item": {"method": "update_item", "required": ["item_id", "updates"]},
     },
     "sharepoint": {
         "list_sites": {"method": "list_sites"},
         "create_list": {"method": "create_list", "required": ["site_id", "display_name"]},
         "list_list_items": {"method": "list_list_items", "required": ["site_id", "list_id"]},
         "list_sites_admin": {"method": "list_sites_powershell"},
+        "update_list_item_fields": {
+            "method": "update_list_item_fields",
+            "required": ["site_id", "list_id", "item_id", "fields"],
+        },
     },
     "teams": {
         "list_joined_teams": {"method": "list_joined_teams"},
+        "list_channels": {"method": "list_channels", "required": ["team_id"]},
         "create_channel": {"method": "create_channel", "required": ["team_id", "display_name"]},
         "list_chat_messages": {"method": "list_chat_messages", "required": ["chat_id"]},
         "list_teams_admin": {"method": "list_teams_powershell"},
+        "update_channel": {"method": "update_channel", "required": ["team_id", "channel_id", "updates"]},
     },
     "entra": {
         "list_users": {"method": "list_users", "defaults": {"top": 10}},
@@ -702,6 +756,7 @@ ACTIONS = {
             "required": ["user_principal_name", "display_name", "password"],
         },
         "update_user": {"method": "update_user", "required": ["user_id", "updates"]},
+        "update_group": {"method": "update_group", "required": ["group_id", "updates"]},
         "add_group_member": {"method": "add_group_member", "required": ["group_id", "user_id"]},
         "list_service_principals": {"method": "list_service_principals", "defaults": {"top": 10}},
         "set_user_license": {
@@ -844,6 +899,15 @@ def dispatch_task(service, action, params=None):
         if action == "gpo_link_audit":
             return _gpo_link_audit_report(ou_dn=data.get("ou_dn"))
         raise ValueError(f"Unknown action '{action}' for service '{service}'")
+
+    if action == "bulk_update":
+        data = params or {}
+        return _bulk_update(
+            service,
+            data.get("update_action"),
+            data.get("items") or [],
+            data.get("context") or {},
+        )
 
     if service not in ACTIONS:
         raise ValueError(f"Unknown service '{service}'")
