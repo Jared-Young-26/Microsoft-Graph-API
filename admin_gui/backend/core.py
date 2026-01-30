@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+TOPOLOGY_HISTORY_PATH = Path(__file__).resolve().parent / "topology_history.json"
+TOPOLOGY_HISTORY_DEFAULT_LIMIT = 50
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -62,6 +64,7 @@ from local_printers import LocalPrinterClient
 from local_network import LocalNetworkClient
 from remote_ssh import RemoteSSHClient
 from local_fileserver import LocalFileServerClient
+from local_topology import LocalTopologyClient
 
 
 def _read_config_file():
@@ -76,6 +79,89 @@ def _read_config_file():
 def _write_config_file(data):
     cleaned = {k: v for k, v in data.items() if v not in ("", None)}
     CONFIG_PATH.write_text(json.dumps(cleaned, indent=2))
+
+
+def _normalize_list(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _read_topology_history(limit=None):
+    if not TOPOLOGY_HISTORY_PATH.exists():
+        return []
+    try:
+        data = json.loads(TOPOLOGY_HISTORY_PATH.read_text())
+        history = data if isinstance(data, list) else []
+    except Exception:
+        history = []
+    if limit:
+        try:
+            limit_val = int(limit)
+            history = history[:limit_val]
+        except Exception:
+            pass
+    return history
+
+
+def _write_topology_history(history):
+    TOPOLOGY_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+
+
+def _trim_topology_snapshot(data):
+    if not isinstance(data, dict):
+        return None
+    timestamp = data.get("generated_at") or data.get("timestamp") or datetime.now(timezone.utc).isoformat()
+    leases = _normalize_list(data.get("dhcp_leases"))
+    dns_records = _normalize_list(data.get("dns_records"))
+    trimmed_leases = []
+    for lease in leases:
+        if not isinstance(lease, dict):
+            continue
+        trimmed = {
+            "HostName": lease.get("HostName") or lease.get("hostName"),
+            "IPAddress": lease.get("IPAddress") or lease.get("IpAddress") or lease.get("ip"),
+            "ClientId": lease.get("ClientId"),
+            "LeaseExpiryTime": lease.get("LeaseExpiryTime"),
+            "ScopeId": lease.get("ScopeId"),
+        }
+        if trimmed.get("HostName") or trimmed.get("IPAddress"):
+            trimmed_leases.append(trimmed)
+    trimmed_records = []
+    for record in dns_records:
+        if not isinstance(record, dict):
+            continue
+        trimmed = {
+            "Zone": record.get("Zone"),
+            "HostName": record.get("HostName"),
+            "RecordType": record.get("RecordType"),
+            "RecordData": record.get("RecordData"),
+        }
+        if trimmed.get("HostName") or trimmed.get("RecordData"):
+            trimmed_records.append(trimmed)
+    return {
+        "timestamp": timestamp,
+        "dhcp_leases": trimmed_leases,
+        "dns_records": trimmed_records,
+    }
+
+
+def _append_topology_history(snapshot, limit=None):
+    history = _read_topology_history()
+    trimmed = _trim_topology_snapshot(snapshot)
+    if not trimmed:
+        return history
+    history.insert(0, trimmed)
+    try:
+        limit_val = int(limit) if limit else TOPOLOGY_HISTORY_DEFAULT_LIMIT
+        if limit_val > 0:
+            history = history[:limit_val]
+    except Exception:
+        pass
+    _write_topology_history(history)
+    return history
 
 
 def _value(key, env_key=None, default=None, data=None):
@@ -138,6 +224,7 @@ class BackendState:
         self.graph = None
         self.powershell = PowerShellSession()
         self.clients = {}
+        self._topology_history = None
 
     def reload(self):
         if self.powershell:
@@ -146,7 +233,14 @@ class BackendState:
         self.graph = None
         self.powershell = PowerShellSession()
         self.clients = {}
+        self._topology_history = None
         return self.config
+
+    def get_topology_history(self, limit=None):
+        return _read_topology_history(limit=limit)
+
+    def append_topology_history(self, snapshot, limit=None):
+        return _append_topology_history(snapshot, limit=limit)
 
     def update_config(self, payload):
         current = _read_config_file()
@@ -312,6 +406,8 @@ class BackendState:
             client = RemoteSSHClient()
         elif service == "fileserver":
             client = LocalFileServerClient(powershell=ps_session)
+        elif service == "topology":
+            client = LocalTopologyClient(powershell=ps_session)
         else:
             raise ValueError(f"Unknown service: {service}")
 
@@ -350,6 +446,7 @@ POWERSHELL_MODULES = {
     "printers": ["PrintManagement", "GroupPolicy"],
     "network": ["NetAdapter", "NetTCPIP"],
     "fileserver": [],
+    "topology": ["DhcpServer", "DnsServer", "PrintManagement", "SmbShare"],
 }
 
 GRAPH_CHECKS = {
@@ -678,6 +775,13 @@ ACTIONS = {
     },
     "fileserver": {
         "list_files": {"method": "list_files", "required": ["unc_path"]},
+    },
+    "topology": {
+        "collect_topology": {
+            "method": "collect_topology",
+            "list_fields": ["dns_zones", "record_types"],
+        },
+        "ping_targets": {"method": "ping_targets", "required": ["targets"], "list_fields": ["targets"]},
     },
 }
 

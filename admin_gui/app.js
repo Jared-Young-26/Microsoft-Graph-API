@@ -137,6 +137,18 @@ const sshTerminalOutput = document.getElementById("ssh-terminal-output");
 const sshTerminalInput = document.getElementById("ssh-terminal-input");
 const sshSendButton = document.getElementById("ssh-send");
 const sshInterruptButton = document.getElementById("ssh-interrupt");
+const topologyCollectButton = document.getElementById("topology-collect");
+const topologyPingButton = document.getElementById("topology-ping");
+const topologyReportButton = document.getElementById("topology-report");
+const topologyExportJsonButton = document.getElementById("topology-export-json");
+const topologyExportCsvButton = document.getElementById("topology-export-csv");
+const topologyHistoryDepthSelect = document.getElementById("topology-history-depth");
+const issueUserInput = document.getElementById("issue-user");
+const issueDeviceInput = document.getElementById("issue-device");
+const issueSymptomInput = document.getElementById("issue-symptom");
+const issueAddButton = document.getElementById("issue-add");
+const issueClearButton = document.getElementById("issue-clear");
+const issueList = document.getElementById("issue-list");
 const outputSearchQueries = {};
 const lastOutputs = {};
 const outputTimers = new Map();
@@ -158,6 +170,7 @@ const subtitles = {
   network: "On-prem network adapters and IP settings",
   ssh: "Remote workstation sessions over SSH",
   fileserver: "On-prem file share enumeration",
+  topology: "Live on-prem device and service topology",
   reports: "Audit-ready reports and summaries",
   purview: "Compliance and data governance",
   settings: "Local session and credentials",
@@ -172,6 +185,7 @@ const serviceLabels = {
   network: "Network",
   ssh: "SSH",
   fileserver: "File Server",
+  topology: "Network Topology",
   defender: "Defender for Cloud",
 };
 
@@ -686,6 +700,32 @@ const ACTIONS_UI = {
       ],
     },
   },
+  topology: {
+    collect_topology: {
+      label: "Collect topology",
+      mode: "powershell",
+      fields: [
+        { key: "dhcp_server", label: "DHCP server (optional)" },
+        { key: "dns_server", label: "DNS server (optional)" },
+        { key: "print_server", label: "Print server (optional)" },
+        { key: "smb_server", label: "SMB server (optional)" },
+        { key: "dns_zones", label: "DNS zones (comma-separated)" },
+        { key: "record_types", label: "DNS record types (comma-separated)", placeholder: "A,AAAA" },
+        { key: "include_print_jobs", label: "Include print jobs", type: "checkbox" },
+        { key: "max_items", label: "Max items per source (optional)", type: "number", placeholder: "5000" },
+      ],
+    },
+    ping_targets: {
+      label: "Ping targets",
+      mode: "powershell",
+      fields: [
+        { key: "targets", label: "Targets (comma-separated)" },
+        { key: "count", label: "Count", type: "number", placeholder: "1" },
+        { key: "timeout_seconds", label: "Timeout (seconds)", type: "number", placeholder: "2" },
+        { key: "ipv6", label: "Use IPv6", type: "checkbox" },
+      ],
+    },
+  },
   purview: {
     list_retention_policies: { label: "List retention policies", mode: "powershell", fields: [] },
     create_compliance_search: {
@@ -802,6 +842,7 @@ const POWERSHELL_MODULES_BY_SERVICE = {
   printers: ["PrintManagement", "GroupPolicy"],
   network: ["NetAdapter", "NetTCPIP"],
   fileserver: [],
+  topology: [],
 };
 
 const GRAPH_HEALTH_SERVICES = ["exchange", "onedrive", "sharepoint", "teams", "entra"];
@@ -1037,6 +1078,14 @@ let currentPresetId = null;
 let currentPresetSteps = [];
 let sshSocket = null;
 let sshConnected = false;
+let topologyData = null;
+let topologyPing = null;
+
+const ISSUE_STORAGE_KEY = "topologyIssues";
+const TOPOLOGY_HISTORY_KEY = "topologyHistory";
+const TOPOLOGY_HISTORY_LIMIT_KEY = "topologyHistoryLimit";
+const TOPOLOGY_HISTORY_LIMITS = [5, 10, 20, 50];
+const DEFAULT_TOPOLOGY_HISTORY_LIMIT = 20;
 
 function showToast(message) {
   toast.textContent = message;
@@ -1170,6 +1219,15 @@ function stopOutputTimer(service) {
   outputStatusPrefixes.delete(service);
 }
 
+function setOutputView(service, view) {
+  const panel = document.querySelector(`.output[data-output="${service}"]`);
+  if (!panel) return;
+  const card = panel.closest(".output-card");
+  if (!card) return;
+  const tab = card.querySelector(`.output-tabs .tab[data-view="${view}"]`);
+  if (tab) tab.click();
+}
+
 function hideGraphStatusBanner() {
   if (!graphStatusBanner) return;
   graphStatusBanner.classList.add("hidden");
@@ -1192,6 +1250,823 @@ function appendTerminalOutput(content) {
     sshTerminalOutput.textContent = sshTerminalOutput.textContent.slice(-maxLength);
   }
   sshTerminalOutput.scrollTop = sshTerminalOutput.scrollHeight;
+}
+
+function normalizeList(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function loadIssues() {
+  try {
+    const raw = localStorage.getItem(ISSUE_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item) => item?.user || item?.device || item?.symptom);
+    }
+  } catch (err) {
+    return [];
+  }
+  return [];
+}
+
+function saveIssues(items) {
+  localStorage.setItem(ISSUE_STORAGE_KEY, JSON.stringify(items || []));
+}
+
+function getTopologyHistoryLimit() {
+  const raw = localStorage.getItem(TOPOLOGY_HISTORY_LIMIT_KEY);
+  const parsed = Number.parseInt(raw || "", 10);
+  if (TOPOLOGY_HISTORY_LIMITS.includes(parsed)) {
+    return parsed;
+  }
+  return DEFAULT_TOPOLOGY_HISTORY_LIMIT;
+}
+
+function setTopologyHistoryLimit(value) {
+  if (!TOPOLOGY_HISTORY_LIMITS.includes(value)) return;
+  localStorage.setItem(TOPOLOGY_HISTORY_LIMIT_KEY, String(value));
+}
+
+function trimHistoryToLimit(history, limit) {
+  if (!Array.isArray(history)) return [];
+  if (!limit) return history;
+  return history.slice(0, limit);
+}
+
+function loadTopologyHistory() {
+  try {
+    const raw = localStorage.getItem(TOPOLOGY_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) {
+      const trimmed = parsed.filter((item) => item?.timestamp);
+      return trimHistoryToLimit(trimmed, getTopologyHistoryLimit());
+    }
+  } catch (err) {
+    return [];
+  }
+  return [];
+}
+
+function saveTopologyHistory(items) {
+  localStorage.setItem(TOPOLOGY_HISTORY_KEY, JSON.stringify(items || []));
+}
+
+function storeTopologySnapshot(data) {
+  if (!data) return;
+  const snapshot = {
+    timestamp: new Date().toISOString(),
+    dhcp_leases: normalizeList(data?.dhcp_leases)
+      .map((lease) => ({
+        HostName: lease?.HostName || lease?.hostName,
+        IPAddress: lease?.IPAddress || lease?.IpAddress || lease?.ip,
+        ClientId: lease?.ClientId,
+        LeaseExpiryTime: lease?.LeaseExpiryTime,
+        ScopeId: lease?.ScopeId,
+      }))
+      .filter((lease) => lease.HostName || lease.IPAddress),
+    dns_records: normalizeList(data?.dns_records)
+      .map((record) => ({
+        Zone: record?.Zone,
+        HostName: record?.HostName,
+        RecordType: record?.RecordType,
+        RecordData: record?.RecordData,
+      }))
+      .filter((record) => record.HostName || record.RecordData),
+  };
+  const history = loadTopologyHistory();
+  history.unshift(snapshot);
+  const limit = getTopologyHistoryLimit();
+  const trimmed = trimHistoryToLimit(history, limit);
+  saveTopologyHistory(trimmed);
+  return snapshot;
+}
+
+async function fetchTopologyHistory() {
+  const limit = getTopologyHistoryLimit();
+  try {
+    const res = await fetch(`/api/topology/history?limit=${limit}`);
+    const data = await res.json();
+    if (data?.ok && Array.isArray(data.data)) {
+      saveTopologyHistory(trimHistoryToLimit(data.data, limit));
+      return data.data;
+    }
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+async function syncTopologyHistory(snapshot) {
+  if (!snapshot) return null;
+  const limit = getTopologyHistoryLimit();
+  try {
+    const res = await fetch("/api/topology/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ snapshot, limit }),
+    });
+    const data = await res.json();
+    if (data?.ok && Array.isArray(data.data)) {
+      saveTopologyHistory(trimHistoryToLimit(data.data, limit));
+      return data.data;
+    }
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+function buildTopologyHistoryIndex(history) {
+  const hostMap = new Map();
+  const ipMap = new Map();
+  if (!Array.isArray(history)) {
+    return { hostMap, ipMap, count: 0, lastSnapshot: null };
+  }
+
+  const maybeUpdateHost = (key, ip, timestamp, source) => {
+    if (!key || !ip || !timestamp) return;
+    const normalized = String(key).toLowerCase();
+    const existing = hostMap.get(normalized);
+    const currentTs = existing?.last_seen ? new Date(existing.last_seen).getTime() : 0;
+    const nextTs = new Date(timestamp).getTime();
+    if (!existing || nextTs >= currentTs) {
+      hostMap.set(normalized, {
+        host: key,
+        ip,
+        last_seen: timestamp,
+        source,
+      });
+    }
+  };
+
+  history.forEach((snapshot) => {
+    const ts = snapshot?.timestamp;
+    normalizeList(snapshot?.dhcp_leases).forEach((lease) => {
+      const host = lease?.HostName;
+      const ip = lease?.IPAddress || lease?.IpAddress || lease?.ip;
+      maybeUpdateHost(host, ip, ts, "dhcp");
+      if (ip) {
+        const ipKey = String(ip).toLowerCase();
+        const record = ipMap.get(ipKey) || { ip, hosts: new Set(), last_seen: ts };
+        if (host) record.hosts.add(host);
+        record.last_seen = ts || record.last_seen;
+        ipMap.set(ipKey, record);
+      }
+    });
+
+    normalizeList(snapshot?.dns_records).forEach((record) => {
+      const host = record?.HostName;
+      const zone = record?.Zone;
+      const fqdn = host && zone ? `${host}.${zone}`.replace(/\.\./g, ".") : host;
+      extractIpStrings(record?.RecordData).forEach((ip) => {
+        maybeUpdateHost(fqdn, ip, ts, "dns");
+        if (host) {
+          maybeUpdateHost(host, ip, ts, "dns");
+        }
+        const ipKey = String(ip).toLowerCase();
+        const entry = ipMap.get(ipKey) || { ip, hosts: new Set(), last_seen: ts };
+        if (fqdn) entry.hosts.add(fqdn);
+        if (host) entry.hosts.add(host);
+        entry.last_seen = ts || entry.last_seen;
+        ipMap.set(ipKey, entry);
+      });
+    });
+  });
+
+  return {
+    hostMap,
+    ipMap,
+    count: history.length,
+    lastSnapshot: history[0]?.timestamp || null,
+  };
+}
+
+function findHistoryMatches(device, historyIndex, limit = 3) {
+  const matches = [];
+  if (!device || !historyIndex?.hostMap) return matches;
+  const key = String(device).toLowerCase();
+  const ipMatches = extractIpStrings(key);
+  if (ipMatches.length && historyIndex.ipMap) {
+    ipMatches.forEach((ip) => {
+      const entry = historyIndex.ipMap.get(String(ip).toLowerCase());
+      if (entry) {
+        Array.from(entry.hosts || []).forEach((host) => {
+          if (matches.length < limit) {
+            matches.push({
+              host,
+              ip,
+              last_seen: entry.last_seen,
+              source: "dns/dhcp",
+            });
+          }
+        });
+      }
+    });
+  }
+  const direct = historyIndex.hostMap.get(key);
+  if (direct) {
+    matches.push(direct);
+  }
+  if (matches.length < limit) {
+    historyIndex.hostMap.forEach((entry, hostKey) => {
+      if (matches.length >= limit) return;
+      if (hostKey === key) return;
+      if (hostKey.startsWith(`${key}.`) || hostKey.includes(key)) {
+        matches.push(entry);
+      }
+    });
+  }
+  return matches.slice(0, limit);
+}
+
+function renderIssues() {
+  if (!issueList) return;
+  const issues = loadIssues();
+  issueList.innerHTML = "";
+  if (!issues.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No issues recorded.";
+    issueList.appendChild(empty);
+    return;
+  }
+  issues.forEach((issue, idx) => {
+    const li = document.createElement("li");
+    li.classList.add("issue-item");
+    const detail = document.createElement("div");
+    const title = document.createElement("div");
+    title.textContent = `${issue.user || "Unknown user"} → ${issue.device || "Unknown device"}`;
+    const meta = document.createElement("div");
+    meta.classList.add("issue-meta");
+    meta.textContent = issue.symptom || "No symptom provided";
+    detail.appendChild(title);
+    detail.appendChild(meta);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.classList.add("ghost", "small");
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      const next = loadIssues().filter((_, i) => i !== idx);
+      saveIssues(next);
+      renderIssues();
+    });
+    li.appendChild(detail);
+    li.appendChild(remove);
+    issueList.appendChild(li);
+  });
+}
+
+function addIssue() {
+  const user = issueUserInput?.value.trim();
+  const device = issueDeviceInput?.value.trim();
+  const symptom = issueSymptomInput?.value.trim();
+  if (!user && !device && !symptom) {
+    showToast("Enter at least one field");
+    return;
+  }
+  const issues = loadIssues();
+  issues.push({
+    user,
+    device,
+    symptom,
+    timestamp: new Date().toISOString(),
+  });
+  saveIssues(issues);
+  renderIssues();
+  if (issueUserInput) issueUserInput.value = "";
+  if (issueDeviceInput) issueDeviceInput.value = "";
+  if (issueSymptomInput) issueSymptomInput.value = "";
+}
+
+function extractIpStrings(text) {
+  if (!text) return [];
+  const matches = String(text).match(/\b(\d{1,3}\.){3}\d{1,3}\b/g);
+  return matches || [];
+}
+
+function extractTopologyTargets(data) {
+  const targets = new Set();
+  const addTarget = (value) => {
+    if (!value) return;
+    const raw = String(value).trim();
+    if (!raw) return;
+    targets.add(raw);
+  };
+
+  normalizeList(data?.dhcp_leases).forEach((lease) => {
+    addTarget(lease?.HostName);
+    addTarget(lease?.IPAddress || lease?.IpAddress);
+  });
+
+  normalizeList(data?.dns_records).forEach((record) => {
+    const host = record?.HostName;
+    const zone = record?.Zone;
+    if (host && zone) {
+      addTarget(`${host}.${zone}`.replace(/\.\./g, "."));
+    } else if (host) {
+      addTarget(host);
+    }
+    extractIpStrings(record?.RecordData).forEach(addTarget);
+  });
+
+  normalizeList(data?.printers).forEach((printer) => {
+    extractIpStrings(printer?.PortName).forEach(addTarget);
+    addTarget(printer?.ShareName);
+    addTarget(printer?.Name);
+  });
+
+  normalizeList(data?.smb_sessions).forEach((session) => {
+    addTarget(session?.ClientComputerName);
+  });
+
+  normalizeList(loadIssues()).forEach((issue) => {
+    addTarget(issue?.device);
+  });
+
+  const historyIndex = buildTopologyHistoryIndex(loadTopologyHistory());
+  normalizeList(loadIssues()).forEach((issue) => {
+    const matches = findHistoryMatches(issue?.device, historyIndex, 2);
+    matches.forEach((match) => {
+      addTarget(match.host);
+      addTarget(match.ip);
+    });
+  });
+
+  return Array.from(targets).filter(Boolean);
+}
+
+function buildPingMap(pings) {
+  const map = new Map();
+  normalizeList(pings).forEach((entry) => {
+    if (!entry) return;
+    const key = entry.Target || entry.target;
+    if (key) {
+      map.set(String(key).toLowerCase(), entry);
+    }
+    if (entry.Address) {
+      map.set(String(entry.Address).toLowerCase(), entry);
+    }
+  });
+  return map;
+}
+
+function buildDeviceIpMap(data) {
+  const map = new Map();
+  normalizeList(data?.dhcp_leases).forEach((lease) => {
+    const host = lease?.HostName;
+    const ip = lease?.IPAddress || lease?.IpAddress;
+    if (host && ip) {
+      map.set(String(host).toLowerCase(), String(ip));
+    }
+  });
+  normalizeList(data?.dns_records).forEach((record) => {
+    const host = record?.HostName;
+    const zone = record?.Zone;
+    const fqdn = host && zone ? `${host}.${zone}`.replace(/\.\./g, ".") : null;
+    if (host) {
+      const ips = extractIpStrings(record?.RecordData);
+      if (ips.length) {
+        map.set(String(host).toLowerCase(), ips[0]);
+        if (fqdn) {
+          map.set(String(fqdn).toLowerCase(), ips[0]);
+        }
+      }
+    }
+  });
+  return map;
+}
+
+function generateIssueReport() {
+  if (!topologyData) {
+    showToast("Collect topology first");
+    return;
+  }
+  const issues = loadIssues();
+  if (!issues.length) {
+    showToast("No issues recorded");
+    return;
+  }
+  const pingMap = buildPingMap(topologyPing);
+  const deviceIpMap = buildDeviceIpMap(topologyData);
+  const historyIndex = buildTopologyHistoryIndex(loadTopologyHistory());
+  const smbSessions = normalizeList(topologyData?.smb_sessions);
+  const printJobs = normalizeList(topologyData?.print_jobs);
+
+  const reportItems = issues.map((issue) => {
+    const device = issue.device || "";
+    const deviceKey = device.toLowerCase();
+    const resolvedIp = deviceIpMap.get(deviceKey);
+    const historyMatches = findHistoryMatches(device, historyIndex, 3);
+    const historyIp = historyMatches[0]?.ip || null;
+    const ping =
+      pingMap.get(deviceKey) ||
+      (resolvedIp ? pingMap.get(String(resolvedIp).toLowerCase()) : null) ||
+      (historyIp ? pingMap.get(String(historyIp).toLowerCase()) : null) ||
+      null;
+    const smbMatches = smbSessions.filter((session) => {
+      const name = String(session?.ClientComputerName || "").toLowerCase();
+      return deviceKey && name === deviceKey;
+    });
+    const printerMatches = printJobs.filter((job) => {
+      const submitter = String(job?.Submitter || "").toLowerCase();
+      return issue.user && submitter.includes(String(issue.user).toLowerCase());
+    });
+
+    return {
+      user: issue.user || "",
+      device,
+      symptom: issue.symptom || "",
+      device_ip: resolvedIp || historyIp || null,
+      device_ip_source: resolvedIp ? "current" : historyIp ? "history" : null,
+      history_matches: historyMatches,
+      ping,
+      smb_sessions: smbMatches,
+      printer_jobs: printerMatches,
+    };
+  });
+
+  const reachable = reportItems.filter((item) => item.ping?.Reachable).length;
+  const unreachable = reportItems.filter((item) => item.ping && item.ping.Reachable === false).length;
+  const report = {
+    generated_at: new Date().toISOString(),
+    issue_count: issues.length,
+    reachable,
+    unreachable,
+    smb_server: topologyData?.smb_server || null,
+    history: {
+      snapshots: historyIndex.count,
+      last_snapshot: historyIndex.lastSnapshot,
+    },
+    items: reportItems,
+  };
+  setOutput("topology-report", report);
+  setOutputStatus("topology-report", { state: "ok", text: "Report ready", meta: "" });
+  setOutputView("topology-report", "graph");
+  showToast("Issue correlation report generated");
+}
+
+function getGraphPanel(service) {
+  return document.querySelector(`.output-graph[data-output="${service}"]`);
+}
+
+function buildTopologyGraphData(report) {
+  if (!report || !Array.isArray(report.items)) {
+    return { nodes: [], edges: [] };
+  }
+  const nodes = new Map();
+  const edges = [];
+  const addNode = (id, label, type, meta = {}) => {
+    if (!id) return;
+    if (!nodes.has(id)) {
+      nodes.set(id, { id, label: label || id, type, meta });
+    }
+  };
+  const addEdge = (source, target, label, type) => {
+    if (!source || !target) return;
+    edges.push({ source, target, label, type });
+  };
+
+  report.items.forEach((item) => {
+    const userLabel = item.user || "Unknown user";
+    const deviceLabel = item.device || "Unknown device";
+    const userId = `user:${userLabel.toLowerCase()}`;
+    const deviceId = `device:${deviceLabel.toLowerCase()}`;
+    addNode(userId, userLabel, "user");
+    addNode(deviceId, deviceLabel, "device", { ping: item.ping });
+    addEdge(userId, deviceId, "reports", "issue");
+
+    if (item.device_ip) {
+      const ipId = `ip:${item.device_ip}`;
+      addNode(ipId, item.device_ip, "ip");
+      addEdge(deviceId, ipId, item.device_ip_source === "history" ? "IP (history)" : "IP", "ip");
+    }
+
+    normalizeList(item.printer_jobs).forEach((job) => {
+      const printerName = job?.PrinterName || job?.printerName || "Printer";
+      const printerId = `printer:${printerName.toLowerCase()}`;
+      addNode(printerId, printerName, "printer");
+      addEdge(userId, printerId, "print job", "printer");
+    });
+
+    if (normalizeList(item.smb_sessions).length) {
+      const serverLabel = report?.smb_server || "SMB Server";
+      const serverId = `server:${serverLabel.toLowerCase()}`;
+      addNode(serverId, serverLabel, "server");
+      addEdge(deviceId, serverId, "SMB", "smb");
+    }
+
+    normalizeList(item.history_matches).forEach((match) => {
+      const historyHost = match?.host;
+      const historyIp = match?.ip;
+      if (historyHost) {
+        const hostId = `host:${historyHost.toLowerCase()}`;
+        addNode(hostId, historyHost, "history");
+        addEdge(deviceId, hostId, "history host", "history");
+        if (historyIp) {
+          const histIpId = `ip:${historyIp}`;
+          addNode(histIpId, historyIp, "ip");
+          addEdge(hostId, histIpId, "history IP", "history");
+        }
+      }
+    });
+  });
+
+  return { nodes: Array.from(nodes.values()), edges };
+}
+
+function layoutGraph(nodes, edges, width, height) {
+  if (!nodes.length) return;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.min(width, height) / 3;
+  nodes.forEach((node, idx) => {
+    const angle = (idx / nodes.length) * Math.PI * 2;
+    node.x = centerX + radius * Math.cos(angle);
+    node.y = centerY + radius * Math.sin(angle);
+    node.vx = 0;
+    node.vy = 0;
+  });
+
+  const k = Math.sqrt((width * height) / Math.max(nodes.length, 1));
+  const iterations = 220;
+  const damping = 0.85;
+  const repulsion = 140;
+
+  const nodeIndex = new Map(nodes.map((node) => [node.id, node]));
+  for (let step = 0; step < iterations; step += 1) {
+    for (let i = 0; i < nodes.length; i += 1) {
+      const nodeA = nodes[i];
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const nodeB = nodes[j];
+        const dx = nodeA.x - nodeB.x;
+        const dy = nodeA.y - nodeB.y;
+        const dist = Math.max(20, Math.hypot(dx, dy));
+        const force = (repulsion * k * k) / (dist * dist);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        nodeA.vx += fx;
+        nodeA.vy += fy;
+        nodeB.vx -= fx;
+        nodeB.vy -= fy;
+      }
+    }
+
+    edges.forEach((edge) => {
+      const source = nodeIndex.get(edge.source);
+      const target = nodeIndex.get(edge.target);
+      if (!source || !target) return;
+      const dx = source.x - target.x;
+      const dy = source.y - target.y;
+      const dist = Math.max(30, Math.hypot(dx, dy));
+      const force = (dist * dist) / (k * 12);
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      source.vx -= fx;
+      source.vy -= fy;
+      target.vx += fx;
+      target.vy += fy;
+    });
+
+    nodes.forEach((node) => {
+      node.vx *= damping;
+      node.vy *= damping;
+      node.x += node.vx;
+      node.y += node.vy;
+      node.x = Math.min(width - 20, Math.max(20, node.x));
+      node.y = Math.min(height - 20, Math.max(20, node.y));
+    });
+  }
+}
+
+function renderTopologyGraph(container, graphData) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!graphData || !graphData.nodes.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("graph-empty");
+    empty.textContent = "No graph data available.";
+    container.appendChild(empty);
+    return;
+  }
+
+  const canvas = document.createElement("div");
+  canvas.classList.add("graph-canvas");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "graph-svg");
+  canvas.appendChild(svg);
+
+  const legend = document.createElement("div");
+  legend.classList.add("graph-legend");
+  const legendItems = [
+    { type: "user", label: "User" },
+    { type: "device", label: "Device" },
+    { type: "ip", label: "IP" },
+    { type: "printer", label: "Printer" },
+    { type: "server", label: "Server" },
+    { type: "history", label: "History" },
+  ];
+  legendItems.forEach((item) => {
+    const row = document.createElement("span");
+    row.classList.add("legend-item");
+    row.dataset.type = item.type;
+    row.textContent = item.label;
+    legend.appendChild(row);
+  });
+
+  container.appendChild(canvas);
+  container.appendChild(legend);
+
+  const { width, height } = canvas.getBoundingClientRect();
+  const w = width || 520;
+  const h = height || 320;
+  layoutGraph(graphData.nodes, graphData.edges, w, h);
+
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+
+  const graphLayer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  graphLayer.setAttribute("class", "graph-layer");
+  svg.appendChild(graphLayer);
+
+  const viewState = {
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+  };
+
+  const nodeIndex = new Map(graphData.nodes.map((node) => [node.id, node]));
+  const nodeElements = new Map();
+  const edgeElements = [];
+
+  const applyTransform = () => {
+    graphLayer.setAttribute(
+      "transform",
+      `scale(${viewState.scale}) translate(${viewState.translateX},${viewState.translateY})`
+    );
+  };
+
+  const getGraphCoords = (event) => {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const ctm = graphLayer.getCTM();
+    if (!ctm) {
+      return { x: 0, y: 0 };
+    }
+    const inverse = ctm.inverse();
+    const transformed = point.matrixTransform(inverse);
+    return { x: transformed.x, y: transformed.y };
+  };
+
+  const updateNodeElement = (node) => {
+    const el = nodeElements.get(node.id);
+    if (!el) return;
+    el.circle.setAttribute("cx", node.x);
+    el.circle.setAttribute("cy", node.y);
+    el.text.setAttribute("x", node.x + 12);
+    el.text.setAttribute("y", node.y + 4);
+  };
+
+  const updateEdges = () => {
+    edgeElements.forEach((entry) => {
+      const source = nodeIndex.get(entry.edge.source);
+      const target = nodeIndex.get(entry.edge.target);
+      if (!source || !target) return;
+      entry.line.setAttribute("x1", source.x);
+      entry.line.setAttribute("y1", source.y);
+      entry.line.setAttribute("x2", target.x);
+      entry.line.setAttribute("y2", target.y);
+    });
+  };
+
+  graphData.edges.forEach((edge) => {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const source = nodeIndex.get(edge.source);
+    const target = nodeIndex.get(edge.target);
+    if (!source || !target) return;
+    line.setAttribute("x1", source.x);
+    line.setAttribute("y1", source.y);
+    line.setAttribute("x2", target.x);
+    line.setAttribute("y2", target.y);
+    line.setAttribute("class", `graph-edge ${edge.type || ""}`.trim());
+    graphLayer.appendChild(line);
+    edgeElements.push({ edge, line });
+  });
+
+  graphData.nodes.forEach((node) => {
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    group.setAttribute("class", `graph-node ${node.type || "unknown"}`.trim());
+    group.dataset.nodeId = node.id;
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", node.x);
+    circle.setAttribute("cy", node.y);
+    circle.setAttribute("r", 9);
+    group.appendChild(circle);
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", node.x + 12);
+    text.setAttribute("y", node.y + 4);
+    text.textContent = node.label;
+    group.appendChild(text);
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = node.label;
+    group.appendChild(title);
+    graphLayer.appendChild(group);
+    nodeElements.set(node.id, { group, circle, text });
+  });
+
+  applyTransform();
+
+  let draggingNode = null;
+  let panning = false;
+  let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
+
+  graphLayer.addEventListener("pointerdown", (event) => {
+    const target = event.target.closest(".graph-node");
+    if (!target) return;
+    const nodeId = target.dataset.nodeId;
+    const node = nodeIndex.get(nodeId);
+    if (!node) return;
+    draggingNode = node;
+    target.classList.add("dragging");
+    event.preventDefault();
+    event.stopPropagation();
+    svg.setPointerCapture(event.pointerId);
+  });
+
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".graph-node")) return;
+    panning = true;
+    panStart = {
+      x: event.clientX,
+      y: event.clientY,
+      tx: viewState.translateX,
+      ty: viewState.translateY,
+    };
+    canvas.classList.add("panning");
+    svg.setPointerCapture(event.pointerId);
+  });
+
+  svg.addEventListener("pointermove", (event) => {
+    if (draggingNode) {
+      const point = getGraphCoords(event);
+      draggingNode.x = point.x;
+      draggingNode.y = point.y;
+      updateNodeElement(draggingNode);
+      updateEdges();
+      return;
+    }
+    if (panning) {
+      const dx = event.clientX - panStart.x;
+      const dy = event.clientY - panStart.y;
+      viewState.translateX = panStart.tx + dx;
+      viewState.translateY = panStart.ty + dy;
+      applyTransform();
+    }
+  });
+
+  const stopInteraction = (event) => {
+    if (draggingNode) {
+      const el = nodeElements.get(draggingNode.id);
+      if (el) {
+        el.group.classList.remove("dragging");
+      }
+    }
+    draggingNode = null;
+    panning = false;
+    canvas.classList.remove("panning");
+    if (event?.pointerId !== undefined) {
+      try {
+        svg.releasePointerCapture(event.pointerId);
+      } catch (err) {
+        /* ignore */
+      }
+    }
+  };
+
+  svg.addEventListener("pointerup", stopInteraction);
+  svg.addEventListener("pointercancel", stopInteraction);
+  svg.addEventListener("pointerleave", stopInteraction);
+
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const delta = event.deltaY || 0;
+    const zoomFactor = delta < 0 ? 1.1 : 0.9;
+    const newScale = Math.min(2.5, Math.max(0.5, viewState.scale * zoomFactor));
+    if (newScale === viewState.scale) return;
+    const point = getGraphCoords(event);
+    viewState.translateX += (viewState.scale - newScale) * point.x;
+    viewState.translateY += (viewState.scale - newScale) * point.y;
+    viewState.scale = newScale;
+    applyTransform();
+  });
+}
+
+function renderGraph(service, parsed) {
+  if (service !== "topology-report") return;
+  const container = getGraphPanel(service);
+  if (!container) return;
+  const graphData = buildTopologyGraphData(parsed);
+  renderTopologyGraph(container, graphData);
 }
 
 function getSshWsUrl() {
@@ -2083,6 +2958,18 @@ function downloadJson(payload, filename) {
   URL.revokeObjectURL(url);
 }
 
+function downloadTextFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType || "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function sanitizeFilename(value) {
   return String(value || "")
     .replace(/[^a-z0-9-_]+/gi, "-")
@@ -2539,6 +3426,33 @@ function exportReportsAllZip() {
     }
   });
   downloadZip("reports-export.zip", entries);
+}
+
+function exportTopologyReportJson() {
+  const payload = getExportPayload("topology-report");
+  if (!payload) {
+    showToast("No report data to export");
+    return;
+  }
+  downloadJson(payload, "topology-report.json");
+}
+
+function exportTopologyReportCsv() {
+  const payload = getExportPayload("topology-report");
+  if (!payload) {
+    showToast("No report data to export");
+    return;
+  }
+  let rows = Array.isArray(payload?.items) ? payload.items : null;
+  if (!rows && Array.isArray(payload)) {
+    rows = payload;
+  }
+  if (!rows || !rows.length) {
+    showToast("No tabular data to export");
+    return;
+  }
+  const content = toCsv(rows);
+  downloadTextFile(content, "topology-report.csv", "text/csv");
 }
 
 function renderActionPacks() {
@@ -5230,6 +6144,7 @@ function setOutput(service, content) {
   lastOutputs[service] = parsed ?? rawText;
   renderPretty(service, parsed);
   renderTable(service, parsed);
+  renderGraph(service, parsed);
   if (service === "reports") {
     updateReportExportOptions(parsed);
   }
@@ -5345,6 +6260,16 @@ async function runAction(service, action, params = {}, options = {}) {
       meta: `${modeText} · ${formatElapsed(elapsedMs)}`,
       running: false,
     });
+    if (service === "topology") {
+      if (action === "collect_topology") {
+        topologyData = data.data;
+        topologyPing = null;
+        const snapshot = storeTopologySnapshot(data.data);
+        syncTopologyHistory(snapshot);
+      } else if (action === "ping_targets") {
+        topologyPing = data.data;
+      }
+    }
     addActivity(`Ran: ${activityLabel(service, action)}`);
     if (service === "reports") {
       addReportHistory({
@@ -5795,14 +6720,28 @@ function setupOutputViews() {
     prettyButton.classList.add("tab");
     prettyButton.dataset.view = "pretty";
     prettyButton.textContent = "Pretty";
-    const tableButton = document.createElement("button");
-    tableButton.type = "button";
-    tableButton.classList.add("tab");
-    tableButton.dataset.view = "table";
-    tableButton.textContent = "Table";
+    const wantsGraph = service === "topology-report";
+    const includeTable = !wantsGraph;
+    let tableButton = null;
+    if (includeTable) {
+      tableButton = document.createElement("button");
+      tableButton.type = "button";
+      tableButton.classList.add("tab");
+      tableButton.dataset.view = "table";
+      tableButton.textContent = "Table";
+    }
+    let graphButton = null;
+    if (wantsGraph) {
+      graphButton = document.createElement("button");
+      graphButton.type = "button";
+      graphButton.classList.add("tab");
+      graphButton.dataset.view = "graph";
+      graphButton.textContent = "Graph";
+    }
     tabs.appendChild(rawButton);
     tabs.appendChild(prettyButton);
-    tabs.appendChild(tableButton);
+    if (tableButton) tabs.appendChild(tableButton);
+    if (graphButton) tabs.appendChild(graphButton);
 
     const searchWrap = document.createElement("div");
     searchWrap.classList.add("output-search");
@@ -5825,6 +6764,9 @@ function setupOutputViews() {
     const table = document.createElement("div");
     table.classList.add("output-table");
     table.dataset.output = pre.dataset.output;
+    const graph = document.createElement("div");
+    graph.classList.add("output-graph");
+    graph.dataset.output = pre.dataset.output;
 
     pre.classList.add("output-raw");
     card.insertBefore(searchWrap, anchor);
@@ -5832,21 +6774,40 @@ function setupOutputViews() {
     card.insertBefore(wrapper, anchor);
     wrapper.appendChild(pre);
     wrapper.appendChild(pretty);
-    wrapper.appendChild(table);
+    if (includeTable) {
+      wrapper.appendChild(table);
+    }
+    if (wantsGraph) {
+      wrapper.appendChild(graph);
+    }
 
     const switchView = (view) => {
       rawButton.classList.toggle("active", view === "raw");
       prettyButton.classList.toggle("active", view === "pretty");
-      tableButton.classList.toggle("active", view === "table");
+      if (tableButton) tableButton.classList.toggle("active", view === "table");
+      if (graphButton) graphButton.classList.toggle("active", view === "graph");
       pre.style.display = view === "raw" ? "block" : "none";
       pretty.style.display = view === "pretty" ? "block" : "none";
-      table.style.display = view === "table" ? "block" : "none";
+      if (includeTable) {
+        table.style.display = view === "table" ? "block" : "none";
+      }
+      if (wantsGraph) {
+        graph.style.display = view === "graph" ? "block" : "none";
+        if (view === "graph") {
+          renderGraph(service, lastOutputs[service]);
+        }
+      }
     };
 
     rawButton.addEventListener("click", () => switchView("raw"));
     prettyButton.addEventListener("click", () => switchView("pretty"));
-    tableButton.addEventListener("click", () => switchView("table"));
-    switchView("raw");
+    if (tableButton) {
+      tableButton.addEventListener("click", () => switchView("table"));
+    }
+    if (graphButton) {
+      graphButton.addEventListener("click", () => switchView("graph"));
+    }
+    switchView(wantsGraph ? "graph" : "raw");
     pre.dataset.enhanced = "true";
   });
 }
@@ -6296,6 +7257,81 @@ if (sshInterruptButton) {
   });
 }
 
+if (issueAddButton) {
+  issueAddButton.addEventListener("click", () => {
+    addIssue();
+  });
+}
+
+if (issueClearButton) {
+  issueClearButton.addEventListener("click", () => {
+    const confirmClear = window.confirm("Clear all issues?");
+    if (!confirmClear) return;
+    saveIssues([]);
+    renderIssues();
+  });
+}
+
+if (topologyCollectButton) {
+  topologyCollectButton.addEventListener("click", async () => {
+    const params = collectParams("topology");
+    const result = await runAction("topology", "collect_topology", params || {});
+    if (result?.ok) {
+      topologyData = result.data;
+      topologyPing = null;
+    }
+  });
+}
+
+if (topologyPingButton) {
+  topologyPingButton.addEventListener("click", async () => {
+    if (!topologyData) {
+      showToast("Collect topology first");
+      return;
+    }
+    const targets = extractTopologyTargets(topologyData);
+    if (!targets.length) {
+      showToast("No targets found");
+      return;
+    }
+    const result = await runAction("topology", "ping_targets", { targets, count: 1, timeout_seconds: 2 });
+    if (result?.ok) {
+      topologyPing = result.data;
+    }
+  });
+}
+
+if (topologyReportButton) {
+  topologyReportButton.addEventListener("click", () => {
+    generateIssueReport();
+  });
+}
+
+if (topologyHistoryDepthSelect) {
+  topologyHistoryDepthSelect.value = String(getTopologyHistoryLimit());
+  topologyHistoryDepthSelect.addEventListener("change", async () => {
+    const next = Number.parseInt(topologyHistoryDepthSelect.value, 10);
+    if (!Number.isFinite(next)) return;
+    setTopologyHistoryLimit(next);
+    const current = trimHistoryToLimit(loadTopologyHistory(), next);
+    saveTopologyHistory(current);
+    await fetchTopologyHistory();
+    showToast(`History depth set to ${next}`);
+  });
+}
+
+if (topologyExportJsonButton) {
+  topologyExportJsonButton.addEventListener("click", () => {
+    exportTopologyReportJson();
+  });
+}
+
+if (topologyExportCsvButton) {
+  topologyExportCsvButton.addEventListener("click", () => {
+    exportTopologyReportCsv();
+  });
+}
+
 if (actionPackPrevButton) {
   actionPackPrevButton.addEventListener("click", () => {
     const packs = getAllActionPacks();
@@ -6628,13 +7664,25 @@ if (quickActionsGrid) {
 }
 
 document.querySelectorAll(".runner-run").forEach((button) => {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     const service = button.dataset.service;
     const form = document.querySelector(`.runner[data-service="${service}"]`);
     if (!form) return;
     const action = form.querySelector(".action-select").value;
     const params = collectParams(service);
     if (!params) return;
+    if (service === "topology") {
+      const result = await runAction(service, action, params);
+      if (result?.ok) {
+        if (action === "collect_topology") {
+          topologyData = result.data;
+          topologyPing = null;
+        } else if (action === "ping_targets") {
+          topologyPing = result.data;
+        }
+      }
+      return;
+    }
     runAction(service, action, params);
   });
 });
@@ -6753,6 +7801,12 @@ if (exportReportsAllButton) {
   });
 }
 
+window.addEventListener("resize", () => {
+  if (lastOutputs["topology-report"]) {
+    renderGraph("topology-report", lastOutputs["topology-report"]);
+  }
+});
+
 setSection("dashboard");
 fetchStatus();
 Object.keys(ACTIONS_UI).forEach((service) => populateRunner(service));
@@ -6780,3 +7834,5 @@ updateMetrics();
 if (sshTerminalOutput) {
   setSshConnectionStatus("fail", "Disconnected");
 }
+renderIssues();
+fetchTopologyHistory();

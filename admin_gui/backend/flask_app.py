@@ -104,6 +104,28 @@ def run_task():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@app.get("/api/topology/history")
+def get_topology_history():
+    limit = request.args.get("limit", type=int)
+    try:
+        data = STATE.get_topology_history(limit=limit)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/topology/history")
+def add_topology_history():
+    payload = request.get_json(silent=True) or {}
+    limit = payload.get("limit")
+    snapshot = payload.get("snapshot") or payload.get("data") or payload
+    try:
+        data = STATE.append_topology_history(snapshot, limit=limit)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.get("/")
 def index():
     return send_from_directory(str(ROOT), "index.html")

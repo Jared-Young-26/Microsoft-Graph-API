@@ -53,6 +53,7 @@
               <button class="nav-link" data-section="network">Network</button>
               <button class="nav-link" data-section="ssh">SSH</button>
               <button class="nav-link" data-section="fileserver">File Server</button>
+              <button class="nav-link" data-section="topology">Network Topology</button>
             </div>
           </div>
 
@@ -712,6 +713,84 @@
             <div class="card-subtitle">Latest response</div>
             <pre class="output" data-output="fileserver"></pre>
             <button class="ghost small clear-output" data-output-target="fileserver">Clear</button>
+          </div>
+
+          <div class="card" data-panel="topology">
+            <div class="card-title">Network topology</div>
+            <div class="card-subtitle">DHCP + DNS + SMB + Print insights</div>
+            <div class="stack">
+              <button class="chip" id="topology-collect">Collect live topology</button>
+              <button class="chip" id="topology-ping">Ping all devices</button>
+              <button class="chip" id="topology-report">Generate issue correlation report</button>
+              <label class="history-depth">
+                History depth
+                <select id="topology-history-depth">
+                  <option value="5">5 snapshots</option>
+                  <option value="10">10 snapshots</option>
+                  <option value="20">20 snapshots</option>
+                  <option value="50">50 snapshots</option>
+                </select>
+              </label>
+              <div class="note">Requires DHCP/DNS/SMB/Print modules on the local host or access to those servers.</div>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="topology">
+            <div class="card-title">Topology data sources</div>
+            <div class="card-subtitle">Specify servers and filters</div>
+            <form class="runner" data-service="topology">
+              <label>
+                Action
+                <select class="action-select" data-service="topology"></select>
+              </label>
+              <div class="runner-fields" data-service="topology"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="topology">Reset</button>
+                <button type="button" class="primary runner-run" data-service="topology">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card" data-panel="topology">
+            <div class="card-title">Issue intake</div>
+            <div class="card-subtitle">Track user-reported problems</div>
+            <div class="form form-grid">
+              <label>
+                User
+                <input id="issue-user" type="text" placeholder="user@contoso.com" />
+              </label>
+              <label>
+                Device
+                <input id="issue-device" type="text" placeholder="WORKSTATION-01" />
+              </label>
+              <label>
+                Symptom
+                <input id="issue-symptom" type="text" placeholder="Cannot reach printer" />
+              </label>
+            </div>
+            <div class="runner-actions">
+              <button type="button" class="primary" id="issue-add">Add issue</button>
+              <button type="button" class="ghost" id="issue-clear">Clear all</button>
+            </div>
+            <ul class="issue-list" id="issue-list"></ul>
+          </div>
+          <div class="card output-card" data-panel="topology">
+            <div class="card-title">Topology output</div>
+            <div class="card-subtitle">Latest data capture</div>
+            <pre class="output" data-output="topology"></pre>
+            <button class="ghost small clear-output" data-output-target="topology">Clear</button>
+          </div>
+          <div class="card output-card" data-panel="topology">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Issue correlation report</div>
+                <div class="card-subtitle">User → device → server/printer</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="topology-export-json">Export JSON</button>
+                <button class="ghost small" id="topology-export-csv">Export CSV</button>
+              </div>
+            </div>
+            <pre class="output" data-output="topology-report"></pre>
+            <button class="ghost small clear-output" data-output-target="topology-report">Clear</button>
           </div>
 
           <div class="card" data-panel="reports">

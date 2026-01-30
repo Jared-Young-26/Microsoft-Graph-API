@@ -149,6 +149,26 @@ def run_task(task: TaskRequest):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
+@app.get("/api/topology/history")
+def get_topology_history(limit: int | None = None):
+    try:
+        data = STATE.get_topology_history(limit=limit)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/topology/history")
+def add_topology_history(payload: dict):
+    snapshot = payload.get("snapshot") or payload.get("data") or payload
+    limit = payload.get("limit")
+    try:
+        data = STATE.append_topology_history(snapshot, limit=limit)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
 app.mount("/", StaticFiles(directory=ROOT, html=True), name="static")
 
 
