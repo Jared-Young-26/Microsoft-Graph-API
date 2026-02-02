@@ -1,10 +1,4 @@
-import uuid
-
-from microsoft import PowerShellModuleClient
-
-
-def _ps_quote(value):
-    return str(value).replace("'", "''")
+from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_powershell_data
 
 
 class LocalFileServerClient:
@@ -47,39 +41,93 @@ class LocalFileServerClient:
         if (username and not password) or (password and not username):
             raise ValueError("Both username and password are required when using explicit credentials.")
 
-        drive_name = f"FS{uuid.uuid4().hex[:6]}"
-        flags = []
-        if recurse:
-            flags.append("-Recurse")
-        if include_hidden:
-            flags.append("-Force")
-        if not include_directories:
-            flags.append("-File")
-        flags_str = " ".join(flags)
-        limit = f"| Select-Object -First {int(max_items)}" if max_items else ""
+        params = {
+            "unc_path": unc_path,
+            "username": username,
+            "password": password,
+            "recurse": bool(recurse),
+            "include_directories": bool(include_directories),
+            "include_hidden": bool(include_hidden),
+            "max_items": int(max_items) if max_items else None,
+        }
 
-        cred_script = "$cred = $null"
-        if username and password:
-            cred_script = (
-                f"$secure = ConvertTo-SecureString '{_ps_quote(password)}' -AsPlainText -Force\n"
-                f"$cred = New-Object System.Management.Automation.PSCredential('{_ps_quote(username)}', $secure)"
-            )
+        script = """
+        $root = $unc_path
+        $username = $username
+        $password = $password
+        $recurse = [bool]$recurse
+        $includeDirs = [bool]$include_directories
+        $includeHidden = [bool]$include_hidden
+        $maxItems = $max_items
+        $drive = 'FS' + ([guid]::NewGuid().ToString('N').Substring(0, 6))
 
-        script = f"""
-        {cred_script}
-        $drive = '{drive_name}'
-        $root = '{_ps_quote(unc_path)}'
-        if ($cred) {{
-          New-PSDrive -Name $drive -PSProvider FileSystem -Root $root -Credential $cred -ErrorAction Stop | Out-Null
-        }} else {{
-          New-PSDrive -Name $drive -PSProvider FileSystem -Root $root -ErrorAction Stop | Out-Null
-        }}
-        $path = "$drive:\\"
-        $items = Get-ChildItem -LiteralPath $path {flags_str} -ErrorAction SilentlyContinue {limit}
-        $items | Select-Object FullName, Name, Extension, Length, Directory, LastWriteTimeUtc
-        Remove-PSDrive -Name $drive -ErrorAction SilentlyContinue
+        $cred = $null
+        if ($username -and $password) {
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          $cred = New-Object System.Management.Automation.PSCredential($username, $secure)
+        }
+
+        try {
+          if ($cred) {
+            New-PSDrive -Name $drive -PSProvider FileSystem -Root $root -Credential $cred -ErrorAction Stop | Out-Null
+          } else {
+            New-PSDrive -Name $drive -PSProvider FileSystem -Root $root -ErrorAction Stop | Out-Null
+          }
+
+          $path = \"$drive:\\\"
+          $flags = @()
+          if ($recurse) { $flags += '-Recurse' }
+          if ($includeHidden) { $flags += '-Force' }
+          if (-not $includeDirs) { $flags += '-File' }
+
+          $items = Get-ChildItem -LiteralPath $path @flags -ErrorAction SilentlyContinue
+          $total = @($items).Count
+          if ($maxItems) {
+            $items = $items | Select-Object -First $maxItems
+          }
+
+          $rows = foreach ($item in $items) {
+            $fullPath = $item.FullName
+            if ($fullPath -like \"$drive:*\") {
+              $fullPath = $fullPath -replace ([regex]::Escape($drive + ':\\')), ($root + '\\')
+            }
+            $isHidden = $false
+            if ($item.Attributes) {
+              $isHidden = (($item.Attributes -band [IO.FileAttributes]::Hidden) -ne 0)
+            }
+            [PSCustomObject]@{
+              path = $fullPath
+              name = $item.Name
+              type = if ($item.PSIsContainer) { 'directory' } else { 'file' }
+              size = if ($item.PSIsContainer) { $null } else { $item.Length }
+              modified = $item.LastWriteTimeUtc
+              hidden = $isHidden
+            }
+          }
+
+          [PSCustomObject]@{
+            rows = $rows
+            total_count = $total
+            returned_count = @($rows).Count
+          }
+        } finally {
+          Remove-PSDrive -Name $drive -ErrorAction SilentlyContinue | Out-Null
+        }
         """
-        return self._get_powershell().run_json(script)
+
+        result = self._get_powershell().run_json(script, parameters=params)
+        if is_powershell_envelope(result):
+            if not result.get("ok", True):
+                return result
+            payload = unwrap_powershell_data(result) or {}
+            rows = payload.get("rows") or []
+            meta = dict(result.get("meta") or {})
+            meta["summary"] = {
+                "total_count": payload.get("total_count"),
+                "returned_count": payload.get("returned_count"),
+            }
+            return {**result, "data": rows, "meta": meta}
+        return result
 
 
 class LocalFileServerPowerShellClient(PowerShellModuleClient):

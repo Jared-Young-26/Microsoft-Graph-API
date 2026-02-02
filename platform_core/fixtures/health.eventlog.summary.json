@@ -1,0 +1,17 @@
+{
+  "total_events": 12,
+  "levels": {"Error": 3, "Warning": 4, "Information": 5},
+  "top_event_ids": [{"event_id": 105, "count": 2}],
+  "top_providers": [{"provider": "Service Control Manager", "count": 4}],
+  "last_error_time": "2026-01-31T10:22:00Z",
+  "sample_events": [
+    {
+      "time_created": "2026-01-31T10:22:00Z",
+      "event_id": 105,
+      "level": "Error",
+      "provider": "Service Control Manager",
+      "machine": "ADMINBOX",
+      "message": "The service failed to start."
+    }
+  ]
+}

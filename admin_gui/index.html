@@ -23,13 +23,17 @@
 
         <nav class="nav">
           <button class="nav-link active" data-section="dashboard">Dashboard</button>
+          <button class="nav-link" data-section="incidents" data-scroll="incident-workspace">
+            Incidents
+          </button>
 
-          <div class="nav-group" data-group="cloud">
+          <div class="nav-group readonly" data-group="explore">
             <button class="nav-group-toggle" type="button">
-              <span>Microsoft 365</span>
+              <span>Explore</span>
               <span class="nav-caret">▾</span>
             </button>
             <div class="nav-group-links">
+              <div class="nav-subheader">Microsoft 365 Cloud</div>
               <button class="nav-link" data-section="exchange">Exchange</button>
               <button class="nav-link" data-section="onedrive">OneDrive</button>
               <button class="nav-link" data-section="sharepoint">SharePoint</button>
@@ -39,16 +43,11 @@
               <button class="nav-link" data-section="defender">Defender for Cloud</button>
               <button class="nav-link" data-section="powerplatform">Power Platform</button>
               <button class="nav-link" data-section="purview">Purview</button>
-            </div>
-          </div>
 
-          <div class="nav-group" data-group="onprem">
-            <button class="nav-group-toggle" type="button">
-              <span>On-Prem</span>
-              <span class="nav-caret">▾</span>
-            </button>
-            <div class="nav-group-links">
+              <div class="nav-subheader">On-Prem</div>
               <button class="nav-link" data-section="localad">Local AD</button>
+              <button class="nav-link" data-section="endpoint">Endpoints</button>
+              <button class="nav-link" data-section="domaincontroller">Domain Controller</button>
               <button class="nav-link" data-section="printers">Printers</button>
               <button class="nav-link" data-section="network">Network</button>
               <button class="nav-link" data-section="ssh">SSH</button>
@@ -57,8 +56,48 @@
             </div>
           </div>
 
-          <button class="nav-link" data-section="reports">Reports</button>
-          <button class="nav-link" data-section="settings">Settings</button>
+          <div class="nav-group readonly" data-group="analyze">
+            <button class="nav-group-toggle" type="button">
+              <span>Analyze</span>
+              <span class="nav-caret">▾</span>
+            </button>
+            <div class="nav-group-links">
+              <button class="nav-link" data-section="reports">Reports</button>
+              <button class="nav-link" data-section="eventlogs">Event Logs</button>
+              <button class="nav-link" data-section="registry">Registry</button>
+              <button class="nav-link" data-section="time">Time &amp; Drift</button>
+              <button class="nav-link" data-section="certificates">Certificates</button>
+              <button class="nav-link" data-section="processes">Processes</button>
+            </div>
+          </div>
+
+          <div class="nav-group mutating" data-group="act">
+            <button class="nav-group-toggle" type="button">
+              <span>Act</span>
+              <span class="nav-caret">▾</span>
+            </button>
+            <div class="nav-group-links">
+              <button class="nav-link" data-section="actionpacks" data-scroll="action-pack-panel">Action Packs</button>
+              <button class="nav-link" data-section="snapshotcapture" data-scroll="snapshot-capture">
+                Snapshot Capture
+              </button>
+              <button class="nav-link" data-section="quickactions" data-scroll="quick-actions-card">Quick Actions</button>
+            </div>
+          </div>
+
+          <button class="nav-link" data-section="baselines">Baselines</button>
+
+          <div class="nav-group system" data-group="system">
+            <button class="nav-group-toggle" type="button">
+              <span>System</span>
+              <span class="nav-caret">▾</span>
+            </button>
+            <div class="nav-group-links">
+              <button class="nav-link" data-section="settings">Settings</button>
+              <button class="nav-link" data-section="healthcheck" data-scroll="health-card">Health Check</button>
+              <button class="nav-link" data-section="auditlog" data-scroll="audit-card">Audit Log</button>
+            </div>
+          </div>
         </nav>
 
         <div class="sidebar-footer">
@@ -507,7 +546,13 @@
             <div class="card-title">Local Active Directory</div>
             <div class="card-subtitle">On-prem AD users, groups, OUs, GPOs</div>
             <div class="stack">
-              <div class="note">Requires PowerShell on a domain-joined host with RSAT / ActiveDirectory module.</div>
+              <button class="chip" data-service="localad" data-action="list_gpos">List GPOs</button>
+              <button class="chip" data-service="localad" data-action="gpo_inheritance">GPO inheritance</button>
+              <button class="chip" data-service="localad" data-action="gpo_links">GPO links</button>
+              <button class="chip" data-service="localad" data-action="gpo_report">GPO report</button>
+              <button class="chip" data-service="localad" data-action="gppref_registry">GPP registry values</button>
+              <button class="chip" data-service="localad" data-action="gpresult_report">GPResult report</button>
+              <div class="note">Requires PowerShell on a domain-joined host with RSAT / ActiveDirectory + GroupPolicy modules.</div>
             </div>
           </div>
           <div class="card form-card" data-panel="localad">
@@ -530,6 +575,95 @@
             <div class="card-subtitle">Latest response</div>
             <pre class="output" data-output="localad"></pre>
             <button class="ghost small clear-output" data-output-target="localad">Clear</button>
+          </div>
+
+          <div class="card" data-panel="endpoint">
+            <div class="card-title">Endpoint toolkit</div>
+            <div class="card-subtitle">Workstation inventory, logs, patching, and GPO context</div>
+            <div class="stack">
+              <button class="chip" data-service="endpoint" data-action="computer_info">Computer info</button>
+              <button class="chip" data-service="endpoint" data-action="cim_summary">CIM summary</button>
+              <button class="chip" data-service="endpoint" data-action="systeminfo">Systeminfo baseline</button>
+              <button class="chip" data-service="endpoint" data-action="list_processes">Top processes</button>
+              <button class="chip" data-service="endpoint" data-action="list_services">List services</button>
+              <button class="chip" data-service="endpoint" data-action="query_event_logs">Query event logs</button>
+              <button class="chip" data-service="endpoint" data-action="list_hotfixes">Hotfix inventory</button>
+              <button class="chip" data-service="endpoint" data-action="whoami_all">Whoami /all</button>
+              <button class="chip" data-service="endpoint" data-action="gpresult_report">GPResult report</button>
+              <div class="note">Best run on the target workstation (or a remote session) with GroupPolicy module available for RSoP.</div>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="endpoint">
+            <div class="card-title">Endpoint task runner</div>
+            <div class="card-subtitle">System identity, event logs, updates, and policy reports</div>
+            <form class="runner" data-service="endpoint">
+              <label>
+                Action
+                <select class="action-select" data-service="endpoint"></select>
+              </label>
+              <div class="runner-fields" data-service="endpoint"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="endpoint">Reset</button>
+                <button type="button" class="primary runner-run" data-service="endpoint">Run</button>
+              </div>
+            </form>
+            <details class="info">
+              <summary>What these checks tell you</summary>
+              <ul>
+                <li><strong>System identity</strong>: hardware, OS build, uptime, domain join status.</li>
+                <li><strong>Logs &amp; services</strong>: rapid fault isolation and service health.</li>
+                <li><strong>Updates &amp; policy</strong>: patch status plus applied GPO context.</li>
+              </ul>
+            </details>
+          </div>
+          <div class="card output-card" data-panel="endpoint">
+            <div class="card-title">Endpoint output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="endpoint"></pre>
+            <button class="ghost small clear-output" data-output-target="endpoint">Clear</button>
+          </div>
+
+          <div class="card" data-panel="domaincontroller">
+            <div class="card-title">Domain controller toolkit</div>
+            <div class="card-subtitle">Replication, topology, and forest/domain health</div>
+            <div class="stack">
+              <button class="chip" data-service="domaincontroller" data-action="list_domain_controllers">List domain controllers</button>
+              <button class="chip" data-service="domaincontroller" data-action="replication_health_summary">Replication summary</button>
+              <button class="chip" data-service="domaincontroller" data-action="show_replication_partners">Show replication partners</button>
+              <button class="chip" data-service="domaincontroller" data-action="dc_diagnostics">Run dcdiag</button>
+              <button class="chip" data-service="domaincontroller" data-action="list_fsmo_roles">List FSMO roles</button>
+              <button class="chip" data-service="domaincontroller" data-action="time_sync_status">Time sync status</button>
+              <div class="note">Best run on a domain-joined admin workstation with RSAT + ActiveDirectory module.</div>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="domaincontroller">
+            <div class="card-title">Domain controller task runner</div>
+            <div class="card-subtitle">repadmin, dcdiag, nltest, AD replication cmdlets, and time health</div>
+            <form class="runner" data-service="domaincontroller">
+              <label>
+                Action
+                <select class="action-select" data-service="domaincontroller"></select>
+              </label>
+              <div class="runner-fields" data-service="domaincontroller"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="domaincontroller">Reset</button>
+                <button type="button" class="primary runner-run" data-service="domaincontroller">Run</button>
+              </div>
+            </form>
+            <details class="info">
+              <summary>Why these checks help</summary>
+              <ul>
+                <li><strong>Replication summary/partners</strong>: finds stale DC links and failure hotspots quickly.</li>
+                <li><strong>dcdiag</strong>: surfaces DNS/service/advertising issues that break auth and policy flow.</li>
+                <li><strong>FSMO/time checks</strong>: catches role holder and time skew problems that impact Kerberos.</li>
+              </ul>
+            </details>
+          </div>
+          <div class="card output-card" data-panel="domaincontroller">
+            <div class="card-title">Domain controller output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="domaincontroller"></pre>
+            <button class="ghost small clear-output" data-output-target="domaincontroller">Clear</button>
           </div>
 
           <div class="card" data-panel="printers">
@@ -580,7 +714,13 @@
               <button class="chip" data-service="network" data-action="set_dhcp">Enable/disable DHCP</button>
               <button class="chip" data-service="network" data-action="set_dns_servers">Set DNS servers</button>
               <button class="chip" data-service="network" data-action="ping_host">Ping host</button>
-              <div class="note">Requires admin rights for most changes. Uses NetAdapter + NetTCPIP modules.</div>
+              <button class="chip" data-service="network" data-action="resolve_dns_name">Resolve hostname</button>
+              <button class="chip" data-service="network" data-action="test_port">Test port</button>
+              <button class="chip" data-service="network" data-action="trace_route">Trace route</button>
+              <button class="chip" data-service="network" data-action="list_routes">Route table</button>
+              <button class="chip" data-service="network" data-action="firewall_profiles">Firewall profiles</button>
+              <button class="chip" data-service="network" data-action="smb_connections">SMB connections</button>
+              <div class="note">Requires admin rights for most changes. Uses NetAdapter/NetTCPIP plus optional NetSecurity, DnsServer, SmbShare modules.</div>
             </div>
           </div>
           <div class="card form-card" data-panel="network">
@@ -762,6 +902,12 @@
                 <input id="issue-device" type="text" placeholder="WORKSTATION-01" />
               </label>
               <label>
+                Symptom template
+                <select id="issue-symptom-template">
+                  <option value="">Manual symptom</option>
+                </select>
+              </label>
+              <label>
                 Symptom
                 <input id="issue-symptom" type="text" placeholder="Cannot reach printer" />
               </label>
@@ -771,6 +917,11 @@
               <button type="button" class="ghost" id="issue-clear">Clear all</button>
             </div>
             <ul class="issue-list" id="issue-list"></ul>
+          </div>
+          <div class="card" data-panel="topology">
+            <div class="card-title">Incident ledger</div>
+            <div class="card-subtitle">Incidents captured in the backend</div>
+            <div class="history-list" id="incident-list"></div>
           </div>
           <div class="card output-card" data-panel="topology">
             <div class="card-title">Topology output</div>
@@ -822,6 +973,190 @@
             <div class="card-title">Topology timeline</div>
             <div class="card-subtitle">Snapshot history with deltas</div>
             <ul class="timeline" id="topology-timeline"></ul>
+          </div>
+
+          <div class="card" data-panel="time">
+            <div class="card-title">Time &amp; drift toolkit</div>
+            <div class="card-subtitle">NTP, DC offsets, and drift checks</div>
+            <div class="stack">
+              <button class="chip" data-service="time" data-action="time_chain">Run time chain</button>
+              <button class="chip" data-service="time" data-action="time_drift_history">View drift history</button>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="time">
+            <div class="card-title">Time &amp; drift runner</div>
+            <div class="card-subtitle">Fine-grained time probes</div>
+            <form class="runner" data-service="time">
+              <label>
+                Action
+                <select class="action-select" data-service="time"></select>
+              </label>
+              <div class="runner-fields" data-service="time"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="time">Reset</button>
+                <button type="button" class="primary runner-run" data-service="time">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card output-card" data-panel="time">
+            <div class="card-title">Time output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="time"></pre>
+            <button class="ghost small clear-output" data-output-target="time">Clear</button>
+          </div>
+
+          <div class="card" data-panel="certificates">
+            <div class="card-title">Certificates toolkit</div>
+            <div class="card-subtitle">Machine store inventory and TLS trust</div>
+            <div class="stack">
+              <button class="chip" data-service="certificates" data-action="list_machine_certificates">List certificates</button>
+              <button class="chip" data-service="certificates" data-action="tls_probe">TLS trust probe</button>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="certificates">
+            <div class="card-title">Certificates runner</div>
+            <div class="card-subtitle">Targeted certificate checks</div>
+            <form class="runner" data-service="certificates">
+              <label>
+                Action
+                <select class="action-select" data-service="certificates"></select>
+              </label>
+              <div class="runner-fields" data-service="certificates"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="certificates">Reset</button>
+                <button type="button" class="primary runner-run" data-service="certificates">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card output-card" data-panel="certificates">
+            <div class="card-title">Certificates output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="certificates"></pre>
+            <button class="ghost small clear-output" data-output-target="certificates">Clear</button>
+          </div>
+
+          <div class="card" data-panel="processes">
+            <div class="card-title">Processes toolkit</div>
+            <div class="card-subtitle">Process inventory and service mapping</div>
+            <div class="stack">
+              <button class="chip" data-service="processes" data-action="process_inventory">Process inventory</button>
+              <button class="chip" data-service="processes" data-action="service_process_map">Service → process map</button>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="processes">
+            <div class="card-title">Processes runner</div>
+            <div class="card-subtitle">Binary and service reality checks</div>
+            <form class="runner" data-service="processes">
+              <label>
+                Action
+                <select class="action-select" data-service="processes"></select>
+              </label>
+              <div class="runner-fields" data-service="processes"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="processes">Reset</button>
+                <button type="button" class="primary runner-run" data-service="processes">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card output-card" data-panel="processes">
+            <div class="card-title">Processes output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="processes"></pre>
+            <button class="ghost small clear-output" data-output-target="processes">Clear</button>
+          </div>
+
+          <div class="card" data-panel="baselines">
+            <div class="card-title">Baselines toolkit</div>
+            <div class="card-subtitle">Golden snapshots and comparisons</div>
+            <div class="stack">
+              <button class="chip" data-service="baselines" data-action="list_golden">List golden baselines</button>
+              <button class="chip" data-service="baselines" data-action="compare_golden">Compare to golden</button>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="baselines">
+            <div class="card-title">Baselines runner</div>
+            <div class="card-subtitle">Set and compare golden baselines</div>
+            <form class="runner" data-service="baselines">
+              <label>
+                Action
+                <select class="action-select" data-service="baselines"></select>
+              </label>
+              <div class="runner-fields" data-service="baselines"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="baselines">Reset</button>
+                <button type="button" class="primary runner-run" data-service="baselines">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card output-card" data-panel="baselines">
+            <div class="card-title">Baselines output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="baselines"></pre>
+            <button class="ghost small clear-output" data-output-target="baselines">Clear</button>
+          </div>
+
+          <div class="card" data-panel="eventlogs">
+            <div class="card-title">Event Logs toolkit</div>
+            <div class="card-subtitle">Summaries, exports, and incident attachments</div>
+            <div class="stack">
+              <button class="chip" data-service="eventlogs" data-action="eventlog_summary">Last 24h summary</button>
+              <button class="chip" data-service="eventlogs" data-action="eventlog_gpo_failures">GPO failures summary</button>
+              <button class="chip" data-service="eventlogs" data-action="eventlog_print_failures">Print failures summary</button>
+              <button class="chip" data-service="eventlogs" data-action="eventlog_rdp_failures">RDP/logon failures summary</button>
+              <button class="chip" data-service="eventlogs" data-action="eventlog_windows_update_failures">Windows Update failures</button>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="eventlogs">
+            <div class="card-title">Event Logs runner</div>
+            <div class="card-subtitle">Query and export event data</div>
+            <form class="runner" data-service="eventlogs">
+              <label>
+                Action
+                <select class="action-select" data-service="eventlogs"></select>
+              </label>
+              <div class="runner-fields" data-service="eventlogs"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="eventlogs">Reset</button>
+                <button type="button" class="primary runner-run" data-service="eventlogs">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card output-card" data-panel="eventlogs">
+            <div class="card-title">Event Logs output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="eventlogs"></pre>
+            <button class="ghost small clear-output" data-output-target="eventlogs">Clear</button>
+          </div>
+
+          <div class="card" data-panel="registry">
+            <div class="card-title">Registry toolkit</div>
+            <div class="card-subtitle">Watchlists, snapshots, and exports</div>
+            <div class="stack">
+              <button class="chip" data-service="registry" data-action="list_watchlists">List watchlists</button>
+              <button class="chip" data-service="registry" data-action="capture_watchlist">Capture watchlist snapshot</button>
+              <button class="chip" data-service="registry" data-action="diff_watchlist">Diff watchlist snapshots</button>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="registry">
+            <div class="card-title">Registry runner</div>
+            <div class="card-subtitle">Watchlists and exports</div>
+            <form class="runner" data-service="registry">
+              <label>
+                Action
+                <select class="action-select" data-service="registry"></select>
+              </label>
+              <div class="runner-fields" data-service="registry"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="registry">Reset</button>
+                <button type="button" class="primary runner-run" data-service="registry">Run</button>
+              </div>
+            </form>
+          </div>
+          <div class="card output-card" data-panel="registry">
+            <div class="card-title">Registry output</div>
+            <div class="card-subtitle">Latest response</div>
+            <pre class="output" data-output="registry"></pre>
+            <button class="ghost small clear-output" data-output-target="registry">Clear</button>
           </div>
 
           <div class="card" data-panel="reports">
@@ -1115,10 +1450,105 @@
             <div class="dataset-preview" id="report-diff-summary">
               <div class="dataset-title">Diff summary</div>
               <div class="dataset-meta" id="report-diff-meta">Select two runs to compare.</div>
-              <pre class="dataset-content" id="report-diff-output"></pre>
+              <div class="diff-toolbar">
+                <div class="output-tabs diff-tabs" data-diff-tabs="report">
+                  <button class="tab active" type="button" data-diff-view="triage">Triage</button>
+                  <button class="tab" type="button" data-diff-view="raw">Raw</button>
+                </div>
+                <button class="ghost small" id="report-diff-copy" type="button">Copy summary</button>
+              </div>
+              <div class="diff-views">
+                <div class="diff-triage" id="report-diff-triage"></div>
+                <pre class="dataset-content diff-raw" id="report-diff-output"></pre>
+              </div>
             </div>
             <ul class="history-list" id="report-history-list"></ul>
             <input id="report-presets-import-file" type="file" accept=".json" hidden />
+          </div>
+          <div class="card form-card" data-panel="reports" id="snapshot-capture">
+            <div class="card-title">Snapshot capture</div>
+            <div class="card-subtitle">Capture a baseline for a subject</div>
+            <div class="form form-grid form-grid-wide">
+              <label>
+                Subject kind
+                <select id="snapshot-subject-kind">
+                  <option value="user">User</option>
+                  <option value="device">Device</option>
+                  <option value="dc">Domain controller</option>
+                  <option value="dns_server">DNS server</option>
+                  <option value="dhcp_server">DHCP server</option>
+                  <option value="file_server">File server</option>
+                  <option value="print_server">Print server</option>
+                  <option value="admin_host">Admin host</option>
+                </select>
+              </label>
+              <label>
+                Identifier
+                <input id="snapshot-subject-value" type="text" placeholder="user@contoso.com or HOSTNAME/IP" />
+              </label>
+              <label>
+                Profile
+                <select id="snapshot-profile">
+                  <option value="core">Core</option>
+                  <option value="troubleshoot">Troubleshoot</option>
+                  <option value="deep">Deep</option>
+                </select>
+              </label>
+              <label>
+                Display name (optional)
+                <input id="snapshot-subject-name" type="text" placeholder="Sales workstation" />
+              </label>
+            </div>
+            <div class="runner-actions">
+              <button type="button" class="primary" id="snapshot-capture-btn">Capture snapshot</button>
+            </div>
+          </div>
+          <div class="card" data-panel="reports" id="snapshot-history">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Snapshot history &amp; quality</div>
+                <div class="card-subtitle">Per-subject history with completeness</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="snapshot-history-refresh">Refresh</button>
+              </div>
+            </div>
+            <div class="report-diff-controls">
+              <label class="export-select">
+                Subject
+                <select id="snapshot-subject-select"></select>
+              </label>
+              <label class="export-select">
+                Snapshot A
+                <select id="snapshot-diff-a"></select>
+              </label>
+              <label class="export-select">
+                Snapshot B
+                <select id="snapshot-diff-b"></select>
+              </label>
+              <button class="primary small" id="snapshot-diff-run">Diff</button>
+            </div>
+            <div class="dataset-preview" id="snapshot-diff-summary">
+              <div class="dataset-title">Diff summary</div>
+              <div class="dataset-meta" id="snapshot-diff-meta">Select two snapshots to compare.</div>
+              <div class="diff-toolbar">
+                <div class="output-tabs diff-tabs" data-diff-tabs="snapshot">
+                  <button class="tab active" type="button" data-diff-view="triage">Triage</button>
+                  <button class="tab" type="button" data-diff-view="raw">Raw</button>
+                </div>
+                <button class="ghost small" id="snapshot-diff-copy" type="button">Copy summary</button>
+              </div>
+              <div class="diff-views">
+                <div class="diff-triage" id="snapshot-diff-triage"></div>
+                <pre class="dataset-content diff-raw" id="snapshot-diff-output"></pre>
+              </div>
+            </div>
+            <div class="dataset-preview" id="snapshot-quality">
+              <div class="dataset-title">Quality</div>
+              <div class="dataset-meta" id="snapshot-quality-meta">Select a subject to view completeness.</div>
+              <pre class="dataset-content" id="snapshot-quality-output"></pre>
+            </div>
+            <ul class="history-list" id="snapshot-history-list"></ul>
           </div>
 
           <div class="card" data-panel="purview">
@@ -1233,6 +1663,13 @@
                   </label>
                   <span class="toggle-meta" id="cfg-lock-note">Unlocked</span>
                 </div>
+                <div class="toggle-row">
+                  <label class="toggle">
+                    <input id="cfg-mock-mode" type="checkbox" />
+                    <span>Mock mode (use fixtures on macOS)</span>
+                  </label>
+                  <span class="toggle-meta">Dev-only</span>
+                </div>
                 <div class="note">Lock prevents config updates until disabled.</div>
               </div>
               <div class="settings-panel">
@@ -1247,6 +1684,80 @@
                 </div>
                 <div class="tenant-label">Verified domains</div>
                 <ul class="tenant-domains" id="tenant-domains"></ul>
+              </div>
+              <div class="settings-panel">
+                <div class="settings-section-title">Time &amp; trust defaults</div>
+                <label>
+                  Time warning threshold (ms)
+                  <input id="cfg-time-warn" type="number" placeholder="300" />
+                </label>
+                <label>
+                  Time critical threshold (ms)
+                  <input id="cfg-time-high" type="number" placeholder="5000" />
+                </label>
+                <label>
+                  NTP servers
+                  <input id="cfg-ntp-servers" type="text" placeholder="pool.ntp.org, time.windows.com" />
+                </label>
+                <label>
+                  Certificate stores
+                  <input id="cfg-cert-stores" type="text" placeholder="My, Root, CA" />
+                </label>
+                <label>
+                  Cert expiring days
+                  <input id="cfg-cert-expiring" type="number" placeholder="30" />
+                </label>
+                <label>
+                  TLS endpoints
+                  <input id="cfg-tls-endpoints" type="text" placeholder="graph.microsoft.com, login.microsoftonline.com" />
+                </label>
+                <label>
+                  Latency endpoints
+                  <input id="cfg-latency-endpoints" type="text" placeholder="graph.microsoft.com, login.microsoftonline.com" />
+                </label>
+                <label>
+                  Process max items
+                  <input id="cfg-process-max" type="number" placeholder="200" />
+                </label>
+                <div class="toggle-row">
+                  <label class="toggle">
+                    <input id="cfg-process-cmdline" type="checkbox" />
+                    <span>Allow process command line capture</span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-panel">
+                <div class="settings-section-title">Network context</div>
+                <label>
+                  DNS probe targets
+                  <input id="cfg-dns-probe-targets" type="text" placeholder="graph.microsoft.com" />
+                </label>
+                <label>
+                  DNS resolvers
+                  <input id="cfg-dns-resolvers" type="text" placeholder="10.0.0.10, 10.0.0.11" />
+                </label>
+                <div class="toggle-row">
+                  <label class="toggle">
+                    <input id="cfg-public-resolvers" type="checkbox" />
+                    <span>Allow public resolvers (1.1.1.1, 8.8.8.8)</span>
+                  </label>
+                </div>
+                <label>
+                  Zone map (CIDR, zone, site)
+                  <textarea id="cfg-zone-map" rows="5" placeholder="10.0.0.0/24, corp_lan, HQ"></textarea>
+                </label>
+              </div>
+              <div class="settings-panel">
+                <div class="settings-section-title">Diff triage overrides</div>
+                <label>
+                  Override impact buckets (pattern = bucket)
+                  <textarea
+                    id="cfg-diff-impact-overrides"
+                    rows="6"
+                    placeholder="authz.groups.* = security&#10;config.registry_watchlist.* = config&#10;change.* = metadata&#10;re:^connectivity\\.probes\\..* = config"
+                  ></textarea>
+                </label>
+                <div class="note">Buckets: security, config, metadata. Supports exact keys, wildcard * suffix, or regex with re:prefix.</div>
               </div>
             </div>
             <details class="profile-panel" id="profile-panel">
@@ -1435,6 +1946,7 @@
 
     <div class="toast" id="toast">Action queued</div>
 
+    <script src="triage.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

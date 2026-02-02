@@ -7,6 +7,9 @@ import getpass
 import socket
 import base64
 import secrets
+import shutil
+import uuid
+import threading
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,13 +20,30 @@ CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 TOPOLOGY_HISTORY_PATH = Path(__file__).resolve().parent / "topology_history.json"
 TOPOLOGY_HISTORY_DEFAULT_LIMIT = 50
 AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
-ACTION_SNAPSHOT_PATH = Path(__file__).resolve().parent / "action_snapshots.jsonl"
+ACTION_SNAPSHOT_PATH = Path(__file__).resolve().parent / "action_snapshots.sqlite"
+ACTION_SNAPSHOT_LEGACY_PATH = Path(__file__).resolve().parent / "action_snapshots.jsonl"
+ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+SNAPSHOT_DB_PATH = Path(__file__).resolve().parent / "snapshots.sqlite"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 load_dotenv(dotenv_path=ROOT / ".env")
 
-from microsoft import GraphSession, PowerShellSession, GraphAPIError, PowerShellCommandError
+ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+
+from microsoft import (
+    GraphSession,
+    PowerShellSession,
+    GraphAPIError,
+    PowerShellCommandError,
+    is_powershell_envelope,
+)
+from .capabilities import (
+    build_capability_registry,
+    get_action_capability,
+    SERVICE_MODULES,
+    LOCAL_SERVICES,
+)
 
 try:
     import keyring
@@ -167,8 +187,14 @@ def _decrypt_payload(blob, passphrase=None, tenant_id=None, client_id=None):
     return json.loads(raw.decode("utf-8"))
 from exchange import ExchangeClient
 from platform_core.snapshots import SnapshotStore, normalize_topology_snapshot
-from platform_core.action_snapshots import SnapshotStore as ActionSnapshotStore
+from platform_core.action_snapshots import SnapshotStore as ActionSnapshotStore, diff_json
+from platform_core.snapshot_storage import SnapshotSqlStore
+from platform_core.entity_resolution import EntityResolver
+from platform_core.snapshot_engine import SnapshotEngine
+from platform_core.symptom_templates import list_symptom_templates, get_symptom_template
 from platform_core.interpreter import interpret_response
+from platform_core.probe_handlers import build_probe_handlers
+from platform_core.registry_watchlists import DEFAULT_WATCHLISTS
 from onedrive import OneDriveClient
 from sharepoint import SharePointClient
 from teams import TeamsClient
@@ -176,11 +202,19 @@ from entra import EntraClient
 from azure import AzureClient
 from purview import PurviewClient
 from local_ad import LocalADClient
+from local_endpoint import LocalEndpointClient
+from local_domain_controller import LocalDomainControllerClient
 from local_printers import LocalPrinterClient
 from local_network import LocalNetworkClient
 from remote_ssh import RemoteSSHClient
 from local_fileserver import LocalFileServerClient
 from local_topology import LocalTopologyClient
+from local_time import LocalTimeClient
+from local_certificates import LocalCertificateClient
+from local_processes import LocalProcessClient
+from local_baselines import LocalBaselineClient
+from local_event_logs import LocalEventLogsClient
+from local_registry import LocalRegistryClient
 
 
 def _read_config_file():
@@ -197,12 +231,289 @@ def _write_config_file(data):
     CONFIG_PATH.write_text(json.dumps(cleaned, indent=2))
 
 
+def _read_snapshot_catalog():
+    data = _read_config_file()
+    return data.get("snapshot_catalog") or {}
+
+
+def _normalize_catalog_entries(entries):
+    if not entries:
+        return []
+    if isinstance(entries, str):
+        return [entries]
+    if isinstance(entries, list):
+        return [entry for entry in entries if entry]
+    return []
+
+
+def _read_registry_watchlists():
+    data = _read_config_file()
+    stored = data.get("registry_watchlists")
+    watchlists = {}
+    if isinstance(stored, dict):
+        watchlists.update(stored)
+    elif isinstance(stored, list):
+        for entry in stored:
+            if not isinstance(entry, dict):
+                continue
+            key = entry.get("watchlist_id") or entry.get("id")
+            if key:
+                watchlists[key] = entry
+    for key, default in DEFAULT_WATCHLISTS.items():
+        if key not in watchlists:
+            watchlists[key] = dict(default)
+    return watchlists
+
+
+def _normalize_watchlist_payload(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("Watchlist payload must be an object.")
+    watchlist_id = payload.get("watchlist_id") or payload.get("id")
+    if not watchlist_id:
+        raise ValueError("watchlist_id is required.")
+    paths = payload.get("paths") or []
+    if isinstance(paths, str):
+        paths = [paths]
+    paths = [path for path in paths if path]
+    return {
+        "watchlist_id": watchlist_id,
+        "name": payload.get("name") or watchlist_id,
+        "description": payload.get("description") or "",
+        "paths": paths,
+    }
+
+
+def _list_registry_watchlists():
+    watchlists = _read_registry_watchlists()
+    return {"watchlists": list(watchlists.values())}
+
+
+def _save_registry_watchlist(payload):
+    watchlist = _normalize_watchlist_payload(payload)
+    data = _read_config_file()
+    existing = data.get("registry_watchlists")
+    watchlists = {}
+    if isinstance(existing, dict):
+        watchlists.update(existing)
+    elif isinstance(existing, list):
+        for entry in existing:
+            if isinstance(entry, dict) and entry.get("watchlist_id"):
+                watchlists[entry["watchlist_id"]] = entry
+    watchlists[watchlist["watchlist_id"]] = watchlist
+    data["registry_watchlists"] = watchlists
+    _write_config_file(data)
+    return {"watchlist": watchlist}
+
+
+def _delete_registry_watchlist(watchlist_id: str):
+    if not watchlist_id:
+        raise ValueError("watchlist_id is required.")
+    data = _read_config_file()
+    watchlists = data.get("registry_watchlists")
+    if isinstance(watchlists, dict):
+        watchlists.pop(watchlist_id, None)
+        data["registry_watchlists"] = watchlists
+    elif isinstance(watchlists, list):
+        data["registry_watchlists"] = [entry for entry in watchlists if entry.get("watchlist_id") != watchlist_id]
+    _write_config_file(data)
+    return {"deleted": watchlist_id}
+
+
+def _is_ip_address(value: str) -> bool:
+    try:
+        parts = str(value).split(".")
+        if len(parts) != 4:
+            return False
+        for part in parts:
+            if not part.isdigit():
+                return False
+            num = int(part)
+            if num < 0 or num > 255:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _build_snapshot_context(extra=None):
+    config = _read_config_file()
+    time_thresholds = config.get("time_thresholds") or {"warn_ms": 300, "high_ms": 5000}
+    mock_mode = bool(config.get("mock_mode", False))
+    registry_watchlists = _read_registry_watchlists()
+    tls_targets = config.get(
+        "tls_endpoints", ["graph.microsoft.com", "login.microsoftonline.com"]
+    )
+    latency_targets = config.get(
+        "latency_endpoints", ["graph.microsoft.com", "login.microsoftonline.com"]
+    )
+    dns_probe_targets = config.get("dns_probe_targets", ["graph.microsoft.com"])
+    public_resolvers = config.get("public_dns_resolvers") or ["1.1.1.1", "8.8.8.8"]
+    use_public_resolvers = bool(config.get("enable_public_resolvers", False))
+    resolver_list = config.get("dns_resolvers") or []
+    if use_public_resolvers:
+        resolver_list = list(dict.fromkeys((resolver_list or []) + public_resolvers))
+    cert_stores = config.get("cert_stores") or ["My", "Root", "CA"]
+    cert_expiring_days = int(config.get("cert_expiring_days") or 30)
+    ntp_servers = config.get("ntp_servers") or ["pool.ntp.org"]
+    process_include_cmd = bool(config.get("process_include_command_line", False))
+    process_max_items = int(config.get("process_max_items") or 200)
+    zone_map = config.get("zone_map") or []
+    probe_defaults = {
+        "health.time.ntp_offset": {"servers": ntp_servers},
+        "config.certificates.machine_inventory": {
+            "stores": cert_stores,
+            "expiring_days": cert_expiring_days,
+        },
+        "connectivity.tls_probe": {"targets": tls_targets, "port": 443},
+        "connectivity.latency.external_endpoints": {"targets": latency_targets, "port": 443},
+        "connectivity.dns.multi_resolver": {
+            "targets": dns_probe_targets,
+            "resolvers": resolver_list,
+        },
+        "health.process.inventory": {
+            "include_command_line": process_include_cmd,
+            "max_items": process_max_items,
+        },
+        "health.eventlog.summary": {
+            "log_names": config.get("eventlog_default_logs") or ["System", "Application"],
+            "levels": config.get("eventlog_default_levels") or ["Error", "Warning"],
+            "time_window_hours": int(config.get("eventlog_default_hours") or 24),
+            "max_events": int(config.get("eventlog_default_max_events") or 500),
+            "sample_size": int(config.get("eventlog_default_sample") or 10),
+        },
+    }
+    context = {
+        "source": "portal",
+        "service": "snapshot",
+        "probe_handlers": build_probe_handlers(),
+        "probe_defaults": probe_defaults,
+        "time_thresholds": time_thresholds,
+        "zone_map": zone_map,
+        "registry_watchlists": registry_watchlists,
+        "mock_mode": mock_mode,
+    }
+    if isinstance(extra, dict):
+        context.update(extra)
+    return context
+
+
+ROLE_KIND_MAP = {
+    "actor.user": "user",
+    "actor.device": "device",
+    "dependency.dc": "dc",
+    "dependency.dns": "dns_server",
+    "dependency.dhcp": "dhcp_server",
+    "dependency.file_server": "file_server",
+    "dependency.print_server": "print_server",
+}
+
+
+def _subjects_from_roles(roles, issue, catalog):
+    subjects = []
+    if not roles:
+        return subjects
+    for role in roles:
+        kind = ROLE_KIND_MAP.get(role)
+        if not kind:
+            continue
+        if role.startswith("actor."):
+            if role == "actor.user":
+                user = issue.get("user") or issue.get("upn") or issue.get("user_id")
+                if user:
+                    subjects.append({"kind": "user", "identifiers": {"upn": user}})
+            if role == "actor.device":
+                device = issue.get("device") or issue.get("hostname") or issue.get("ip")
+                if device:
+                    alias_type = "ip" if _is_ip_address(str(device)) else "hostname"
+                    subjects.append({"kind": "device", "identifiers": {alias_type: device}})
+        if role.startswith("dependency."):
+            catalog_key = None
+            if role == "dependency.dc":
+                catalog_key = "domain_controllers"
+            elif role == "dependency.dns":
+                catalog_key = "dns_servers"
+            elif role == "dependency.dhcp":
+                catalog_key = "dhcp_servers"
+            elif role == "dependency.file_server":
+                catalog_key = "file_servers"
+            elif role == "dependency.print_server":
+                catalog_key = "print_servers"
+            if catalog_key:
+                for entry in _normalize_catalog_entries(catalog.get(catalog_key)):
+                    subjects.append({"kind": kind, "identifiers": {"hostname": entry}})
+    return subjects
+
+
+def _derive_subjects_from_issue(issue, template=None):
+    if not isinstance(issue, dict):
+        return []
+    subjects = []
+    user = issue.get("user") or issue.get("upn") or issue.get("user_id")
+    device = issue.get("device") or issue.get("hostname") or issue.get("ip")
+    symptom = issue.get("symptom") or ""
+    symptom_lower = str(symptom).lower()
+    catalog = _read_snapshot_catalog()
+
+    if template:
+        roles = template.get("default_subject_roles") or []
+        subjects.extend(_subjects_from_roles(roles, issue, catalog))
+        derived_rules = template.get("derived_subject_rules") or []
+        for rule in derived_rules:
+            role = rule.get("role")
+            key = rule.get("key")
+            if not role or not key:
+                continue
+            kind = ROLE_KIND_MAP.get(role)
+            if not kind:
+                continue
+            for entry in _normalize_catalog_entries(catalog.get(key)):
+                subjects.append({"kind": kind, "identifiers": {"hostname": entry}})
+    else:
+        if user:
+            subjects.append({"kind": "user", "identifiers": {"upn": user}})
+        if device:
+            alias_type = "ip" if any(char.isdigit() for char in str(device)) and "." in str(device) else "hostname"
+            subjects.append({"kind": "device", "identifiers": {alias_type: device}})
+
+    def add_catalog_subjects(kind, key, alias_type="hostname"):
+        for entry in _normalize_catalog_entries(catalog.get(key)):
+            subjects.append({"kind": kind, "identifiers": {alias_type: entry}})
+
+    if "print" in symptom_lower or "printer" in symptom_lower:
+        add_catalog_subjects("print_server", "print_servers")
+        add_catalog_subjects("dc", "domain_controllers")
+    if "file" in symptom_lower or "share" in symptom_lower or "smb" in symptom_lower:
+        add_catalog_subjects("file_server", "file_servers")
+        add_catalog_subjects("dns_server", "dns_servers")
+    if "login" in symptom_lower or "mfa" in symptom_lower or "signin" in symptom_lower or "auth" in symptom_lower:
+        add_catalog_subjects("dc", "domain_controllers")
+        add_catalog_subjects("dns_server", "dns_servers")
+    if "onedrive" in symptom_lower or "sharepoint" in symptom_lower:
+        add_catalog_subjects("dns_server", "dns_servers")
+    if "dns" in symptom_lower:
+        add_catalog_subjects("dns_server", "dns_servers")
+    if "dhcp" in symptom_lower:
+        add_catalog_subjects("dhcp_server", "dhcp_servers")
+
+    # remove duplicate canonical identifiers by kind+identifier value
+    seen = set()
+    unique_subjects = []
+    for subj in subjects:
+        identifiers = subj.get("identifiers") or {}
+        key = (subj.get("kind"), tuple(sorted(identifiers.items())))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_subjects.append(subj)
+    return unique_subjects
+
+
 TOPOLOGY_STORE = SnapshotStore(
     TOPOLOGY_HISTORY_PATH,
     normalizer=normalize_topology_snapshot,
     max_entries=TOPOLOGY_HISTORY_DEFAULT_LIMIT,
 )
-ACTION_SNAPSHOT_STORE = ActionSnapshotStore(ACTION_SNAPSHOT_PATH)
+ACTION_SNAPSHOT_STORE = ActionSnapshotStore(ACTION_SNAPSHOT_PATH, legacy_path=ACTION_SNAPSHOT_LEGACY_PATH)
 
 
 def _read_topology_history(limit=None):
@@ -470,7 +781,18 @@ def _security_posture():
             "powershell_modules": modules,
         },
         "boundaries": {
-            "local_only": ["localad", "printers", "network", "fileserver", "topology", "ssh"],
+            "local_only": [
+                "localad",
+                "printers",
+                "network",
+                "fileserver",
+                "topology",
+                "ssh",
+                "time",
+                "certificates",
+                "processes",
+                "baselines",
+            ],
             "cloud_services": [
                 "exchange",
                 "onedrive",
@@ -570,6 +892,9 @@ class BackendState:
         self.powershell = PowerShellSession()
         self.clients = {}
         self._topology_history = None
+        self.snapshot_store = SnapshotSqlStore(SNAPSHOT_DB_PATH)
+        self.entity_resolver = EntityResolver(self.snapshot_store)
+        self.snapshot_engine = SnapshotEngine(self.snapshot_store, self.entity_resolver)
 
     def reload(self):
         if self.powershell:
@@ -579,6 +904,9 @@ class BackendState:
         self.powershell = PowerShellSession()
         self.clients = {}
         self._topology_history = None
+        self.snapshot_store = SnapshotSqlStore(SNAPSHOT_DB_PATH)
+        self.entity_resolver = EntityResolver(self.snapshot_store)
+        self.snapshot_engine = SnapshotEngine(self.snapshot_store, self.entity_resolver)
         return self.config
 
     def get_topology_history(self, limit=None):
@@ -642,6 +970,7 @@ class BackendState:
 
     def get_config_public(self):
         cfg = self.config
+        cfg_file = _read_config_file()
         return {
             "tenant_id": cfg.tenant_id or "",
             "client_id": cfg.client_id or "",
@@ -657,6 +986,33 @@ class BackendState:
             "ps_auth_mode": cfg.ps_auth_mode or "interactive",
             "azure_tenant_id": cfg.azure_tenant_id or "",
             "azure_subscription_id": cfg.azure_subscription_id or "",
+            "time_thresholds": cfg_file.get("time_thresholds") or {"warn_ms": 300, "high_ms": 5000},
+            "ntp_servers": cfg_file.get("ntp_servers") or ["pool.ntp.org"],
+            "tls_endpoints": cfg_file.get("tls_endpoints") or [
+                "graph.microsoft.com",
+                "login.microsoftonline.com",
+            ],
+            "latency_endpoints": cfg_file.get("latency_endpoints") or [
+                "graph.microsoft.com",
+                "login.microsoftonline.com",
+            ],
+            "dns_probe_targets": cfg_file.get("dns_probe_targets") or ["graph.microsoft.com"],
+            "dns_resolvers": cfg_file.get("dns_resolvers") or [],
+            "enable_public_resolvers": bool(cfg_file.get("enable_public_resolvers", False)),
+            "public_dns_resolvers": cfg_file.get("public_dns_resolvers") or ["1.1.1.1", "8.8.8.8"],
+            "cert_stores": cfg_file.get("cert_stores") or ["My", "Root", "CA"],
+            "cert_expiring_days": int(cfg_file.get("cert_expiring_days") or 30),
+            "process_include_command_line": bool(cfg_file.get("process_include_command_line", False)),
+            "process_max_items": int(cfg_file.get("process_max_items") or 200),
+            "zone_map": cfg_file.get("zone_map") or [],
+            "mock_mode": bool(cfg_file.get("mock_mode", False)),
+            "diff_impact_overrides": cfg_file.get("diff_impact_overrides") or {},
+            "registry_watchlists": _read_registry_watchlists(),
+            "eventlog_default_logs": cfg_file.get("eventlog_default_logs") or ["System", "Application"],
+            "eventlog_default_levels": cfg_file.get("eventlog_default_levels") or ["Error", "Warning"],
+            "eventlog_default_hours": int(cfg_file.get("eventlog_default_hours") or 24),
+            "eventlog_default_max_events": int(cfg_file.get("eventlog_default_max_events") or 500),
+            "eventlog_default_sample": int(cfg_file.get("eventlog_default_sample") or 10),
         }
 
     def export_config_encrypted(self, passphrase=None, use_keychain=False):
@@ -788,6 +1144,10 @@ class BackendState:
             )
         elif service == "localad":
             client = LocalADClient(powershell=ps_session)
+        elif service == "endpoint":
+            client = LocalEndpointClient(powershell=ps_session)
+        elif service == "domaincontroller":
+            client = LocalDomainControllerClient(powershell=ps_session)
         elif service == "printers":
             client = LocalPrinterClient(powershell=ps_session)
         elif service == "network":
@@ -798,6 +1158,22 @@ class BackendState:
             client = LocalFileServerClient(powershell=ps_session)
         elif service == "topology":
             client = LocalTopologyClient(powershell=ps_session)
+        elif service == "time":
+            client = LocalTimeClient(
+                powershell=ps_session,
+                snapshot_store=self.snapshot_store,
+                config=_read_config_file(),
+            )
+        elif service == "certificates":
+            client = LocalCertificateClient(powershell=ps_session, config=_read_config_file())
+        elif service == "processes":
+            client = LocalProcessClient(powershell=ps_session, config=_read_config_file())
+        elif service == "baselines":
+            client = LocalBaselineClient(snapshot_store=self.snapshot_store)
+        elif service == "eventlogs":
+            client = LocalEventLogsClient(powershell=ps_session)
+        elif service == "registry":
+            client = LocalRegistryClient(powershell=ps_session)
         else:
             raise ValueError(f"Unknown service: {service}")
 
@@ -823,21 +1199,27 @@ class BackendState:
 
 
 STATE = BackendState()
+SNAPSHOT_SCHEDULER = None
+_SCHEDULER_STARTED = False
 
-POWERSHELL_MODULES = {
-    "exchange": ["ExchangeOnlineManagement"],
-    "onedrive": ["Microsoft.Online.SharePoint.PowerShell"],
-    "sharepoint": ["Microsoft.Online.SharePoint.PowerShell"],
-    "teams": ["MicrosoftTeams"],
-    "entra": ["Microsoft.Graph"],
-    "azure": ["Az.Accounts"],
-    "purview": ["ExchangeOnlineManagement"],
-    "localad": ["ActiveDirectory", "GroupPolicy"],
-    "printers": ["PrintManagement", "GroupPolicy"],
-    "network": ["NetAdapter", "NetTCPIP"],
-    "fileserver": [],
-    "topology": ["DhcpServer", "DnsServer", "PrintManagement", "SmbShare"],
-}
+
+def ensure_snapshot_scheduler():
+    global _SCHEDULER_STARTED
+    global SNAPSHOT_SCHEDULER
+    if _SCHEDULER_STARTED:
+        return
+    scheduler_cls = globals().get("SnapshotScheduler")
+    if scheduler_cls is None:
+        return
+    try:
+        if SNAPSHOT_SCHEDULER is None:
+            SNAPSHOT_SCHEDULER = scheduler_cls(STATE)
+        SNAPSHOT_SCHEDULER.start()
+        _SCHEDULER_STARTED = True
+    except Exception:
+        return
+
+POWERSHELL_MODULES = SERVICE_MODULES
 
 GRAPH_CHECKS = {
     "exchange": {"path": "/users/{user_id}/mailFolders", "params": {"$top": 1}},
@@ -854,12 +1236,15 @@ def _check_powershell_modules(modules):
     for module in modules:
         cmd = (
             "Get-Module -ListAvailable -Name "
-            f"'{module}' | Select-Object -First 1 Name, Version | ConvertTo-Json -Depth 3"
+            f"'{module}' | Select-Object -First 1 Name, Version"
         )
         try:
-            output = session.run(cmd)
-            if output:
-                data = json.loads(output)
+            result = session.run_json(cmd)
+            if isinstance(result, dict) and not result.get("ok", True):
+                results[module] = {"installed": False, "error": result.get("error")}
+                continue
+            data = result.get("data") if isinstance(result, dict) else None
+            if data:
                 version = data.get("Version") if isinstance(data, dict) else None
                 results[module] = {"installed": True, "version": str(version) if version else None}
             else:
@@ -869,12 +1254,237 @@ def _check_powershell_modules(modules):
         except Exception as exc:
             results[module] = {"installed": False, "error": str(exc)}
     try:
-        session.run_json("Get-Date | Select-Object -First 1")
-        results["PowerShell JSON runner"] = {"installed": True, "version": "ConvertTo-Json"}
+        result = session.run_json("Get-Date | Select-Object -First 1")
+        ok = isinstance(result, dict) and result.get("ok", True)
+        if ok:
+            results["PowerShell JSON runner"] = {"installed": True, "version": "ConvertTo-Json"}
+        else:
+            results["PowerShell JSON runner"] = {"installed": False, "error": result.get("error")}
     except Exception as exc:
         results["PowerShell JSON runner"] = {"installed": False, "error": str(exc)}
     ok = all(entry.get("installed") for entry in results.values()) if results else True
     return {"ok": ok, "modules": results}
+
+
+def _check_admin_rights():
+    session = STATE.powershell
+    cmd = (
+        "[Security.Principal.WindowsPrincipal] "
+        "[Security.Principal.WindowsIdentity]::GetCurrent()"
+        ".IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"
+    )
+    try:
+        result = session.run_json(cmd)
+        if isinstance(result, dict) and not result.get("ok", True):
+            return {"ok": False, "error": result.get("error")}
+        data = result.get("data") if isinstance(result, dict) else None
+        is_admin = bool(data) if isinstance(data, bool) else str(data).lower() == "true"
+        return {"ok": True, "is_admin": is_admin}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _check_domain_joined():
+    session = STATE.powershell
+    cmd = "Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty PartOfDomain"
+    try:
+        result = session.run_json(cmd)
+        if isinstance(result, dict) and not result.get("ok", True):
+            return {"ok": False, "error": result.get("error")}
+        data = result.get("data") if isinstance(result, dict) else None
+        joined = bool(data) if isinstance(data, bool) else str(data).lower() == "true"
+        return {"ok": True, "joined": joined}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _check_rsat_installed():
+    session = STATE.powershell
+    script = r"""
+    $results = @()
+    try {
+      $capabilities = Get-WindowsCapability -Online -Name 'RSAT.ActiveDirectory.DS-LDS.Tools*','RSAT.GroupPolicy.Management.Tools*' -ErrorAction Stop
+      $results = $capabilities | Select-Object Name,State
+    } catch {
+      try {
+        $features = Get-WindowsFeature RSAT-AD-PowerShell,GPMC -ErrorAction Stop
+        $results = $features | Select-Object Name,InstallState
+      } catch {
+        $results = @()
+      }
+    }
+    $results
+    """
+    try:
+        result = session.run_json(script)
+        if isinstance(result, dict) and not result.get("ok", True):
+            return {"ok": False, "error": result.get("error")}
+        data = result.get("data") if isinstance(result, dict) else None
+        items = data if isinstance(data, list) else ([data] if data else [])
+        installed = False
+        details = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("Name") or item.get("name")
+            state = item.get("State") or item.get("InstallState") or item.get("state")
+            details.append({"name": name, "state": state})
+            if state and str(state).lower() == "installed":
+                installed = True
+        if not items:
+            return {"ok": False, "error": "RSAT check returned no results."}
+        return {"ok": True, "installed": installed, "details": details}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def _action_preflight(service, action):
+    if service not in ACTIONS or action not in ACTIONS[service]:
+        raise ValueError(f"Unknown action '{action}' for service '{service}'")
+
+    capability = get_action_capability(CAPABILITY_REGISTRY, service, action)
+    source_kind = get_action_source(service, action)
+    diagnostics = []
+    checks = {}
+    ok = True
+    warning = None
+
+    if not capability:
+        return {
+            "ok": True,
+            "warning": {"message": "Capability metadata not found."},
+            "diagnostics": [
+                {
+                    "type": "capability_missing",
+                    "level": "warn",
+                    "message": f"No capability metadata for {service}.{action}.",
+                }
+            ],
+            "capability": None,
+            "checks": {},
+        }
+
+    if source_kind == "graph":
+        graph_result = _graph_check(service)
+        check = graph_result.get("checks", {}).get(service)
+        checks["graph"] = check
+        if check and not check.get("ok"):
+            status = int(check.get("status") or 0)
+            if status >= 500:
+                warning = check
+            else:
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "graph_error",
+                        "level": "error",
+                        "message": check.get("message") or "Graph preflight failed.",
+                        "status": check.get("status"),
+                        "code": check.get("code"),
+                        "request_id": check.get("request_id"),
+                    }
+                )
+        elif not check:
+            diagnostics.append(
+                {
+                    "type": "graph_check_missing",
+                    "level": "warn",
+                    "message": "No graph check configured for this service.",
+                }
+            )
+
+    if source_kind == "powershell":
+        modules = capability.get("required_modules") or []
+        module_result = _check_powershell_modules(modules)
+        checks["modules"] = module_result
+        if not module_result.get("ok", True):
+            ok = False
+            for module, info in module_result.get("modules", {}).items():
+                if not info.get("installed"):
+                    diagnostics.append(
+                        {
+                            "type": "missing_module",
+                            "level": "error",
+                            "module": module,
+                            "message": info.get("error") or f"{module} is not installed.",
+                        }
+                    )
+
+        if capability.get("requires_rsat"):
+            rsat_check = _check_rsat_installed()
+            checks["rsat"] = rsat_check
+            if not rsat_check.get("ok", False):
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "rsat_check_failed",
+                        "level": "error",
+                        "message": rsat_check.get("error") or "RSAT check failed.",
+                    }
+                )
+            elif not rsat_check.get("installed", False):
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "rsat_missing",
+                        "level": "error",
+                        "message": "RSAT tools are not installed. Install RSAT AD/GroupPolicy tools and retry.",
+                    }
+                )
+
+        if capability.get("requires_admin"):
+            admin_check = _check_admin_rights()
+            checks["admin"] = admin_check
+            if not admin_check.get("ok", False):
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "admin_check_failed",
+                        "level": "error",
+                        "message": "Failed to verify administrator privileges.",
+                        "detail": admin_check.get("error"),
+                    }
+                )
+            elif not admin_check.get("is_admin"):
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "insufficient_privileges",
+                        "level": "error",
+                        "message": "Administrator privileges are required for this action.",
+                    }
+                )
+
+        if capability.get("requires_domain_join"):
+            domain_check = _check_domain_joined()
+            checks["domain_join"] = domain_check
+            if not domain_check.get("ok", False):
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "domain_join_check_failed",
+                        "level": "error",
+                        "message": "Failed to verify domain join status.",
+                        "detail": domain_check.get("error"),
+                    }
+                )
+            elif not domain_check.get("joined"):
+                ok = False
+                diagnostics.append(
+                    {
+                        "type": "not_domain_joined",
+                        "level": "error",
+                        "message": "Host is not joined to a domain.",
+                    }
+                )
+
+    return {
+        "ok": ok,
+        "warning": warning,
+        "diagnostics": diagnostics,
+        "capability": capability,
+        "checks": checks,
+    }
 
 
 def _graph_check(service=None):
@@ -1191,10 +1801,16 @@ def _user_audit_report(
 def _gpo_audit_report(name=None):
     localad = STATE.get_client("localad")
     gpos = localad.list_gpos(name=name)
-    if isinstance(gpos, dict):
-        gpos_list = [gpos]
+    if is_powershell_envelope(gpos) and not gpos.get("ok", True):
+        raise PowerShellCommandError(
+            gpos.get("error", {}).get("message", "PowerShell command failed."),
+            output=gpos,
+        )
+    gpos_payload = _extract_action_payload(gpos)
+    if isinstance(gpos_payload, dict):
+        gpos_list = [gpos_payload]
     else:
-        gpos_list = gpos or []
+        gpos_list = gpos_payload or []
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "count": len(gpos_list),
@@ -1207,10 +1823,16 @@ def _gpo_link_audit_report(ou_dn):
         raise ValueError("OU DN is required for GPO link audit.")
     localad = STATE.get_client("localad")
     inheritance = localad.get_gpo_inheritance(ou_dn)
+    if is_powershell_envelope(inheritance) and not inheritance.get("ok", True):
+        raise PowerShellCommandError(
+            inheritance.get("error", {}).get("message", "PowerShell command failed."),
+            output=inheritance,
+        )
+    inheritance_payload = _extract_action_payload(inheritance)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "ou_dn": ou_dn,
-        "inheritance": inheritance,
+        "inheritance": inheritance_payload,
     }
 
 
@@ -1465,10 +2087,97 @@ ACTIONS = {
         "move_user_to_ou": {"method": "move_user_to_ou", "required": ["user_dn", "ou_dn"]},
         "list_ous": {"method": "list_ous"},
         "list_gpos": {"method": "list_gpos"},
+        "gpo_links": {"method": "get_gpo_links", "required": ["ou_dn"]},
+        "gpo_inheritance": {"method": "get_gpo_inheritance", "required": ["ou_dn"]},
+        "gpo_report": {"method": "get_gpo_report", "required": ["name"]},
+        "gppref_registry": {"method": "get_gppref_registry_value", "required": ["gpo_name", "key"]},
+        "gpresult_report": {"method": "gpresult_report"},
         "link_gpo": {"method": "link_gpo", "required": ["gpo_name", "ou_dn"]},
         "unlink_gpo": {"method": "unlink_gpo", "required": ["gpo_name", "ou_dn"]},
         "backup_gpo": {"method": "backup_gpo", "required": ["gpo_name", "path"]},
         "restore_gpo": {"method": "restore_gpo", "required": ["gpo_name", "path"]},
+    },
+    "endpoint": {
+        "computer_info": {"method": "get_computer_info"},
+        "cim_summary": {"method": "get_cim_summary"},
+        "systeminfo": {"method": "get_systeminfo"},
+        "system_inventory": {"method": "get_system_inventory"},
+        "list_processes": {"method": "list_processes", "defaults": {"top": 25}},
+        "list_services": {"method": "list_services"},
+        "query_event_logs": {"method": "query_event_logs"},
+        "wevtutil_query": {"method": "wevtutil_query"},
+        "legacy_event_log": {"method": "legacy_event_log"},
+        "list_hotfixes": {"method": "list_hotfixes"},
+        "list_dism_packages": {"method": "list_dism_packages"},
+        "whoami_all": {"method": "whoami_all"},
+        "gpresult_report": {"method": "gpresult_report"},
+        "rsop_report": {"method": "gpresultant_set_of_policy"},
+    },
+    "eventlogs": {
+        "eventlog_summary": {
+            "method": "eventlog_summary",
+            "list_fields": ["log_names", "levels", "event_ids", "providers"],
+        },
+        "eventlog_gpo_failures": {
+            "method": "eventlog_summary",
+            "defaults": {"log_names": ["Microsoft-Windows-GroupPolicy/Operational", "System"]},
+            "list_fields": ["log_names"],
+        },
+        "eventlog_print_failures": {
+            "method": "eventlog_summary",
+            "defaults": {"log_names": ["Microsoft-Windows-PrintService/Operational", "System"]},
+            "list_fields": ["log_names"],
+        },
+        "eventlog_rdp_failures": {
+            "method": "eventlog_summary",
+            "defaults": {"log_names": ["Security"], "event_ids": [4625, 4624]},
+            "list_fields": ["log_names", "event_ids"],
+        },
+        "eventlog_windows_update_failures": {
+            "method": "eventlog_summary",
+            "defaults": {"log_names": ["Microsoft-Windows-WindowsUpdateClient/Operational", "System"]},
+            "list_fields": ["log_names"],
+        },
+        "export_evtx": {"method": "export_evtx", "list_fields": ["log_names"]},
+        "import_evtx": {"method": "import_evtx", "required": ["file_path"]},
+    },
+    "registry": {
+        "list_watchlists": {"method": "list_watchlists"},
+        "save_watchlist": {"method": "save_watchlist", "list_fields": ["paths"]},
+        "delete_watchlist": {"method": "delete_watchlist", "required": ["watchlist_id"]},
+        "capture_watchlist": {"method": "watchlist_snapshot"},
+        "diff_watchlist": {"method": "diff_watchlist"},
+        "export_reg": {"method": "export_reg", "required": ["path"]},
+        "save_hive": {"method": "save_hive", "required": ["hive"]},
+    },
+    "domaincontroller": {
+        "replication_health_summary": {"method": "get_replication_health_summary"},
+        "show_replication_partners": {
+            "method": "get_replication_partners_for_dc",
+            "required": ["dc"],
+        },
+        "replication_queue": {"method": "get_replication_queue_for_dc", "required": ["dc"]},
+        "force_replication_sync": {
+            "method": "force_replication_sync_all",
+            "required": ["dc"],
+        },
+        "dc_diagnostics": {"method": "run_dc_health_checks"},
+        "list_dcs_nltest": {
+            "method": "list_domain_controllers_via_nltest",
+            "required": ["domain"],
+        },
+        "locate_active_dc": {"method": "get_current_dc_for_domain", "required": ["domain"]},
+        "ad_replication_partner_metadata": {"method": "get_replication_partner_metadata"},
+        "ad_replication_failures": {"method": "get_replication_failures"},
+        "ad_replication_queue_operations": {"method": "get_replication_queue_operations"},
+        "list_domain_controllers": {"method": "list_domain_controllers"},
+        "get_forest_facts": {"method": "get_forest_facts"},
+        "get_domain_facts": {"method": "get_domain_facts"},
+        "list_fsmo_roles": {"method": "list_fsmo_role_holders"},
+        "sysvol_migration_state": {"method": "get_sysvol_migration_state"},
+        "time_sync_status": {"method": "get_time_sync_status"},
+        "time_sync_monitor": {"method": "monitor_time_sync"},
+        "time_sync_health": {"method": "get_time_sync_health"},
     },
     "printers": {
         "list_printers": {"method": "list_printers"},
@@ -1478,6 +2187,9 @@ ACTIONS = {
     "network": {
         "list_adapters": {"method": "list_adapters"},
         "get_adapter_config": {"method": "get_adapter_config", "required": ["name"]},
+        "list_ip_configurations": {"method": "list_ip_configurations"},
+        "list_ip_interfaces": {"method": "list_ip_interfaces"},
+        "list_adapter_advanced": {"method": "get_adapter_advanced_properties"},
         "enable_adapter": {"method": "enable_adapter", "required": ["name"]},
         "disable_adapter": {"method": "disable_adapter", "required": ["name"]},
         "rename_adapter": {"method": "rename_adapter", "required": ["name", "new_name"]},
@@ -1490,7 +2202,34 @@ ACTIONS = {
         "set_dns_servers": {"method": "set_dns_servers", "required": ["name"], "list_fields": ["servers"]},
         "set_interface_metric": {"method": "set_interface_metric", "required": ["name", "metric"]},
         "set_mtu": {"method": "set_mtu", "required": ["name", "mtu"]},
-        "ping_host": {"method": "ping_host", "required": ["host"]},
+        "ping_host": {"method": "ping_host", "list_fields": ["hosts"]},
+        "test_port": {"method": "test_port", "required": ["host", "port"]},
+        "trace_route": {"method": "trace_route", "required": ["host"]},
+        "pathping_analysis": {"method": "pathping_analysis", "required": ["host"]},
+        "resolve_dns_name": {"method": "resolve_dns_name", "required": ["name"]},
+        "list_dns_records": {"method": "list_dns_server_records", "required": ["zone"]},
+        "dns_client_servers": {"method": "get_dns_client_server_addresses"},
+        "dns_client_cache": {"method": "get_dns_client_cache"},
+        "dns_cache_display": {"method": "get_dns_cache_display"},
+        "netstat_connections": {"method": "get_netstat_connections"},
+        "tcp_connections": {"method": "get_net_tcp_connections"},
+        "list_routes": {"method": "list_routes"},
+        "route_print": {"method": "route_print"},
+        "list_neighbors": {"method": "list_net_neighbors"},
+        "arp_table": {"method": "get_arp_table"},
+        "firewall_profiles": {"method": "get_firewall_profiles"},
+        "firewall_rules": {"method": "get_firewall_rules"},
+        "firewall_ports": {"method": "get_firewall_port_filters"},
+        "firewall_settings": {"method": "get_firewall_settings"},
+        "firewall_quick_check": {"method": "firewall_quick_check"},
+        "smb_test_path": {"method": "test_smb_path", "required": ["unc_path"]},
+        "smb_connections": {"method": "get_smb_connections"},
+        "smb_sessions": {"method": "get_smb_sessions"},
+        "smb_open_files": {"method": "get_smb_open_files"},
+        "smb_client_config": {"method": "get_smb_client_configuration"},
+        "smb_status": {"method": "smb_status"},
+        "net_use": {"method": "list_net_use"},
+        "kerberos_tickets": {"method": "list_kerberos_tickets"},
     },
     "ssh": {
         "run_command": {"method": "run_command", "required": ["host", "command"]},
@@ -1505,7 +2244,27 @@ ACTIONS = {
         },
         "ping_targets": {"method": "ping_targets", "required": ["targets"], "list_fields": ["targets"]},
     },
+    "time": {
+        "time_chain": {"method": "time_chain", "list_fields": ["ntp_servers"]},
+        "time_drift_history": {"method": "time_drift_history"},
+    },
+    "certificates": {
+        "list_machine_certificates": {"method": "list_machine_certificates", "list_fields": ["stores"]},
+        "tls_probe": {"method": "tls_probe", "list_fields": ["targets"]},
+    },
+    "processes": {
+        "process_inventory": {"method": "process_inventory"},
+        "service_process_map": {"method": "service_process_map"},
+    },
+    "baselines": {
+        "list_golden": {"method": "list_golden"},
+        "set_golden": {"method": "set_golden", "required": ["kind", "snapshot_id"]},
+        "clear_golden": {"method": "clear_golden", "required": ["kind"]},
+        "compare_golden": {"method": "compare_golden", "required": ["snapshot_id"]},
+    },
 }
+
+CAPABILITY_REGISTRY = build_capability_registry(ACTIONS)
 
 
 def _normalize_params(spec, params):
@@ -1576,10 +2335,89 @@ def sanitize_payload(value, depth: int = 0):
     return str(value)
 
 
+def _store_artifact(source_path, prefix="artifact"):
+    if not source_path:
+        return None
+    source = Path(source_path)
+    if not source.exists() or not source.is_file():
+        return None
+    safe_name = source.name.replace(" ", "_")
+    token = uuid.uuid4().hex[:8]
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}_{timestamp}_{token}_{safe_name}"
+    dest = ARTIFACTS_DIR / filename
+    try:
+        shutil.copyfile(source, dest)
+    except Exception:
+        return None
+    return filename
+
+
+def _hash_file(path: Path):
+    try:
+        import hashlib
+
+        h = hashlib.sha256()
+        size = 0
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                size += len(chunk)
+                h.update(chunk)
+        return h.hexdigest(), size
+    except Exception:
+        return None, None
+
+
+def _record_evidence(kind, source_path, subject_ids=None, description=None, meta=None):
+    if not source_path:
+        return None
+    artifact_name = _store_artifact(source_path, prefix=kind)
+    if not artifact_name:
+        return None
+    artifact_path = ARTIFACTS_DIR / artifact_name
+    sha256, size = _hash_file(artifact_path)
+    evidence_id = uuid.uuid4().hex
+    captured_at = datetime.now(timezone.utc).isoformat()
+    meta_payload = dict(meta or {})
+    if sha256:
+        meta_payload["sha256"] = sha256
+    if size is not None:
+        meta_payload["size_bytes"] = size
+    meta_payload["filename"] = artifact_name
+    meta_payload["description"] = description
+    meta_payload["source_path"] = str(source_path)
+    STATE.snapshot_store.add_evidence(
+        evidence_id,
+        captured_at,
+        kind,
+        subject_ids or [],
+        artifact_name,
+        {"redacted": True},
+        meta_payload,
+    )
+    return {
+        "evidence_id": evidence_id,
+        "kind": kind,
+        "captured_at": captured_at,
+        "artifact": {"name": artifact_name, "url": f"/api/artifacts/{artifact_name}"},
+        "meta": meta_payload,
+    }
+
+
+def _extract_action_payload(result):
+    if is_powershell_envelope(result):
+        return result.get("data")
+    return result
+
+
 def classify_action_kind(action: str, service: str | None = None) -> str:
     if service in {"reports"}:
         return "read"
     if action.startswith("list_") or action.startswith("get_") or action.endswith("_report"):
+        return "read"
+    if action.startswith("eventlog_") or action.endswith("_summary"):
+        return "read"
+    if action in {"capture_watchlist", "diff_watchlist", "list_watchlists"}:
         return "read"
     if action.startswith(
         (
@@ -1710,9 +2548,25 @@ def _snapshot_meta(service: str, action: str, stage: str, ok: bool | None = None
     }
 
 
-def _store_snapshot(snapshot_type: str, target: str, payload: dict | None, meta: dict, source: dict):
+def _store_snapshot(
+    snapshot_type: str,
+    target: str,
+    payload: dict | None,
+    meta: dict,
+    source: dict,
+    inputs: dict | None = None,
+):
     try:
-        ACTION_SNAPSHOT_STORE.put(snapshot_type, target, payload, meta, source)
+        ACTION_SNAPSHOT_STORE.put(
+            snapshot_type,
+            target,
+            payload,
+            meta,
+            source,
+            inputs=inputs,
+            action=meta.get("action") if isinstance(meta, dict) else None,
+            ok=meta.get("ok") if isinstance(meta, dict) else None,
+        )
     except Exception:
         return
 
@@ -1733,6 +2587,7 @@ def _emit_additional_snapshots(service: str, action: str, params: dict | None, r
     meta = _snapshot_meta(service, action, "snapshot", ok=True)
     base_source = {"kind": source_kind, "service": service, "action": action}
     params = params or {}
+    inputs = sanitize_payload(params)
 
     if service == "topology" and action == "collect_topology":
         generated = result.get("generated_at")
@@ -1748,21 +2603,42 @@ def _emit_additional_snapshots(service: str, action: str, params: dict | None, r
                 "server": dhcp_server,
                 "leases": result.get("dhcp_leases"),
             }
-            _store_snapshot("network.dhcp_leases", str(dhcp_server), sanitize_payload(payload), meta, base_source)
+            _store_snapshot(
+                "network.dhcp_leases",
+                str(dhcp_server),
+                sanitize_payload(payload),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
         if result.get("dns_records") is not None:
             payload = {
                 "generated_at": generated,
                 "server": dns_server,
                 "records": result.get("dns_records"),
             }
-            _store_snapshot("network.dns_records", str(dns_server), sanitize_payload(payload), meta, base_source)
+            _store_snapshot(
+                "network.dns_records",
+                str(dns_server),
+                sanitize_payload(payload),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
         if result.get("smb_sessions") is not None:
             payload = {
                 "generated_at": generated,
                 "server": smb_server,
                 "sessions": result.get("smb_sessions"),
             }
-            _store_snapshot("network.smb_sessions", str(smb_server), sanitize_payload(payload), meta, base_source)
+            _store_snapshot(
+                "network.smb_sessions",
+                str(smb_server),
+                sanitize_payload(payload),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
         if result.get("printers") is not None or result.get("print_jobs") is not None:
             payload = {
                 "generated_at": generated,
@@ -1771,7 +2647,14 @@ def _emit_additional_snapshots(service: str, action: str, params: dict | None, r
                 "print_jobs": result.get("print_jobs"),
                 "errors": errors,
             }
-            _store_snapshot("network.print_server", str(print_server), sanitize_payload(payload), meta, base_source)
+            _store_snapshot(
+                "network.print_server",
+                str(print_server),
+                sanitize_payload(payload),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
 
     if service == "reports":
         if action == "user_audit":
@@ -1808,7 +2691,14 @@ def _emit_additional_snapshots(service: str, action: str, params: dict | None, r
                     for l in licenses
                 ],
             }
-            _store_snapshot("entra.user_core", str(target), sanitize_payload(core), meta, base_source)
+            _store_snapshot(
+                "entra.user_core",
+                str(target),
+                sanitize_payload(core),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
 
             signins = result.get("signIns")
             if isinstance(signins, list) and signins:
@@ -1817,68 +2707,514 @@ def _emit_additional_snapshots(service: str, action: str, params: dict | None, r
                     "user_id": user.get("id"),
                     "summary": _summarize_signins(signins),
                 }
-                _store_snapshot("entra.signin_summary", str(target), sanitize_payload(summary), meta, base_source)
+                _store_snapshot(
+                    "entra.signin_summary",
+                    str(target),
+                    sanitize_payload(summary),
+                    meta,
+                    base_source,
+                    inputs=inputs,
+                )
 
         if action == "sign_in_summary":
             target = result.get("user_id") or params.get("user_id") or "tenant"
-            _store_snapshot("entra.signin_summary", str(target), sanitize_payload(result), meta, base_source)
+            _store_snapshot(
+                "entra.signin_summary",
+                str(target),
+                sanitize_payload(result),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
 
         if action == "conditional_access_summary":
             tenant = STATE.config.tenant_id or "tenant"
-            _store_snapshot("entra.conditional_access", str(tenant), sanitize_payload(result), meta, base_source)
+            _store_snapshot(
+                "entra.conditional_access",
+                str(tenant),
+                sanitize_payload(result),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
 
         if action == "device_compliance":
             target = result.get("user_id") or params.get("user_id") or "tenant"
-            _store_snapshot("entra.device_compliance", str(target), sanitize_payload(result), meta, base_source)
+            _store_snapshot(
+                "entra.device_compliance",
+                str(target),
+                sanitize_payload(result),
+                meta,
+                base_source,
+                inputs=inputs,
+            )
 
 
-def _read_action_snapshots():
-    if not ACTION_SNAPSHOT_PATH.exists():
-        return []
-    entries = []
-    try:
-        with ACTION_SNAPSHOT_PATH.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                try:
-                    record = json.loads(line)
-                except Exception:
-                    continue
-                entries.append(record)
-    except Exception:
-        return []
-    return entries
-
-
-def _list_action_snapshots(snapshot_type=None, target=None, limit=50, prefix=None):
-    entries = _read_action_snapshots()
-    target_key = str(target).lower() if target else None
-    filtered = []
-    for record in entries:
-        if snapshot_type and record.get("type") != snapshot_type:
-            continue
-        if prefix and not str(record.get("type") or "").startswith(prefix):
-            continue
-        if target_key:
-            if str(record.get("target") or "").lower() != target_key:
-                continue
-        filtered.append(record)
-    filtered.sort(key=lambda item: item.get("collected_at") or "", reverse=True)
-    if limit and limit > 0:
-        return filtered[: int(limit)]
-    return filtered
+def _list_action_snapshots(snapshot_type=None, target=None, limit=50, prefix=None, action=None):
+    return ACTION_SNAPSHOT_STORE.list(
+        snapshot_type=snapshot_type,
+        target=target,
+        prefix=prefix,
+        action=action,
+        limit=limit,
+    )
 
 
 def _get_action_snapshot(snapshot_id):
-    if not snapshot_id:
+    return ACTION_SNAPSHOT_STORE.get(snapshot_id)
+
+
+def _diff_action_snapshots(snapshot_id_a: str, snapshot_id_b: str) -> dict | None:
+    if not snapshot_id_a or not snapshot_id_b:
         return None
-    entries = _read_action_snapshots()
-    for record in entries:
-        if record.get("id") == snapshot_id:
-            return record
-    return None
+    snap_a = ACTION_SNAPSHOT_STORE.get(snapshot_id_a)
+    snap_b = ACTION_SNAPSHOT_STORE.get(snapshot_id_b)
+    if not snap_a or not snap_b:
+        return None
+    data_a = snap_a.get("data") if isinstance(snap_a, dict) else None
+    data_b = snap_b.get("data") if isinstance(snap_b, dict) else None
+    diff = diff_json(data_a, data_b)
+    summary = {
+        "added": len(diff.get("added") or []),
+        "removed": len(diff.get("removed") or []),
+        "changed": len(diff.get("changed") or []),
+    }
+    return {
+        "type": "json",
+        "summary": summary,
+        "details": {
+            "added": (diff.get("added") or [])[:10],
+            "removed": (diff.get("removed") or [])[:10],
+            "changed": (diff.get("changed") or [])[:10],
+        },
+        "snapshots": {
+            "a": {"id": snap_a.get("id"), "collected_at": snap_a.get("collected_at")},
+            "b": {"id": snap_b.get("id"), "collected_at": snap_b.get("collected_at")},
+        },
+    }
+
+
+def _list_engine_snapshots(canonical_id=None, limit=50):
+    return STATE.snapshot_store.list_snapshots(canonical_id=canonical_id, limit=limit)
+
+
+def _get_engine_snapshot(snapshot_id):
+    return STATE.snapshot_store.get_snapshot(snapshot_id)
+
+
+def _list_snapshot_entities(limit=200):
+    return STATE.snapshot_store.list_entities(limit=limit)
+
+
+def _diff_engine_snapshots(snapshot_id_a: str, snapshot_id_b: str):
+    from platform_core.snapshot_diff import diff_snapshots
+
+    if not snapshot_id_a or not snapshot_id_b:
+        return None
+    snap_a = STATE.snapshot_store.get_snapshot(snapshot_id_a)
+    snap_b = STATE.snapshot_store.get_snapshot(snapshot_id_b)
+    if not snap_a or not snap_b:
+        return None
+    return diff_snapshots(snap_a, snap_b, store=STATE.snapshot_store)
+
+
+def _resolve_snapshot_subject(alias_type: str, alias_value: str):
+    if not alias_type or not alias_value:
+        return None
+    canonical_id = STATE.snapshot_store.resolve_alias(alias_type, alias_value)
+    if not canonical_id:
+        return None
+    entity = STATE.snapshot_store.get_entity(canonical_id) or {"canonical_id": canonical_id}
+    return entity
+
+
+def _list_snapshot_events(canonical_ids=None, limit=50):
+    return STATE.snapshot_store.list_events(canonical_ids=canonical_ids, limit=limit)
+
+
+def _list_symptom_templates():
+    return list_symptom_templates()
+
+
+def _create_incident(payload: dict | None):
+    if not isinstance(payload, dict):
+        raise ValueError("Incident payload must be an object.")
+    incident_id = payload.get("incident_id") or uuid.uuid4().hex
+    created_at = payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+    symptom_id = payload.get("symptom_id")
+    status = payload.get("status") or "open"
+    title = payload.get("title") or None
+    description = payload.get("description") or None
+    time_window_start = payload.get("time_window_start") or payload.get("start") or None
+    time_window_end = payload.get("time_window_end") or payload.get("end") or None
+    STATE.snapshot_store.create_incident(
+        incident_id=incident_id,
+        created_at=created_at,
+        symptom_id=symptom_id,
+        status=status,
+        title=title,
+        description=description,
+        time_window_start=time_window_start,
+        time_window_end=time_window_end,
+    )
+    subjects = payload.get("subjects") or []
+    for subject in subjects:
+        if not isinstance(subject, dict):
+            continue
+        canonical_id = subject.get("canonical_id")
+        role = subject.get("role") or "actor"
+        kind = subject.get("kind") or "resource"
+        STATE.snapshot_store.add_incident_subject(incident_id, canonical_id, role, kind)
+    return {
+        "incident_id": incident_id,
+        "created_at": created_at,
+        "symptom_id": symptom_id,
+        "status": status,
+        "title": title,
+        "description": description,
+        "time_window_start": time_window_start,
+        "time_window_end": time_window_end,
+        "subjects": STATE.snapshot_store.list_incident_subjects(incident_id),
+    }
+
+
+def _list_incidents(limit=50):
+    return STATE.snapshot_store.list_incidents(limit=limit)
+
+
+def _get_incident(incident_id: str):
+    if not incident_id:
+        return None
+    incident = STATE.snapshot_store.get_incident(incident_id)
+    if not incident:
+        return None
+    incident["subjects"] = STATE.snapshot_store.list_incident_subjects(incident_id)
+    incident["snapshots"] = STATE.snapshot_store.list_incident_snapshots(incident_id)
+    incident["events"] = STATE.snapshot_store.list_incident_events(incident_id)
+    return incident
+
+
+def _update_incident(incident_id: str, updates: dict | None):
+    if not incident_id:
+        raise ValueError("incident_id is required.")
+    if not isinstance(updates, dict):
+        raise ValueError("Updates must be an object.")
+    STATE.snapshot_store.update_incident(incident_id, updates)
+    return _get_incident(incident_id)
+
+
+def _link_incident_snapshot(incident_id: str, snapshot_id: str):
+    if not incident_id or not snapshot_id:
+        raise ValueError("incident_id and snapshot_id are required.")
+    STATE.snapshot_store.link_incident_snapshot(incident_id, snapshot_id)
+    return {"incident_id": incident_id, "snapshot_id": snapshot_id}
+
+
+def _link_incident_event(incident_id: str, event_id: str):
+    if not incident_id or not event_id:
+        raise ValueError("incident_id and event_id are required.")
+    STATE.snapshot_store.link_incident_event(incident_id, event_id)
+    return {"incident_id": incident_id, "event_id": event_id}
+
+
+def _infer_node_kind(identifier: str | None):
+    if not identifier:
+        return "resource"
+    if "@" in identifier:
+        return "user"
+    if _is_ip_address(identifier):
+        return "ip"
+    if str(identifier).lower().startswith("http"):
+        return "url"
+    return "resource"
+
+
+def _build_incident_graph(incident_id: str):
+    incident = _get_incident(incident_id)
+    snapshot_ids = STATE.snapshot_store.list_incident_snapshots(incident_id)
+    snapshots = [STATE.snapshot_store.get_snapshot(sid) for sid in snapshot_ids]
+    snapshots = [snap for snap in snapshots if snap]
+    subjects = STATE.snapshot_store.list_incident_subjects(incident_id)
+    nodes = {}
+    edges = []
+
+    def _add_node(node_id, kind=None, label=None, role=None):
+        if not node_id:
+            return
+        if node_id not in nodes:
+            node_kind = kind or _infer_node_kind(node_id)
+            nodes[node_id] = {
+                "id": node_id,
+                "kind": node_kind,
+                "type": node_kind,
+                "label": label or node_id,
+                "role": role,
+            }
+        else:
+            if role and not nodes[node_id].get("role"):
+                nodes[node_id]["role"] = role
+
+    for subject in subjects:
+        _add_node(
+            subject.get("canonical_id"),
+            kind=subject.get("kind"),
+            label=subject.get("canonical_id"),
+            role=subject.get("role"),
+        )
+
+    for snapshot in snapshots:
+        subject = snapshot.get("subject") or {}
+        _add_node(
+            subject.get("canonical_id"),
+            kind=subject.get("kind"),
+            label=subject.get("display_name") or subject.get("canonical_id"),
+        )
+        for rel in snapshot.get("relationships") or []:
+            if not isinstance(rel, dict):
+                continue
+            source = rel.get("source")
+            target = rel.get("target")
+            if source:
+                _add_node(source)
+            if target:
+                _add_node(target)
+            edges.append(
+                {
+                    "source": source,
+                    "target": target,
+                    "type": rel.get("type") or rel.get("relationship"),
+                    "label": rel.get("type") or rel.get("relationship"),
+                    "meta": {k: v for k, v in rel.items() if k not in ("source", "target", "type", "relationship")},
+                }
+            )
+
+    return {
+        "incident": incident,
+        "nodes": list(nodes.values()),
+        "edges": edges,
+        "snapshots": snapshots,
+    }
+
+
+def _build_incident_timeline(incident_id: str):
+    incident = _get_incident(incident_id)
+    snapshot_ids = STATE.snapshot_store.list_incident_snapshots(incident_id)
+    snapshots = [STATE.snapshot_store.get_snapshot(sid) for sid in snapshot_ids]
+    snapshots = [snap for snap in snapshots if snap]
+    event_ids = STATE.snapshot_store.list_incident_events(incident_id)
+    events = [STATE.snapshot_store.get_event(eid) for eid in event_ids]
+    events = [evt for evt in events if evt]
+    timeline = []
+    for snapshot in snapshots:
+        timeline.append(
+            {
+                "time": snapshot.get("captured_at"),
+                "kind": "snapshot",
+                "snapshot_id": snapshot.get("snapshot_id"),
+                "subject": snapshot.get("subject"),
+            }
+        )
+    for event in events:
+        timeline.append(
+            {
+                "time": event.get("emitted_at") or event.get("time"),
+                "kind": event.get("signal") or event.get("kind") or "event",
+                "event": event,
+            }
+        )
+    timeline.sort(key=lambda item: item.get("time") or "")
+    return {"incident": incident, "timeline": timeline}
+
+
+def _list_golden_snapshots():
+    return STATE.snapshot_store.list_golden_snapshots()
+
+
+def _set_golden_snapshot(kind: str, snapshot_id: str, label: str | None = None):
+    if not kind or not snapshot_id:
+        raise ValueError("kind and snapshot_id are required.")
+    STATE.snapshot_store.set_golden_snapshot(kind, snapshot_id, label=label)
+    return {"kind": kind, "snapshot_id": snapshot_id, "label": label}
+
+
+def _clear_golden_snapshot(kind: str):
+    if not kind:
+        raise ValueError("kind is required.")
+    STATE.snapshot_store.clear_golden_snapshot(kind)
+    return {"kind": kind, "cleared": True}
+
+
+def _diff_golden_snapshot(snapshot_id: str):
+    from platform_core.snapshot_diff import diff_snapshots
+
+    snapshot = STATE.snapshot_store.get_snapshot(snapshot_id)
+    if not snapshot:
+        raise ValueError("Snapshot not found.")
+    subject = snapshot.get("subject") or {}
+    kind = subject.get("kind")
+    if not kind:
+        raise ValueError("Snapshot kind missing.")
+    golden = STATE.snapshot_store.get_golden_snapshot(kind)
+    if not golden:
+        raise ValueError("No golden baseline for this kind.")
+    golden_snapshot = STATE.snapshot_store.get_snapshot(golden.get("snapshot_id"))
+    if not golden_snapshot:
+        raise ValueError("Golden snapshot not found.")
+    return {
+        "golden": golden,
+        "diff": diff_snapshots(golden_snapshot, snapshot, store=STATE.snapshot_store),
+    }
+
+
+def _get_symptom_template(symptom_id: str):
+    return get_symptom_template(symptom_id)
+
+
+def _snapshot_context_from_payload(payload):
+    context = _build_snapshot_context(payload.get("context") if isinstance(payload, dict) else None)
+    return context
+
+
+def _capture_snapshots(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("Snapshot payload must be an object.")
+    profile = payload.get("profile") or "core"
+    incident_id = payload.get("incident_id")
+    subjects = []
+    template = None
+    symptom_id = None
+    if payload.get("incident"):
+        incident = payload.get("incident") or {}
+        symptom_id = incident.get("symptom_id")
+        if symptom_id:
+            template = get_symptom_template(symptom_id)
+        subjects = _derive_subjects_from_issue(incident, template=template)
+    if payload.get("subjects"):
+        subjects = list(payload.get("subjects") or [])
+    elif payload.get("subject"):
+        subjects = [payload.get("subject")]
+    if not subjects:
+        raise ValueError("No subjects provided for snapshot capture.")
+
+    context = _snapshot_context_from_payload(payload)
+    context.setdefault("graph", STATE.get_graph())
+    context.setdefault("powershell", STATE.powershell)
+
+    results = []
+    tier0_probe_plan = None
+    tier1_probe_plan = None
+    tier0_profile = profile
+    tier1_profile = "troubleshoot"
+    if template:
+        probe_plan = template.get("probe_plan") or {}
+        tier0_probe_plan = probe_plan.get("tier0") or []
+        tier1_probe_plan = probe_plan.get("tier1") or []
+        snapshot_profiles = template.get("snapshot_profiles") or {}
+        tier0_profile = snapshot_profiles.get("tier0") or profile
+        tier1_profile = snapshot_profiles.get("tier1") or "troubleshoot"
+
+    for subject in subjects:
+        try:
+            tier0_context = dict(context)
+            if symptom_id:
+                tier0_context["symptom_id"] = symptom_id
+                tier0_context["symptom_tier"] = "tier0"
+                tier0_context["probe_plan"] = tier0_probe_plan
+            result = STATE.snapshot_engine.capture_snapshot(subject, tier0_profile, tier0_context)
+            results.append({"ok": True, "subject": subject, "result": result})
+            if incident_id and result.get("snapshot_id"):
+                try:
+                    STATE.snapshot_store.link_incident_snapshot(incident_id, result.get("snapshot_id"))
+                except Exception:
+                    pass
+            if incident_id and result.get("event_id"):
+                try:
+                    STATE.snapshot_store.link_incident_event(incident_id, result.get("event_id"))
+                except Exception:
+                    pass
+
+            if tier1_probe_plan:
+                outcomes = result.get("probe_outcomes") or []
+                should_escalate = any(
+                    entry.get("severity") == "high" or entry.get("error_class")
+                    for entry in outcomes
+                    if isinstance(entry, dict)
+                )
+                if should_escalate:
+                    tier1_context = dict(context)
+                    if symptom_id:
+                        tier1_context["symptom_id"] = symptom_id
+                        tier1_context["symptom_tier"] = "tier1"
+                        tier1_context["probe_plan"] = tier1_probe_plan
+                        tier1_context["symptom_trigger"] = "tier0_failure"
+                    escalation = STATE.snapshot_engine.capture_snapshot(subject, tier1_profile, tier1_context)
+                    results.append({"ok": True, "subject": subject, "result": escalation, "escalated": True})
+                    if incident_id and escalation.get("snapshot_id"):
+                        try:
+                            STATE.snapshot_store.link_incident_snapshot(incident_id, escalation.get("snapshot_id"))
+                        except Exception:
+                            pass
+                    if incident_id and escalation.get("event_id"):
+                        try:
+                            STATE.snapshot_store.link_incident_event(incident_id, escalation.get("event_id"))
+                        except Exception:
+                            pass
+        except Exception as exc:
+            results.append({"ok": False, "subject": subject, "error": str(exc)})
+    return {
+        "profile": profile,
+        "count": len(results),
+        "results": results,
+    }
+
+
+class SnapshotScheduler:
+    def __init__(self, state: "BackendState"):
+        self.state = state
+        self._thread = None
+        self._stop = threading.Event()
+
+    def _load_schedule(self):
+        data = _read_config_file()
+        schedule = data.get("snapshot_scheduler") or {}
+        enabled = bool(schedule.get("enabled", False))
+        interval = int(schedule.get("interval_minutes") or 1440)
+        profile = schedule.get("profile") or "core"
+        subjects = schedule.get("subjects") or data.get("snapshot_baseline_subjects") or []
+        return enabled, interval, profile, subjects
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                enabled, interval, profile, subjects = self._load_schedule()
+                if enabled and subjects:
+                    context = _build_snapshot_context({"source": "scheduler", "service": "snapshot"})
+                    context.setdefault("graph", self.state.get_graph())
+                    context.setdefault("powershell", self.state.powershell)
+                    for subject in subjects:
+                        if self._stop.is_set():
+                            break
+                        try:
+                            self.state.snapshot_engine.capture_snapshot(subject, profile, context)
+                        except Exception:
+                            continue
+                sleep_seconds = max(60, interval * 60)
+            except Exception:
+                sleep_seconds = 300
+            self._stop.wait(timeout=sleep_seconds)
 
 def get_action_source(service, action):
-    if service in {"localad", "printers", "network", "ssh", "fileserver", "topology"}:
+    if service in LOCAL_SERVICES:
         return "powershell"
     spec = ACTIONS.get(service, {}).get(action, {})
     method = spec.get("method", "") or ""
@@ -1943,6 +3279,8 @@ def dispatch_task(service, action, params=None):
             elif action == "check_powershell_modules":
                 modules = data.get("modules") or POWERSHELL_MODULES.get(data.get("service"), [])
                 result = _check_powershell_modules(modules)
+            elif action == "action_preflight":
+                result = _action_preflight(data.get("service"), data.get("action"))
             elif action == "health_check":
                 result = _health_check()
             elif action == "smoke_test":
@@ -1963,6 +3301,7 @@ def dispatch_task(service, action, params=None):
                     {"request": request_payload, "error": str(exc)},
                     _snapshot_meta(service, action, "event", ok=False),
                     source_meta,
+                    inputs=request_payload,
                 )
             raise
         if snapshot_enabled:
@@ -1972,6 +3311,7 @@ def dispatch_task(service, action, params=None):
                 {"request": request_payload, "response": sanitize_payload(result)},
                 _snapshot_meta(service, action, "event", ok=True),
                 source_meta,
+                inputs=request_payload,
             )
         if action_kind == "read":
             entity = _infer_snapshot_entity(service, action, result, source_kind)
@@ -1982,6 +3322,7 @@ def dispatch_task(service, action, params=None):
                     sanitize_payload(result),
                     _snapshot_meta(service, action, "snapshot", ok=True),
                     source_meta,
+                    inputs=request_payload,
                 )
                 _emit_additional_snapshots(service, action, params, result, source_kind)
         return result
@@ -2025,6 +3366,7 @@ def dispatch_task(service, action, params=None):
                     {"request": request_payload, "error": str(exc)},
                     _snapshot_meta(service, action, "event", ok=False),
                     source_meta,
+                    inputs=request_payload,
                 )
             raise
         if snapshot_enabled:
@@ -2034,6 +3376,7 @@ def dispatch_task(service, action, params=None):
                 {"request": request_payload, "response": sanitize_payload(result)},
                 _snapshot_meta(service, action, "event", ok=True),
                 source_meta,
+                inputs=request_payload,
             )
         if action_kind == "read":
             entity = _infer_snapshot_entity(service, action, result, source_kind)
@@ -2044,6 +3387,7 @@ def dispatch_task(service, action, params=None):
                     sanitize_payload(result),
                     _snapshot_meta(service, action, "snapshot", ok=True),
                     source_meta,
+                    inputs=request_payload,
                 )
                 _emit_additional_snapshots(service, action, params, result, source_kind)
         return result
@@ -2065,6 +3409,7 @@ def dispatch_task(service, action, params=None):
                     {"request": request_payload, "error": str(exc)},
                     _snapshot_meta(service, action, "event", ok=False),
                     source_meta,
+                    inputs=request_payload,
                 )
             raise
         if snapshot_enabled:
@@ -2074,8 +3419,61 @@ def dispatch_task(service, action, params=None):
                 {"request": request_payload, "response": sanitize_payload(result)},
                 _snapshot_meta(service, action, "event", ok=True),
                 source_meta,
+                inputs=request_payload,
             )
         return result
+
+    if service == "registry" and action in {"list_watchlists", "save_watchlist", "delete_watchlist", "diff_watchlist", "capture_watchlist"}:
+        data = params or {}
+        if action == "list_watchlists":
+            return _list_registry_watchlists()
+        if action == "save_watchlist":
+            return _save_registry_watchlist(data)
+        if action == "delete_watchlist":
+            return _delete_registry_watchlist(data.get("watchlist_id") or data.get("id"))
+        if action == "diff_watchlist":
+            from platform_core.snapshot_diff import diff_snapshots
+
+            snapshot_a = data.get("snapshot_a")
+            snapshot_b = data.get("snapshot_b")
+            watchlist_id = data.get("watchlist_id")
+            canonical_id = data.get("canonical_id")
+            if not canonical_id:
+                suffix = f"registry-{watchlist_id}" if watchlist_id else "admin_host"
+                canonical_id = f"admin_host:{suffix}"
+            if not snapshot_a or not snapshot_b:
+                history = STATE.snapshot_store.list_snapshots(canonical_id=canonical_id, limit=2)
+                if len(history) >= 2:
+                    snapshot_a = history[1].get("snapshot_id")
+                    snapshot_b = history[0].get("snapshot_id")
+            if not snapshot_a or not snapshot_b:
+                return {"ok": False, "error": "Not enough snapshots to diff."}
+            snap_a = STATE.snapshot_store.get_snapshot(snapshot_a)
+            snap_b = STATE.snapshot_store.get_snapshot(snapshot_b)
+            if not snap_a or not snap_b:
+                return {"ok": False, "error": "Snapshot not found."}
+            return {"ok": True, "diff": diff_snapshots(snap_a, snap_b, store=STATE.snapshot_store)}
+        if action == "capture_watchlist":
+            watchlist_id = data.get("watchlist_id") or "network.core"
+            profile = data.get("profile") or "core"
+            hostname = data.get("hostname") or f"registry-{watchlist_id}"
+            subject = data.get("subject") or {"kind": "admin_host", "identifiers": {"hostname": hostname}}
+            context = _build_snapshot_context({"source": "registry"})
+            context.setdefault("graph", STATE.get_graph())
+            context.setdefault("powershell", STATE.powershell)
+            context["probe_plan"] = ["config.registry.watchlist_snapshot"]
+            context["probe_options"] = {
+                "config.registry.watchlist_snapshot": {
+                    "inputs": {
+                        "watchlist_id": watchlist_id,
+                        "recurse_depth": data.get("recurse_depth", 0),
+                        "max_items": data.get("max_items", 200),
+                    }
+                }
+            }
+            result = STATE.snapshot_engine.capture_snapshot(subject, profile, context)
+            snapshot = STATE.snapshot_store.get_snapshot(result.get("snapshot_id"))
+            return {"ok": True, "snapshot": snapshot, "result": result}
 
     if service not in ACTIONS:
         raise ValueError(f"Unknown service '{service}'")
@@ -2126,6 +3524,7 @@ def dispatch_task(service, action, params=None):
                 sanitize_payload(pre_payload),
                 _snapshot_meta(service, action, "pre", ok=True),
                 source_meta,
+                inputs=request_payload,
             )
     try:
         result = method(**call_params)
@@ -2137,6 +3536,7 @@ def dispatch_task(service, action, params=None):
                 {"request": request_payload, "error": str(exc)},
                 _snapshot_meta(service, action, "event", ok=False),
                 source_meta,
+                inputs=request_payload,
             )
         if action in AUDIT_ACTION_MAP:
             id_key, update_key = AUDIT_ACTION_MAP[action]
@@ -2156,27 +3556,83 @@ def dispatch_task(service, action, params=None):
                 }
             )
         raise
+    if source_kind == "powershell" and is_powershell_envelope(result):
+        if not result.get("ok", True):
+            raise PowerShellCommandError(result.get("error", {}).get("message", "PowerShell command failed."), output=sanitize_payload(result))
+        result = sanitize_payload(result)
+    result_payload = _extract_action_payload(result)
+    if action == "gpresult_report" and isinstance(result_payload, dict):
+        report_path = result_payload.get("report_path")
+        artifact_name = _store_artifact(report_path, prefix="gpresult")
+        if artifact_name:
+            artifact = {"name": artifact_name, "url": f"/api/artifacts/{artifact_name}"}
+            if isinstance(result, dict):
+                result.setdefault("meta", {})
+                result["meta"]["artifact"] = artifact
+            result_payload["artifact"] = artifact
+    evidence_items = []
+    if service == "eventlogs" and isinstance(result_payload, dict):
+        if action == "export_evtx":
+            exports = result_payload.get("exports") or []
+            for export in exports:
+                path = export.get("path") if isinstance(export, dict) else None
+                if not path:
+                    continue
+                evidence = _record_evidence("evtx", path, description=f"EVTX export {export.get('log_name')}")
+                if evidence:
+                    export["artifact"] = evidence.get("artifact")
+                    export["evidence_id"] = evidence.get("evidence_id")
+                    evidence_items.append(evidence)
+        elif action == "import_evtx":
+            file_path = result_payload.get("file_path") or (params or {}).get("file_path")
+            evidence = _record_evidence("evtx", file_path, description="EVTX import")
+            if evidence:
+                evidence_items.append(evidence)
+    if service == "registry" and isinstance(result_payload, dict):
+        if action == "export_reg":
+            export_path = result_payload.get("export_path")
+            evidence = _record_evidence("reg_export", export_path, description="Registry export")
+            if evidence:
+                result_payload["artifact"] = evidence.get("artifact")
+                result_payload["evidence_id"] = evidence.get("evidence_id")
+                evidence_items.append(evidence)
+        elif action == "save_hive":
+            hive_path = result_payload.get("hive_path")
+            evidence = _record_evidence("registry_hive", hive_path, description="Registry hive save")
+            if evidence:
+                result_payload["artifact"] = evidence.get("artifact")
+                result_payload["evidence_id"] = evidence.get("evidence_id")
+                evidence_items.append(evidence)
+    if evidence_items:
+        result_payload.setdefault("evidence", evidence_items)
+        artifacts = [item.get("artifact") for item in evidence_items if item.get("artifact")]
+        if artifacts:
+            result_payload["artifacts"] = artifacts
+            if "artifact" not in result_payload:
+                result_payload["artifact"] = artifacts[0]
     if snapshot_enabled:
         _store_snapshot(
             f"action.{service}.{action}",
             target,
-            {"request": request_payload, "response": sanitize_payload(result)},
+            {"request": request_payload, "response": sanitize_payload(result_payload)},
             _snapshot_meta(service, action, "event", ok=True),
             source_meta,
+            inputs=request_payload,
         )
     if action_kind == "read":
-        entity = _infer_snapshot_entity(service, action, result, source_kind)
+        entity = _infer_snapshot_entity(service, action, result_payload, source_kind)
         if snapshot_enabled:
             _store_snapshot(
                 f"{service}.{entity}",
-                _build_snapshot_target(call_params, result if isinstance(result, dict) else None),
-                sanitize_payload(result),
+                _build_snapshot_target(call_params, result_payload if isinstance(result_payload, dict) else None),
+                sanitize_payload(result_payload),
                 _snapshot_meta(service, action, "snapshot", ok=True),
                 source_meta,
+                inputs=request_payload,
             )
-            _emit_additional_snapshots(service, action, call_params, result, source_kind)
+            _emit_additional_snapshots(service, action, call_params, result_payload, source_kind)
     if action_kind == "write" and snapshot_enabled:
-        post_payload = _capture_state_snapshot(service, action, client, call_params, result if isinstance(result, dict) else None)
+        post_payload = _capture_state_snapshot(service, action, client, call_params, result_payload if isinstance(result_payload, dict) else None)
         if post_payload is not None:
             entity = _infer_snapshot_entity(service, action, post_payload, source_kind)
             _store_snapshot(
@@ -2185,6 +3641,7 @@ def dispatch_task(service, action, params=None):
                 sanitize_payload(post_payload),
                 _snapshot_meta(service, action, "post", ok=True),
                 source_meta,
+                inputs=request_payload,
             )
     if action in AUDIT_ACTION_MAP:
         id_key, update_key = AUDIT_ACTION_MAP[action]

@@ -1,4 +1,52 @@
-from microsoft import PowerShellModuleClient
+from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_powershell_data
+
+
+def _parse_gpresult_summary(text):
+    summary = {"user": {}, "computer": {}, "applied_gpos": {"user": [], "computer": []}}
+    section = None
+    collecting = False
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if collecting:
+                collecting = False
+            continue
+        lower = stripped.lower()
+        if lower.startswith("computer settings"):
+            section = "computer"
+            collecting = False
+            continue
+        if lower.startswith("user settings"):
+            section = "user"
+            collecting = False
+            continue
+        if "applied group policy objects" in lower:
+            collecting = True
+            continue
+        if collecting and section:
+            if lower.startswith("the following gpos were not applied"):
+                collecting = False
+                continue
+            summary["applied_gpos"][section].append(stripped)
+            continue
+        if ":" in stripped:
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            mapped = None
+            if key.lower().startswith("domain name"):
+                mapped = "domain"
+            elif key.lower().startswith("computer name"):
+                mapped = "computer_name"
+            elif key.lower().startswith("user name"):
+                mapped = "user_name"
+            elif key.lower().startswith("last time group policy was applied"):
+                mapped = "last_applied"
+            elif key.lower().startswith("group policy was applied from"):
+                mapped = "applied_from"
+            if mapped and section:
+                summary[section][mapped] = value
+    return summary
 
 
 def _ps_quote(value):
@@ -24,6 +72,16 @@ def _ps_params(params):
             continue
         parts.append(f"-{key} {_ps_value(value)}")
     return " " + " ".join(parts) if parts else ""
+
+
+def _wrap_envelope(result, payload_builder):
+    if is_powershell_envelope(result):
+        if not result.get("ok", True):
+            return result
+        data = unwrap_powershell_data(result)
+        payload = payload_builder(data)
+        return {**result, "data": payload}
+    return payload_builder(result)
 
 
 class LocalADClient:
@@ -127,6 +185,57 @@ class LocalADClient:
         cmd = "Get-GPInheritance" + _ps_params({"Target": ou_dn})
         return self._get_powershell().run_json(cmd)
 
+    def get_gpo_links(self, ou_dn):
+        script = f"""
+        $target = {_ps_value(ou_dn)}
+        $inherit = Get-GPInheritance -Target $target
+        $direct = @()
+        $inherited = @()
+        if ($inherit.GpoLinks) {{
+          $direct = $inherit.GpoLinks | Select-Object DisplayName,Enabled,Enforced,Order,GpoId,Target
+        }}
+        if ($inherit.InheritedGpoLinks) {{
+          $inherited = $inherit.InheritedGpoLinks | Select-Object DisplayName,Enabled,Enforced,Order,GpoId,Target
+        }}
+        [PSCustomObject]@{{
+          target = $target
+          gpo_links = $direct
+          inherited_links = $inherited
+          block_inheritance = $inherit.BlockInheritance
+        }}
+        """
+        return self._get_powershell().run_json(script)
+
+    def get_gpo_report(self, name, report_type="Xml", output_path=None):
+        if not name:
+            raise ValueError("GPO name is required.")
+        report_type = report_type or "Xml"
+        script = f"""
+        $name = {_ps_value(name)}
+        $type = '{_ps_quote(report_type)}'
+        $path = {_ps_value(output_path)}
+        if (-not $path) {{
+          $ext = if ($type -match 'html') {{ 'html' }} else {{ 'xml' }}
+          $path = Join-Path $env:TEMP ("gpo_report_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".$ext")
+        }}
+        Get-GPOReport -Name $name -ReportType $type -Path $path
+        [PSCustomObject]@{{
+          name = $name
+          report_type = $type
+          report_path = $path
+        }}
+        """
+        return self._get_powershell().run_json(script)
+
+    def get_gppref_registry_value(self, gpo_name, key, value_name=None):
+        if not gpo_name or not key:
+            raise ValueError("GPO name and registry key are required.")
+        params = {"Name": gpo_name, "Key": key}
+        if value_name:
+            params["ValueName"] = value_name
+        cmd = "Get-GPPrefRegistryValue" + _ps_params(params)
+        return self._get_powershell().run_json(cmd)
+
     def link_gpo(self, gpo_name, ou_dn, enforced=False):
         cmd = "New-GPLink" + _ps_params({"Name": gpo_name, "Target": ou_dn, "Enforced": enforced})
         return self._get_powershell().run(cmd)
@@ -143,6 +252,37 @@ class LocalADClient:
     def restore_gpo(self, gpo_name, path):
         cmd = "Restore-GPO" + _ps_params({"Name": gpo_name, "Path": path})
         return self._get_powershell().run(cmd)
+
+    def gpresult_report(self, report_type="summary", output_path=None, include_summary=False):
+        report_type = (report_type or "summary").lower()
+        if report_type in {"html", "h"}:
+            script = f"""
+            $path = {_ps_value(output_path)}
+            if (-not $path) {{
+              $path = Join-Path $env:TEMP ("gpresult_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".html")
+            }}
+            gpresult /h $path /f | Out-String | Out-Null
+            [PSCustomObject]@{{ report_path = $path; report_type = 'html' }}
+            """
+            result = self._get_powershell().run_json(script)
+            if include_summary and is_powershell_envelope(result) and result.get("ok", True):
+                summary_result = self._get_powershell().run("gpresult /r")
+                if is_powershell_envelope(summary_result) and summary_result.get("ok", True):
+                    raw = unwrap_powershell_data(summary_result)
+                    summary = _parse_gpresult_summary(raw)
+                    payload = unwrap_powershell_data(result) or {}
+                    payload["summary"] = summary
+                    return {**result, "data": payload}
+            return result
+        result = self._get_powershell().run("gpresult /r")
+        wrapped = _wrap_envelope(result, lambda output: {"raw_text": output, "report_type": "summary"})
+        if include_summary and is_powershell_envelope(wrapped) and wrapped.get("ok", True):
+            raw = unwrap_powershell_data(wrapped).get("raw_text")
+            summary = _parse_gpresult_summary(raw)
+            payload = unwrap_powershell_data(wrapped) or {}
+            payload["summary"] = summary
+            return {**wrapped, "data": payload}
+        return wrapped
 
 
 class LocalADPowerShellClient(PowerShellModuleClient):

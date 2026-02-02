@@ -1,0 +1,9 @@
+[
+  {
+    "name": "dns_resolve",
+    "target": "graph.microsoft.com",
+    "ok": true,
+    "addresses": ["20.99.0.0"],
+    "server": "10.0.0.5"
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "name": "port_probe",
+    "target": "graph.microsoft.com",
+    "port": 443,
+    "reachable": true,
+    "remote_address": "20.99.0.0",
+    "interface": "Ethernet",
+    "latency_ms": 24
+  }
+]

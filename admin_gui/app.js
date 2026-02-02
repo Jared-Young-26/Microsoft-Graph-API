@@ -6,6 +6,7 @@ const pageSubtitle = document.getElementById("page-subtitle");
 const toast = document.getElementById("toast");
 const navToggle = document.getElementById("nav-toggle");
 const sidebar = document.getElementById("sidebar");
+const navList = document.querySelector(".nav");
 const statusBadge = document.getElementById("status-badge");
 const warningBanner = document.getElementById("warning-banner");
 const warningMessage = document.getElementById("warning-message");
@@ -15,6 +16,22 @@ const graphStatusBanner = document.getElementById("graph-status-banner");
 const graphStatusMessage = document.getElementById("graph-status-message");
 const graphStatusMeta = document.getElementById("graph-status-meta");
 const graphStatusDismiss = document.getElementById("graph-status-dismiss");
+const snapshotDiffTriage = document.getElementById("snapshot-diff-triage");
+const reportDiffTriage = document.getElementById("report-diff-triage");
+const snapshotDiffCopy = document.getElementById("snapshot-diff-copy");
+const reportDiffCopy = document.getElementById("report-diff-copy");
+let diffImpactOverrides = {};
+let activeIncidentId = null;
+const snapshotDiffCache = new Map();
+const reportDiffCache = new Map();
+const SECTION_ALIASES = {
+  incidents: "reports",
+  actionpacks: "reports",
+  snapshotcapture: "reports",
+  quickactions: "dashboard",
+  healthcheck: "settings",
+  auditlog: "settings",
+};
 const cfgTenantId = document.getElementById("cfg-tenant-id");
 const cfgClientId = document.getElementById("cfg-client-id");
 const cfgClientSecret = document.getElementById("cfg-client-secret");
@@ -28,8 +45,23 @@ const cfgAzureTenantId = document.getElementById("cfg-azure-tenant-id");
 const cfgAzureSubscriptionId = document.getElementById("cfg-azure-subscription-id");
 const cfgUseKeychain = document.getElementById("cfg-use-keychain");
 const cfgLock = document.getElementById("cfg-lock");
+const cfgMockMode = document.getElementById("cfg-mock-mode");
 const cfgKeychainStatus = document.getElementById("cfg-keychain-status");
 const cfgLockNote = document.getElementById("cfg-lock-note");
+const cfgTimeWarn = document.getElementById("cfg-time-warn");
+const cfgTimeHigh = document.getElementById("cfg-time-high");
+const cfgNtpServers = document.getElementById("cfg-ntp-servers");
+const cfgCertStores = document.getElementById("cfg-cert-stores");
+const cfgCertExpiring = document.getElementById("cfg-cert-expiring");
+const cfgTlsEndpoints = document.getElementById("cfg-tls-endpoints");
+const cfgLatencyEndpoints = document.getElementById("cfg-latency-endpoints");
+const cfgProcessMax = document.getElementById("cfg-process-max");
+const cfgProcessCmdline = document.getElementById("cfg-process-cmdline");
+const cfgDnsProbeTargets = document.getElementById("cfg-dns-probe-targets");
+const cfgDnsResolvers = document.getElementById("cfg-dns-resolvers");
+const cfgPublicResolvers = document.getElementById("cfg-public-resolvers");
+const cfgZoneMap = document.getElementById("cfg-zone-map");
+const cfgDiffImpactOverrides = document.getElementById("cfg-diff-impact-overrides");
 const tenantName = document.getElementById("tenant-name");
 const tenantIdField = document.getElementById("tenant-id");
 const tenantDomains = document.getElementById("tenant-domains");
@@ -153,6 +185,21 @@ const reportDiffSelectB = document.getElementById("report-diff-b");
 const reportDiffRunButton = document.getElementById("report-diff-run");
 const reportDiffMeta = document.getElementById("report-diff-meta");
 const reportDiffOutput = document.getElementById("report-diff-output");
+const snapshotCaptureButton = document.getElementById("snapshot-capture-btn");
+const snapshotSubjectKind = document.getElementById("snapshot-subject-kind");
+const snapshotSubjectValue = document.getElementById("snapshot-subject-value");
+const snapshotSubjectName = document.getElementById("snapshot-subject-name");
+const snapshotProfileSelect = document.getElementById("snapshot-profile");
+const snapshotSubjectSelect = document.getElementById("snapshot-subject-select");
+const snapshotHistoryList = document.getElementById("snapshot-history-list");
+const snapshotHistoryRefresh = document.getElementById("snapshot-history-refresh");
+const snapshotDiffSelectA = document.getElementById("snapshot-diff-a");
+const snapshotDiffSelectB = document.getElementById("snapshot-diff-b");
+const snapshotDiffRunButton = document.getElementById("snapshot-diff-run");
+const snapshotDiffMeta = document.getElementById("snapshot-diff-meta");
+const snapshotDiffOutput = document.getElementById("snapshot-diff-output");
+const snapshotQualityMeta = document.getElementById("snapshot-quality-meta");
+const snapshotQualityOutput = document.getElementById("snapshot-quality-output");
 const sshHostInput = document.getElementById("ssh-host");
 const sshUserInput = document.getElementById("ssh-user");
 const sshPortInput = document.getElementById("ssh-port");
@@ -178,10 +225,12 @@ const topologyDiffRunButton = document.getElementById("topology-diff-run");
 const topologyTimelineList = document.getElementById("topology-timeline");
 const issueUserInput = document.getElementById("issue-user");
 const issueDeviceInput = document.getElementById("issue-device");
+const issueSymptomTemplate = document.getElementById("issue-symptom-template");
 const issueSymptomInput = document.getElementById("issue-symptom");
 const issueAddButton = document.getElementById("issue-add");
 const issueClearButton = document.getElementById("issue-clear");
 const issueList = document.getElementById("issue-list");
+const incidentList = document.getElementById("incident-list");
 const outputSearchQueries = {};
 const lastOutputs = {};
 const lastNormalized = {};
@@ -195,6 +244,10 @@ const outputTimers = new Map();
 const outputStartTimes = new Map();
 const outputStatusPrefixes = new Map();
 const lastActionContext = {};
+let snapshotHistoryItems = [];
+let snapshotEntities = [];
+let symptomTemplates = [];
+let goldenBaselines = [];
 const tableRowCurrent = new WeakMap();
 const tableRowOriginal = new WeakMap();
 const prettyRowCurrent = new WeakMap();
@@ -213,13 +266,17 @@ const SENSITIVE_PARAM_KEYS = new Set([
   "api_key",
   "credential",
   "credentials",
-  "certificate",
   "pfx",
-  "thumbprint",
 ]);
 
 const subtitles = {
   dashboard: "Graph-first operations with PowerShell fallback",
+  incidents: "Incident workspace, timeline, and evidence",
+  actionpacks: "Curated action packs and operator workflows",
+  snapshotcapture: "Capture snapshots on demand",
+  quickactions: "Dashboard shortcuts and pinned tasks",
+  healthcheck: "System health, readiness, and diagnostics",
+  auditlog: "Audit trail and system events",
   exchange: "Mail, calendars, and shared mailbox controls",
   onedrive: "Drive operations, permissions, and sync",
   sharepoint: "Sites, lists, and pages management",
@@ -229,27 +286,49 @@ const subtitles = {
   defender: "Defender for Cloud",
   powerplatform: "Power Platform admin",
   localad: "Local Active Directory (on-prem)",
+  endpoint: "Endpoint inventory and diagnostics",
+  domaincontroller: "Domain controller replication and health",
   printers: "On-prem print servers and GPO checks",
   network: "On-prem network adapters and IP settings",
   ssh: "Remote workstation sessions over SSH",
   fileserver: "On-prem file share enumeration",
   topology: "Live on-prem device and service topology",
+  time: "Time sync and drift intelligence",
+  certificates: "Certificate inventory and TLS trust",
+  processes: "Process, service, and binary reality checks",
+  baselines: "Golden baselines and drift comparison",
+  eventlogs: "Event log summaries and EVTX evidence",
+  registry: "Registry watchlists and exports",
   reports: "Audit-ready reports and summaries",
   purview: "Compliance and data governance",
   settings: "Local session and credentials",
 };
 
 const serviceLabels = {
+  incidents: "Incidents",
+  actionpacks: "Action Packs",
+  snapshotcapture: "Snapshot Capture",
+  quickactions: "Quick Actions",
+  healthcheck: "Health Check",
+  auditlog: "Audit Log",
   onedrive: "OneDrive",
   sharepoint: "SharePoint",
   powerplatform: "Power Platform",
   localad: "Local AD",
+  endpoint: "Endpoints",
+  domaincontroller: "Domain Controller",
   printers: "Printers",
   network: "Network",
   ssh: "SSH",
   fileserver: "File Server",
   topology: "Network Topology",
   defender: "Defender for Cloud",
+  time: "Time & Drift",
+  certificates: "Certificates",
+  processes: "Processes",
+  baselines: "Baselines",
+  eventlogs: "Event Logs",
+  registry: "Registry",
 };
 
 const ACTIONS_UI = {
@@ -886,9 +965,46 @@ const ACTIONS_UI = {
       fields: [{ key: "name", label: "Name filter (optional)" }],
     },
     list_gpos: {
-      label: "List GPOs",
+      label: "List GPOs (Get-GPO -All)",
       mode: "powershell",
       fields: [{ key: "name", label: "Name (optional)" }],
+    },
+    gpo_links: {
+      label: "GPO links (Get-GPLink)",
+      mode: "powershell",
+      fields: [{ key: "ou_dn", label: "OU distinguished name" }],
+    },
+    gpo_inheritance: {
+      label: "GPO inheritance (Get-GPInheritance)",
+      mode: "powershell",
+      fields: [{ key: "ou_dn", label: "OU distinguished name" }],
+    },
+    gpo_report: {
+      label: "GPO report (XML/HTML)",
+      mode: "powershell",
+      fields: [
+        { key: "name", label: "GPO name" },
+        { key: "report_type", label: "Report type", placeholder: "Xml" },
+        { key: "output_path", label: "Output path (optional)" },
+      ],
+    },
+    gppref_registry: {
+      label: "GPP registry preferences",
+      mode: "powershell",
+      fields: [
+        { key: "gpo_name", label: "GPO name" },
+        { key: "key", label: "Registry key (HKLM\\...)" },
+        { key: "value_name", label: "Value name (optional)" },
+      ],
+    },
+    gpresult_report: {
+      label: "GPResult report (summary/html)",
+      mode: "powershell",
+      fields: [
+        { key: "report_type", label: "Report type", placeholder: "summary|html" },
+        { key: "output_path", label: "Output path (optional)" },
+        { key: "include_summary", label: "Include summary", type: "checkbox", defaultChecked: true, sendFalse: true },
+      ],
     },
     link_gpo: {
       label: "Link GPO to OU",
@@ -925,6 +1041,202 @@ const ACTIONS_UI = {
         { key: "gpo_name", label: "GPO name" },
         { key: "path", label: "Backup path" },
       ],
+    },
+  },
+  endpoint: {
+    computer_info: {
+      label: "Computer info",
+      mode: "powershell",
+      fields: [],
+    },
+    cim_summary: {
+      label: "CIM summary (system/OS/BIOS)",
+      mode: "powershell",
+      fields: [],
+    },
+    systeminfo: {
+      label: "Systeminfo baseline",
+      mode: "powershell",
+      fields: [],
+    },
+    system_inventory: {
+      label: "System info snapshot",
+      mode: "powershell",
+      fields: [],
+    },
+    list_processes: {
+      label: "List top processes",
+      mode: "powershell",
+      fields: [{ key: "top", label: "Top", type: "number", placeholder: "25" }],
+    },
+    list_services: {
+      label: "List services",
+      mode: "powershell",
+      fields: [
+        { key: "name", label: "Service name filter (optional)" },
+        { key: "status", label: "Status filter (optional)", placeholder: "Running" },
+      ],
+    },
+    query_event_logs: {
+      label: "Query event logs",
+      mode: "powershell",
+      fields: [
+        { key: "log_name", label: "Log name", placeholder: "System" },
+        { key: "provider", label: "Provider (optional)" },
+        { key: "level", label: "Level (optional)", placeholder: "2" },
+        { key: "event_ids", label: "Event IDs (comma-separated)", placeholder: "6005,6006" },
+        { key: "start_time", label: "Start time (optional)" },
+        { key: "end_time", label: "End time (optional)" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "50" },
+        { key: "contains", label: "Message contains (optional)" },
+      ],
+    },
+    wevtutil_query: {
+      label: "Wevtutil query",
+      mode: "powershell",
+      fields: [
+        { key: "log_name", label: "Log name", placeholder: "System" },
+        { key: "query", label: "XPath query (optional)" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "50" },
+      ],
+    },
+    legacy_event_log: {
+      label: "Legacy event log (Get-EventLog)",
+      mode: "powershell",
+      fields: [
+        { key: "log_name", label: "Log name", placeholder: "System" },
+        { key: "source", label: "Source (optional)" },
+        { key: "entry_type", label: "Entry type (optional)", placeholder: "Error" },
+        { key: "after", label: "After (optional)" },
+        { key: "before", label: "Before (optional)" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "50" },
+      ],
+    },
+    list_hotfixes: {
+      label: "List hotfixes",
+      mode: "powershell",
+      fields: [],
+    },
+    list_dism_packages: {
+      label: "DISM packages (raw)",
+      mode: "powershell",
+      fields: [],
+    },
+    whoami_all: {
+      label: "Whoami /all",
+      mode: "powershell",
+      fields: [],
+    },
+    gpresult_report: {
+      label: "GPResult report",
+      mode: "powershell",
+      fields: [
+        { key: "report_type", label: "Report type", placeholder: "summary|html" },
+        { key: "output_path", label: "Output path (optional)" },
+        { key: "include_summary", label: "Include summary", type: "checkbox", defaultChecked: true, sendFalse: true },
+      ],
+    },
+    rsop_report: {
+      label: "RSoP report (HTML)",
+      mode: "powershell",
+      fields: [{ key: "report_path", label: "Output path (optional)" }],
+    },
+  },
+  domaincontroller: {
+    list_domain_controllers: {
+      label: "List domain controllers",
+      mode: "powershell",
+      fields: [{ key: "domain", label: "Domain/server (optional)" }],
+    },
+    list_dcs_nltest: {
+      label: "List DCs via nltest",
+      mode: "powershell",
+      fields: [{ key: "domain", label: "Domain (contoso.local)" }],
+    },
+    locate_active_dc: {
+      label: "Locate active DC via nltest",
+      mode: "powershell",
+      fields: [{ key: "domain", label: "Domain (contoso.local)" }],
+    },
+    replication_health_summary: {
+      label: "Replication summary",
+      mode: "powershell",
+      fields: [],
+    },
+    show_replication_partners: {
+      label: "Show replication partners",
+      mode: "powershell",
+      fields: [{ key: "dc", label: "Domain controller name" }],
+    },
+    replication_queue: {
+      label: "Replication queue",
+      mode: "powershell",
+      fields: [{ key: "dc", label: "Domain controller name" }],
+    },
+    force_replication_sync: {
+      label: "Force replication sync (careful)",
+      mode: "powershell",
+      confirm: true,
+      fields: [
+        { key: "dc", label: "Domain controller name" },
+        { key: "flags", label: "Sync flags", placeholder: "AdeP" },
+        { key: "execute", label: "Execute now", type: "checkbox" },
+      ],
+    },
+    ad_replication_partner_metadata: {
+      label: "AD replication partner metadata",
+      mode: "powershell",
+      fields: [{ key: "dc", label: "Domain controller (optional)" }],
+    },
+    ad_replication_failures: {
+      label: "AD replication failures",
+      mode: "powershell",
+      fields: [{ key: "dc", label: "Domain controller (optional)" }],
+    },
+    ad_replication_queue_operations: {
+      label: "AD replication queue operations",
+      mode: "powershell",
+      fields: [{ key: "dc", label: "Domain controller (optional)" }],
+    },
+    dc_diagnostics: {
+      label: "Run dcdiag",
+      mode: "powershell",
+      fields: [{ key: "verbose", label: "Verbose mode", type: "checkbox" }],
+    },
+    get_forest_facts: {
+      label: "Forest facts",
+      mode: "powershell",
+      fields: [],
+    },
+    get_domain_facts: {
+      label: "Domain facts",
+      mode: "powershell",
+      fields: [],
+    },
+    list_fsmo_roles: {
+      label: "List FSMO roles",
+      mode: "powershell",
+      fields: [],
+    },
+    sysvol_migration_state: {
+      label: "SYSVOL migration state",
+      mode: "powershell",
+      fields: [],
+    },
+    time_sync_status: {
+      label: "Time sync status",
+      mode: "powershell",
+      fields: [],
+    },
+    time_sync_monitor: {
+      label: "Time sync monitor",
+      mode: "powershell",
+      fields: [{ key: "domain", label: "Domain (optional)" }],
+    },
+    time_sync_health: {
+      label: "Time sync health",
+      mode: "powershell",
+      fields: [{ key: "domain", label: "Domain (optional)" }],
     },
   },
   printers: {
@@ -1051,10 +1363,221 @@ const ACTIONS_UI = {
       mode: "powershell",
       fields: [
         { key: "host", label: "Host or IP" },
+        { key: "hosts", label: "Hosts (comma-separated, optional)" },
         { key: "count", label: "Count", type: "number", placeholder: "4" },
         { key: "timeout_seconds", label: "Timeout (seconds)", type: "number", placeholder: "2" },
         { key: "ipv6", label: "Use IPv6", type: "checkbox" },
+        { key: "parallel", label: "Parallel ping", type: "checkbox", defaultChecked: true, sendFalse: true },
+        { key: "throttle", label: "Parallel throttle", type: "number", placeholder: "8" },
       ],
+    },
+    test_port: {
+      label: "Test port (TCP probe)",
+      mode: "powershell",
+      fields: [
+        { key: "host", label: "Host or IP" },
+        { key: "port", label: "Port", type: "number", placeholder: "443" },
+        { key: "information_level", label: "Info level", placeholder: "Detailed" },
+      ],
+    },
+    trace_route: {
+      label: "Trace route",
+      mode: "powershell",
+      fields: [
+        { key: "host", label: "Host or IP" },
+        { key: "max_hops", label: "Max hops", type: "number", placeholder: "30" },
+        { key: "timeout_ms", label: "Timeout (ms)", type: "number", placeholder: "3000" },
+        { key: "resolve_names", label: "Resolve hostnames", type: "checkbox" },
+      ],
+    },
+    pathping_analysis: {
+      label: "Pathping analysis",
+      mode: "powershell",
+      fields: [
+        { key: "host", label: "Host or IP" },
+        { key: "max_hops", label: "Max hops", type: "number", placeholder: "30" },
+        { key: "timeout_ms", label: "Timeout (ms)", type: "number", placeholder: "1000" },
+        { key: "query_count", label: "Query count", type: "number", placeholder: "1" },
+      ],
+    },
+    resolve_dns_name: {
+      label: "Resolve hostname (DNS)",
+      mode: "powershell",
+      fields: [
+        { key: "name", label: "Hostname" },
+        { key: "record_type", label: "Record type", placeholder: "A" },
+        { key: "server", label: "DNS server (optional)" },
+      ],
+    },
+    list_dns_records: {
+      label: "List DNS records",
+      mode: "powershell",
+      fields: [
+        { key: "zone", label: "Zone name" },
+        { key: "record_type", label: "Record type (optional)", placeholder: "A" },
+        { key: "server", label: "DNS server (optional)" },
+        { key: "name_pattern", label: "Name pattern (optional)", placeholder: "*" },
+        { key: "max_results", label: "Max results", type: "number", placeholder: "500" },
+      ],
+    },
+    dns_client_servers: {
+      label: "DNS client servers",
+      mode: "powershell",
+      fields: [
+        { key: "interface_alias", label: "Interface alias (optional)" },
+        { key: "address_family", label: "Address family (optional)", placeholder: "IPv4" },
+      ],
+    },
+    dns_client_cache: {
+      label: "DNS client cache",
+      mode: "powershell",
+      fields: [
+        { key: "name_pattern", label: "Name filter (optional)", placeholder: "*" },
+        { key: "max_results", label: "Max results", type: "number", placeholder: "1000" },
+      ],
+    },
+    dns_cache_display: {
+      label: "DNS cache (ipconfig)",
+      mode: "powershell",
+      fields: [],
+    },
+    netstat_connections: {
+      label: "Netstat connections",
+      mode: "powershell",
+      fields: [],
+    },
+    tcp_connections: {
+      label: "TCP connections (Get-NetTCPConnection)",
+      mode: "powershell",
+      fields: [
+        { key: "state", label: "State (optional)", placeholder: "Established" },
+        { key: "local_port", label: "Local port (optional)", type: "number" },
+        { key: "remote_port", label: "Remote port (optional)", type: "number" },
+      ],
+    },
+    list_routes: {
+      label: "Routes (Get-NetRoute)",
+      mode: "powershell",
+      fields: [
+        { key: "interface_alias", label: "Interface alias (optional)" },
+        { key: "address_family", label: "Address family (optional)", placeholder: "IPv4" },
+      ],
+    },
+    route_print: {
+      label: "Route print (legacy)",
+      mode: "powershell",
+      fields: [],
+    },
+    list_ip_configurations: {
+      label: "IP configuration summary",
+      mode: "powershell",
+      fields: [{ key: "interface_alias", label: "Interface alias (optional)" }],
+    },
+    list_ip_interfaces: {
+      label: "IP interface metrics",
+      mode: "powershell",
+      fields: [
+        { key: "interface_alias", label: "Interface alias (optional)" },
+        { key: "address_family", label: "Address family (optional)", placeholder: "IPv4" },
+      ],
+    },
+    list_adapter_advanced: {
+      label: "Adapter advanced properties",
+      mode: "powershell",
+      fields: [{ key: "name", label: "Adapter name (optional)" }],
+    },
+    list_neighbors: {
+      label: "On-link neighbors",
+      mode: "powershell",
+      fields: [
+        { key: "interface_alias", label: "Interface alias (optional)" },
+        { key: "address_family", label: "Address family (optional)", placeholder: "IPv4" },
+      ],
+    },
+    arp_table: {
+      label: "ARP table (arp -a)",
+      mode: "powershell",
+      fields: [],
+    },
+    firewall_profiles: {
+      label: "Firewall profiles",
+      mode: "powershell",
+      fields: [],
+    },
+    firewall_rules: {
+      label: "Firewall rules",
+      mode: "powershell",
+      fields: [
+        { key: "name_pattern", label: "Name filter (optional)", placeholder: "*" },
+        { key: "direction", label: "Direction (optional)", placeholder: "Inbound" },
+        { key: "action", label: "Action (optional)", placeholder: "Allow" },
+        { key: "enabled", label: "Enabled only", type: "checkbox" },
+        { key: "profile", label: "Profile filter (optional)", placeholder: "Domain" },
+      ],
+    },
+    firewall_ports: {
+      label: "Firewall port filters",
+      mode: "powershell",
+      fields: [
+        { key: "local_port", label: "Local port (optional)", type: "number" },
+        { key: "remote_port", label: "Remote port (optional)", type: "number" },
+        { key: "protocol", label: "Protocol (optional)", placeholder: "TCP" },
+      ],
+    },
+    firewall_quick_check: {
+      label: "Firewall profiles & key rules",
+      mode: "powershell",
+      fields: [
+        { key: "local_port", label: "Local port (optional)", type: "number" },
+        { key: "program", label: "Program path filter (optional)", placeholder: "*\\app.exe" },
+        { key: "direction", label: "Direction (optional)", placeholder: "Inbound" },
+        { key: "profile", label: "Profile filter (optional)", placeholder: "Domain" },
+      ],
+    },
+    firewall_settings: {
+      label: "Firewall settings",
+      mode: "powershell",
+      fields: [],
+    },
+    smb_test_path: {
+      label: "Test SMB path",
+      mode: "powershell",
+      fields: [{ key: "unc_path", label: "UNC path (\\\\server\\\\share)" }],
+    },
+    smb_connections: {
+      label: "SMB connections",
+      mode: "powershell",
+      fields: [],
+    },
+    smb_sessions: {
+      label: "SMB sessions",
+      mode: "powershell",
+      fields: [{ key: "server", label: "Server (optional)" }],
+    },
+    smb_open_files: {
+      label: "SMB open files",
+      mode: "powershell",
+      fields: [{ key: "server", label: "Server (optional)" }],
+    },
+    smb_client_config: {
+      label: "SMB client configuration",
+      mode: "powershell",
+      fields: [],
+    },
+    smb_status: {
+      label: "SMB status",
+      mode: "powershell",
+      fields: [{ key: "server", label: "Server (for sessions, optional)" }],
+    },
+    net_use: {
+      label: "Net use mappings",
+      mode: "powershell",
+      fields: [],
+    },
+    kerberos_tickets: {
+      label: "Kerberos tickets (klist)",
+      mode: "powershell",
+      fields: [],
     },
   },
   ssh: {
@@ -1136,6 +1659,168 @@ const ACTIONS_UI = {
       label: "List compliance actions",
       mode: "powershell",
       fields: [{ key: "search_name", label: "Search name (optional)" }],
+    },
+  },
+  time: {
+    time_chain: {
+      label: "Time chain status",
+      mode: "powershell",
+      fields: [
+        { key: "ntp_servers", label: "NTP servers", placeholder: "pool.ntp.org, time.windows.com" },
+      ],
+    },
+    time_drift_history: {
+      label: "Time drift history",
+      mode: "local",
+      fields: [
+        { key: "canonical_id", label: "Subject ID (optional)" },
+        { key: "limit", label: "Limit", type: "number", placeholder: "50" },
+      ],
+    },
+  },
+  certificates: {
+    list_machine_certificates: {
+      label: "List machine certificates",
+      mode: "powershell",
+      fields: [
+        { key: "stores", label: "Stores", placeholder: "My, Root, CA" },
+        { key: "expiring_days", label: "Expiring within days", type: "number", placeholder: "30" },
+      ],
+    },
+    tls_probe: {
+      label: "TLS trust probe",
+      mode: "powershell",
+      fields: [
+        { key: "targets", label: "Targets", placeholder: "graph.microsoft.com, login.microsoftonline.com" },
+        { key: "port", label: "Port", type: "number", placeholder: "443" },
+      ],
+    },
+  },
+  processes: {
+    process_inventory: {
+      label: "Process inventory",
+      mode: "powershell",
+      fields: [
+        { key: "include_command_line", label: "Include command line", type: "checkbox" },
+        { key: "max_items", label: "Max items", type: "number", placeholder: "200" },
+      ],
+    },
+    service_process_map: {
+      label: "Service → process map",
+      mode: "powershell",
+      fields: [{ key: "max_items", label: "Max items", type: "number", placeholder: "200" }],
+    },
+  },
+  baselines: {
+    list_golden: { label: "List golden baselines", mode: "local", fields: [] },
+    set_golden: {
+      label: "Set golden baseline",
+      mode: "local",
+      fields: [
+        { key: "kind", label: "Subject kind", placeholder: "admin_host" },
+        { key: "snapshot_id", label: "Snapshot ID" },
+        { key: "label", label: "Label (optional)" },
+      ],
+    },
+    compare_golden: {
+      label: "Compare to golden",
+      mode: "local",
+      fields: [{ key: "snapshot_id", label: "Snapshot ID" }],
+    },
+    clear_golden: {
+      label: "Clear golden baseline",
+      mode: "local",
+      fields: [{ key: "kind", label: "Subject kind", placeholder: "admin_host" }],
+    },
+  },
+  eventlogs: {
+    eventlog_summary: {
+      label: "Event log summary",
+      mode: "powershell",
+      fields: [
+        { key: "log_names", label: "Log names", placeholder: "System, Application" },
+        { key: "levels", label: "Levels", placeholder: "Error, Warning" },
+        { key: "time_window_hours", label: "Lookback hours", type: "number", placeholder: "24" },
+        { key: "event_ids", label: "Event IDs (comma-separated)" },
+        { key: "providers", label: "Providers (comma-separated)" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "500" },
+        { key: "sample_size", label: "Sample size", type: "number", placeholder: "10" },
+      ],
+    },
+    eventlog_gpo_failures: { label: "GPO failures summary", mode: "powershell", fields: [] },
+    eventlog_print_failures: { label: "Print failures summary", mode: "powershell", fields: [] },
+    eventlog_rdp_failures: { label: "RDP/logon failures summary", mode: "powershell", fields: [] },
+    eventlog_windows_update_failures: { label: "Windows Update failures", mode: "powershell", fields: [] },
+    export_evtx: {
+      label: "Export EVTX",
+      mode: "powershell",
+      fields: [
+        { key: "log_names", label: "Log names", placeholder: "System, Application" },
+        { key: "output_dir", label: "Output folder (optional)" },
+      ],
+    },
+    import_evtx: {
+      label: "Import EVTX",
+      mode: "powershell",
+      fields: [
+        { key: "file_path", label: "EVTX file path" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "500" },
+        { key: "sample_size", label: "Sample size", type: "number", placeholder: "10" },
+      ],
+    },
+  },
+  registry: {
+    list_watchlists: { label: "List watchlists", mode: "local", fields: [] },
+    save_watchlist: {
+      label: "Save watchlist",
+      mode: "local",
+      fields: [
+        { key: "watchlist_id", label: "Watchlist ID" },
+        { key: "name", label: "Name" },
+        { key: "description", label: "Description" },
+        { key: "paths", label: "Paths (comma-separated)" },
+      ],
+    },
+    delete_watchlist: {
+      label: "Delete watchlist",
+      mode: "local",
+      fields: [{ key: "watchlist_id", label: "Watchlist ID" }],
+    },
+    capture_watchlist: {
+      label: "Capture watchlist snapshot",
+      mode: "local",
+      fields: [
+        { key: "watchlist_id", label: "Watchlist ID", placeholder: "network.core" },
+        { key: "hostname", label: "Host (optional)", placeholder: "admin_host" },
+        { key: "recurse_depth", label: "Recurse depth", type: "number", placeholder: "0" },
+        { key: "max_items", label: "Max items", type: "number", placeholder: "200" },
+      ],
+    },
+    diff_watchlist: {
+      label: "Diff watchlist snapshots",
+      mode: "local",
+      fields: [
+        { key: "watchlist_id", label: "Watchlist ID (optional)", placeholder: "network.core" },
+        { key: "snapshot_a", label: "Snapshot A (optional)" },
+        { key: "snapshot_b", label: "Snapshot B (optional)" },
+        { key: "canonical_id", label: "Subject ID (optional)", placeholder: "admin_host:admin_host" },
+      ],
+    },
+    export_reg: {
+      label: "Export .reg",
+      mode: "powershell",
+      fields: [
+        { key: "path", label: "Registry path" },
+        { key: "output_path", label: "Output path (optional)" },
+      ],
+    },
+    save_hive: {
+      label: "Save registry hive",
+      mode: "powershell",
+      fields: [
+        { key: "hive", label: "Hive", placeholder: "HKLM\\\\SYSTEM" },
+        { key: "output_path", label: "Output path (optional)" },
+      ],
     },
   },
 };
@@ -1362,8 +2047,10 @@ const POWERSHELL_MODULES_BY_SERVICE = {
   azure: ["Az.Accounts"],
   purview: ["ExchangeOnlineManagement"],
   localad: ["ActiveDirectory", "GroupPolicy"],
+  endpoint: ["GroupPolicy"],
+  domaincontroller: ["ActiveDirectory"],
   printers: ["PrintManagement", "GroupPolicy"],
-  network: ["NetAdapter", "NetTCPIP"],
+  network: ["NetAdapter", "NetTCPIP", "NetSecurity", "DnsServer", "SmbShare"],
   fileserver: [],
   topology: [],
 };
@@ -1600,6 +2287,128 @@ const DEFAULT_ACTION_PACKS = [
         action: "remove_group_member",
         label: "Remove from groups (optional)",
         optional: true,
+      },
+    ],
+  },
+  {
+    id: "connectivity-triage",
+    name: "Connectivity triage",
+    description:
+      "DNS resolve, ping, port probe, traceroute, route table, and firewall profiles in one sweep.",
+    bundleOnComplete: true,
+    defaults: {
+      stepParams: {
+        "network.resolve_dns_name": { record_type: "A" },
+        "network.ping_host": { count: 4, timeout_seconds: 2 },
+        "network.test_port": { port: 443, information_level: "Detailed" },
+        "network.trace_route": { max_hops: 20, timeout_ms: 3000 },
+        "network.firewall_quick_check": { local_port: 443 },
+      },
+    },
+    steps: [
+      {
+        service: "network",
+        action: "resolve_dns_name",
+        label: "DNS resolve",
+        safe: true,
+        phase: "Connectivity",
+      },
+      {
+        service: "network",
+        action: "ping_host",
+        label: "Ping host",
+        safe: true,
+        phase: "Connectivity",
+      },
+      {
+        service: "network",
+        action: "test_port",
+        label: "Test TCP port",
+        safe: true,
+        phase: "Connectivity",
+      },
+      {
+        service: "network",
+        action: "trace_route",
+        label: "Trace route",
+        safe: true,
+        phase: "Path",
+      },
+      {
+        service: "network",
+        action: "list_routes",
+        label: "Route table snapshot",
+        safe: true,
+        phase: "Host",
+      },
+      {
+        service: "network",
+        action: "firewall_quick_check",
+        label: "Firewall profiles & key rules",
+        safe: true,
+        phase: "Host",
+      },
+      {
+        type: "note",
+        phase: "Evidence",
+        label: "Incident bundle",
+        note: "This pack exports a combined incident bundle when it completes.",
+      },
+    ],
+  },
+  {
+    id: "dc-health-triage",
+    name: "DC health triage",
+    description:
+      "List DCs, check replication summary, show replication partners, run dcdiag, and validate time sync.",
+    bundleOnComplete: true,
+    defaults: {
+      stepParams: {
+        "domaincontroller.time_sync_health": {},
+        "domaincontroller.dc_diagnostics": { verbose: false },
+      },
+    },
+    steps: [
+      {
+        service: "domaincontroller",
+        action: "list_domain_controllers",
+        label: "List domain controllers",
+        safe: true,
+        phase: "Discovery",
+      },
+      {
+        service: "domaincontroller",
+        action: "replication_health_summary",
+        label: "Replication summary",
+        safe: true,
+        phase: "Replication",
+      },
+      {
+        service: "domaincontroller",
+        action: "show_replication_partners",
+        label: "Show replication partners (auto-pick DC)",
+        safe: true,
+        phase: "Replication",
+      },
+      {
+        service: "domaincontroller",
+        action: "dc_diagnostics",
+        label: "Run dcdiag",
+        safe: true,
+        phase: "Health",
+      },
+      {
+        service: "domaincontroller",
+        action: "time_sync_health",
+        label: "Time sync health",
+        safe: true,
+        phase: "Time",
+      },
+      {
+        type: "note",
+        phase: "Evidence",
+        label: "Incident bundle",
+        note: "This pack exports a combined incident bundle when it completes.",
       },
     ],
   },
@@ -2425,7 +3234,8 @@ function renderIssues() {
     title.textContent = `${issue.user || "Unknown user"} → ${issue.device || "Unknown device"}`;
     const meta = document.createElement("div");
     meta.classList.add("issue-meta");
-    meta.textContent = issue.symptom || "No symptom provided";
+    const templateLabel = symptomTemplates.find((entry) => entry.symptom_id === issue.symptom_id)?.display_name;
+    meta.textContent = templateLabel ? `${templateLabel} · ${issue.symptom || ""}`.trim() : issue.symptom || "No symptom provided";
     detail.appendChild(title);
     detail.appendChild(meta);
     const remove = document.createElement("button");
@@ -2443,7 +3253,34 @@ function renderIssues() {
   });
 }
 
-function addIssue() {
+async function renderIncidents() {
+  if (!incidentList) return;
+  const incidents = await fetchIncidents();
+  incidentList.innerHTML = "";
+  if (!incidents.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No incidents recorded.";
+    incidentList.appendChild(empty);
+    return;
+  }
+  incidents.forEach((incident) => {
+    const row = document.createElement("div");
+    row.classList.add("history-item");
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    title.textContent = incident.title || incident.symptom_id || incident.incident_id;
+    const meta = document.createElement("div");
+    meta.classList.add("history-meta");
+    const when = incident.created_at ? new Date(incident.created_at).toLocaleString() : "Unknown time";
+    meta.textContent = `Status: ${incident.status || "open"} · ${when}`;
+    row.appendChild(title);
+    row.appendChild(meta);
+    incidentList.appendChild(row);
+  });
+}
+
+async function addIssue() {
   const user = issueUserInput?.value.trim();
   const device = issueDeviceInput?.value.trim();
   const symptom = issueSymptomInput?.value.trim();
@@ -2451,24 +3288,43 @@ function addIssue() {
     showToast("Enter at least one field");
     return;
   }
+  const symptomId = issueSymptomTemplate?.value || null;
+  const incident = await createIncident({
+    symptom_id: symptomId,
+    title: symptom || "Incident",
+    description: `${user || "Unknown user"} → ${device || "Unknown device"}`,
+  });
+  if (incident && incident.incident_id) {
+    renderIncidents();
+    activeIncidentId = incident.incident_id;
+  }
   const issues = loadIssues();
-  issues.push({
+  const entry = {
     user,
     device,
     symptom,
+    symptom_id: symptomId,
     timestamp: new Date().toISOString(),
-  });
+    incident_id: incident?.incident_id || null,
+  };
+  issues.push(entry);
   saveIssues(issues);
   renderIssues();
+  captureIncidentSnapshots(entry);
   if (issueUserInput) issueUserInput.value = "";
   if (issueDeviceInput) issueDeviceInput.value = "";
   if (issueSymptomInput) issueSymptomInput.value = "";
+  if (issueSymptomTemplate) issueSymptomTemplate.value = "";
 }
 
 function extractIpStrings(text) {
   if (!text) return [];
   const matches = String(text).match(/\b(\d{1,3}\.){3}\d{1,3}\b/g);
   return matches || [];
+}
+
+function isIpAddress(value) {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(String(value || ""));
 }
 
 function extractTopologyTargets(data) {
@@ -3779,11 +4635,24 @@ function renderTopologyGraph(container, graphData) {
 }
 
 function renderGraph(service, parsed) {
-  if (service !== "topology-report") return;
-  const container = getGraphPanel(service);
-  if (!container) return;
-  const graphData = buildTopologyGraphData(parsed);
-  renderTopologyGraph(container, graphData);
+  if (service === "topology-report") {
+    const container = getGraphPanel(service);
+    if (!container) return;
+    const graphData = buildTopologyGraphData(parsed);
+    renderTopologyGraph(container, graphData);
+  }
+  if (service === "incident") {
+    const container = getGraphPanel(service);
+    if (!container) return;
+    const graph = parsed?.incident_graph;
+    if (!graph || !Array.isArray(graph.nodes)) return;
+    const graphData = {
+      nodes: graph.nodes,
+      edges: graph.edges || [],
+      reportId: graph?.incident?.incident_id || null,
+    };
+    renderTopologyGraph(container, graphData);
+  }
 }
 
 function getSshWsUrl() {
@@ -4239,11 +5108,12 @@ function shouldDisableSnapshots(service, action) {
   return !getSnapshotPreference(service);
 }
 
-async function fetchSnapshots({ type, target, prefix, limit } = {}) {
+async function fetchSnapshots({ type, target, prefix, action, limit } = {}) {
   const params = new URLSearchParams();
   if (type) params.set("type", type);
   if (target) params.set("target", target);
   if (prefix) params.set("prefix", prefix);
+  if (action) params.set("action", action);
   if (limit) params.set("limit", String(limit));
   try {
     const res = await fetch(`/api/snapshots?${params.toString()}`);
@@ -4253,6 +5123,285 @@ async function fetchSnapshots({ type, target, prefix, limit } = {}) {
   } catch (err) {
     return null;
   }
+}
+
+async function fetchSnapshotDiff(snapshotA, snapshotB) {
+  if (!snapshotA || !snapshotB) return null;
+  const params = new URLSearchParams();
+  params.set("a", snapshotA);
+  params.set("b", snapshotB);
+  try {
+    const res = await fetch(`/api/snapshots/diff?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchSnapshotEntities() {
+  try {
+    const res = await fetch("/api/snapshots/entities");
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function fetchSnapshotHistory(canonicalId, limit = 20) {
+  if (!canonicalId) return [];
+  const params = new URLSearchParams();
+  params.set("canonical_id", canonicalId);
+  params.set("limit", String(limit));
+  try {
+    const res = await fetch(`/api/snapshots/history?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function createIncident(payload) {
+  try {
+    const res = await fetch("/api/incidents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to create incident");
+    return data.data;
+  } catch (err) {
+    showToast(err.message || "Incident creation failed");
+    return null;
+  }
+}
+
+async function fetchIncidents(limit = 50) {
+  try {
+    const res = await fetch(`/api/incidents?limit=${limit}`);
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function fetchIncidentGraph(incidentId) {
+  if (!incidentId) return null;
+  try {
+    const res = await fetch(`/api/incidents/${incidentId}/graph`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchIncidentTimeline(incidentId) {
+  if (!incidentId) return null;
+  try {
+    const res = await fetch(`/api/incidents/${incidentId}/timeline`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchGoldenBaselines() {
+  try {
+    const res = await fetch("/api/snapshots/golden");
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function setGoldenBaseline(kind, snapshotId, label = "") {
+  try {
+    const res = await fetch("/api/snapshots/golden", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, snapshot_id: snapshotId, label }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to set golden baseline");
+    return data.data;
+  } catch (err) {
+    showToast(err.message || "Failed to set golden baseline");
+    return null;
+  }
+}
+
+async function compareGoldenBaseline(snapshotId) {
+  if (!snapshotId) return null;
+  const params = new URLSearchParams();
+  params.set("snapshot_id", snapshotId);
+  try {
+    const res = await fetch(`/api/snapshots/golden/diff?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Golden diff failed");
+      return null;
+    }
+    return data.data || null;
+  } catch (err) {
+    showToast("Golden diff failed");
+    return null;
+  }
+}
+
+async function fetchSnapshotEngineDiff(snapshotA, snapshotB) {
+  if (!snapshotA || !snapshotB) return null;
+  const params = new URLSearchParams();
+  params.set("a", snapshotA);
+  params.set("b", snapshotB);
+  try {
+    const res = await fetch(`/api/snapshots/engine/diff?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function resolveSnapshotSubject(aliasType, aliasValue) {
+  if (!aliasType || !aliasValue) return null;
+  const params = new URLSearchParams();
+  params.set("alias_type", aliasType);
+  params.set("alias_value", aliasValue);
+  try {
+    const res = await fetch(`/api/snapshots/resolve?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchSnapshotEvents(canonicalIds, limit = 50) {
+  if (!canonicalIds || !canonicalIds.length) return [];
+  const params = new URLSearchParams();
+  params.set("canonical_ids", canonicalIds.join(","));
+  params.set("limit", String(limit));
+  try {
+    const res = await fetch(`/api/snapshots/events?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function fetchSymptomTemplates() {
+  try {
+    const res = await fetch("/api/symptoms");
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function renderSymptomTemplates() {
+  if (!issueSymptomTemplate) return;
+  issueSymptomTemplate.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "Manual symptom";
+  issueSymptomTemplate.appendChild(defaultOption);
+  symptomTemplates.forEach((template) => {
+    const option = document.createElement("option");
+    option.value = template.symptom_id;
+    option.textContent = template.display_name || template.symptom_id;
+    issueSymptomTemplate.appendChild(option);
+  });
+}
+
+async function refreshSymptomTemplates() {
+  symptomTemplates = await fetchSymptomTemplates();
+  renderSymptomTemplates();
+}
+
+async function captureSnapshots(subjects, profile = "core", context = {}, incidentId = null) {
+  if (!subjects || !subjects.length) return null;
+  const incident = incidentId || activeIncidentId || null;
+  try {
+    const res = await fetch("/api/snapshots/capture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjects, profile, context, incident_id: incident }),
+    });
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function captureIncidentSnapshots(issue) {
+  if (!issue) return null;
+  try {
+    const res = await fetch("/api/snapshots/capture", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        incident: issue,
+        incident_id: issue.incident_id || null,
+        profile: "core",
+        context: { source: "incident" },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function deriveSubjectsFromPack(pack, stepParams) {
+  const subjects = [];
+  const addSubject = (kind, identifiers) => {
+    if (!kind || !identifiers) return;
+    subjects.push({ kind, identifiers });
+  };
+  if (Array.isArray(pack?.subjects)) {
+    pack.subjects.forEach((subject) => {
+      if (subject && typeof subject === "object") subjects.push(subject);
+    });
+  }
+  Object.values(stepParams || {}).forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const user = entry.user_id || entry.upn || entry.user;
+    if (user) addSubject("user", { upn: user });
+    const device = entry.device || entry.hostname || entry.server || entry.ip;
+    if (device) {
+      const aliasType = isIpAddress(device) ? "ip" : "hostname";
+      addSubject("device", { [aliasType]: device });
+    }
+    if (entry.dc) addSubject("dc", { hostname: entry.dc });
+    if (entry.dns_server) addSubject("dns_server", { hostname: entry.dns_server });
+    if (entry.file_server) addSubject("file_server", { hostname: entry.file_server });
+    if (entry.print_server) addSubject("print_server", { hostname: entry.print_server });
+  });
+  return subjects;
 }
 
 function mapReportSnapshot(entry) {
@@ -5813,6 +6962,454 @@ function formatDiffSummary(summary) {
   return JSON.stringify(summary, null, 2);
 }
 
+function setDiffLoading(metaEl, rawEl, triageEl, message = "Loading diff...") {
+  if (metaEl) metaEl.textContent = message;
+  if (rawEl) rawEl.textContent = "Loading...";
+  if (triageEl) {
+    triageEl.innerHTML = "";
+    const note = document.createElement("div");
+    note.classList.add("note");
+    note.textContent = "Loading triage...";
+    triageEl.appendChild(note);
+  }
+}
+
+function cacheSnapshotDiff(canonicalId, idA, idB, diff) {
+  if (!canonicalId) return;
+  snapshotDiffCache.set(canonicalId, {
+    a: idA,
+    b: idB,
+    diff,
+    captured_at: Date.now(),
+  });
+}
+
+function getCachedSnapshotDiff(canonicalId, idA, idB) {
+  if (!canonicalId) return null;
+  const cached = snapshotDiffCache.get(canonicalId);
+  if (!cached) return null;
+  if (cached.a === idA && cached.b === idB) return cached.diff;
+  return null;
+}
+
+function cacheReportDiff(idA, idB, diff) {
+  if (!idA || !idB) return;
+  reportDiffCache.set(`${idA}:${idB}`, { diff, captured_at: Date.now() });
+}
+
+function getCachedReportDiff(idA, idB) {
+  if (!idA || !idB) return null;
+  return reportDiffCache.get(`${idA}:${idB}`)?.diff || null;
+}
+
+function buildDiffCopyText(triage) {
+  if (!triage) return "";
+  const lines = [];
+  lines.push(triage.headline || "Snapshot Comparison Summary");
+  lines.push(
+    `Security-impacting: ${triage.counts?.security ?? 0}, ` +
+      `Config drift: ${triage.counts?.config ?? 0}, ` +
+      `Metadata: ${triage.counts?.metadata ?? 0}`
+  );
+  if (triage.coverage?.percent !== null && triage.coverage?.percent !== undefined) {
+    lines.push(`Coverage: ${triage.coverage.percent}% (${triage.coverage.label})`);
+  }
+  if (triage.limitations?.length) {
+    lines.push(`Coverage limitations: ${triage.limitations.join("; ")}`);
+  }
+  if (triage.summaryText) {
+    lines.push(triage.summaryText);
+  }
+  return lines.join("\n");
+}
+
+function renderDiffTriage(container, diff) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!diff) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No diff data available.";
+    container.appendChild(empty);
+    return;
+  }
+  const triageEngine = window.GraphAdminTriage;
+  if (!triageEngine || !triageEngine.buildTriage) {
+    const fallback = document.createElement("pre");
+    fallback.classList.add("dataset-content");
+    fallback.textContent = formatDiffSummary(diff);
+    container.appendChild(fallback);
+    return;
+  }
+  const triage = triageEngine.buildTriage(diff, diffImpactOverrides);
+  container.dataset.copy = buildDiffCopyText(triage);
+
+  const meaningfulOnly = container.dataset.meaningfulOnly === "true";
+
+  const summaryCard = document.createElement("div");
+  summaryCard.classList.add("diff-summary-card");
+
+  const summaryHeader = document.createElement("div");
+  summaryHeader.classList.add("diff-summary-header");
+  const headline = document.createElement("div");
+  headline.classList.add("diff-summary-title");
+  headline.textContent = triage.headline || "Snapshot Comparison Summary";
+  summaryHeader.appendChild(headline);
+  summaryCard.appendChild(summaryHeader);
+
+  const badges = document.createElement("div");
+  badges.classList.add("diff-badges");
+  const securityBadge = document.createElement("span");
+  securityBadge.classList.add("diff-badge", "security");
+  securityBadge.textContent = `Security: ${triage.counts.security}`;
+  const configBadge = document.createElement("span");
+  configBadge.classList.add("diff-badge", "config");
+  configBadge.textContent = `Config: ${triage.counts.config}`;
+  const metaBadge = document.createElement("span");
+  metaBadge.classList.add("diff-badge", "meta");
+  metaBadge.textContent = `Metadata: ${triage.counts.metadata}`;
+  badges.appendChild(securityBadge);
+  badges.appendChild(configBadge);
+  badges.appendChild(metaBadge);
+  summaryCard.appendChild(badges);
+
+  const filterRow = document.createElement("label");
+  filterRow.classList.add("diff-filter");
+  const filterToggle = document.createElement("input");
+  filterToggle.type = "checkbox";
+  filterToggle.checked = meaningfulOnly;
+  const filterText = document.createElement("span");
+  filterText.textContent = "Show only meaningful changes";
+  filterRow.appendChild(filterToggle);
+  filterRow.appendChild(filterText);
+  filterToggle.addEventListener("change", () => {
+    container.dataset.meaningfulOnly = filterToggle.checked ? "true" : "false";
+    renderDiffTriage(container, diff);
+  });
+  summaryCard.appendChild(filterRow);
+
+  const coverage = document.createElement("div");
+  coverage.classList.add("diff-coverage");
+  const coverageText = document.createElement("div");
+  if (triage.coverage?.percent !== null && triage.coverage?.percent !== undefined) {
+    coverageText.textContent = `Coverage: ${triage.coverage.percent}% · ${triage.coverage.label} confidence`;
+  } else {
+    coverageText.textContent = "Coverage: Unknown";
+  }
+  coverage.appendChild(coverageText);
+  summaryCard.appendChild(coverage);
+
+  if (triage.limitations && triage.limitations.length) {
+    const limitations = document.createElement("div");
+    limitations.classList.add("diff-limitations");
+    const title = document.createElement("div");
+    title.textContent = "Coverage limitations";
+    const list = document.createElement("ul");
+    triage.limitations.slice(0, 6).forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      list.appendChild(li);
+    });
+    limitations.appendChild(title);
+    limitations.appendChild(list);
+    summaryCard.appendChild(limitations);
+  }
+
+  const summaryText = document.createElement("div");
+  summaryText.classList.add("diff-summary-text");
+  summaryText.textContent = triage.summaryText || "";
+  summaryCard.appendChild(summaryText);
+  container.appendChild(summaryCard);
+
+  const groups = [
+    { key: "security", label: "🔴 Security-impacting changes" },
+    { key: "config", label: "🟡 Configuration drift" },
+    { key: "metadata", label: "🔵 Administrative / metadata changes" },
+  ];
+  groups.forEach((group) => {
+    if (meaningfulOnly && group.key === "metadata") {
+      return;
+    }
+    const items = triage.groups[group.key] || [];
+    const details = document.createElement("details");
+    details.classList.add("diff-group");
+    if (group.key !== "metadata" && items.length) {
+      details.open = true;
+    }
+    const summary = document.createElement("summary");
+    const title = document.createElement("div");
+    title.classList.add("diff-group-title");
+    title.textContent = group.label;
+    const confidence = triage.confidenceByBucket?.[group.key];
+    if (confidence) {
+      const badge = document.createElement("span");
+      badge.classList.add("confidence", confidence.key);
+      badge.textContent = `${confidence.label} confidence`;
+      title.appendChild(badge);
+    }
+    const count = document.createElement("span");
+    count.classList.add("diff-group-count");
+    count.textContent = items.length;
+    summary.appendChild(title);
+    summary.appendChild(count);
+    details.appendChild(summary);
+    const list = document.createElement("div");
+    list.classList.add("diff-list");
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.classList.add("note");
+      empty.textContent = "No changes detected.";
+      list.appendChild(empty);
+    } else {
+      items.slice(0, 50).forEach((item) => {
+        const row = document.createElement("div");
+        const titleRow = document.createElement("div");
+        titleRow.classList.add("diff-item-title");
+        titleRow.textContent = item.summary;
+        const meta = document.createElement("div");
+        meta.classList.add("diff-item-meta");
+        meta.textContent = item.path || "";
+        row.appendChild(titleRow);
+        row.appendChild(meta);
+        list.appendChild(row);
+      });
+    }
+    details.appendChild(list);
+    container.appendChild(details);
+  });
+}
+
+function initDiffTabs(prefix) {
+  const tabsWrap = document.querySelector(`[data-diff-tabs="${prefix}"]`);
+  if (!tabsWrap) return;
+  const tabs = tabsWrap.querySelectorAll(".tab");
+  const triage = document.getElementById(`${prefix}-diff-triage`);
+  const raw = document.getElementById(`${prefix}-diff-output`);
+  const setView = (view) => {
+    tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.diffView === view));
+    if (triage) triage.style.display = view === "triage" ? "grid" : "none";
+    if (raw) raw.style.display = view === "raw" ? "block" : "none";
+  };
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => setView(tab.dataset.diffView));
+  });
+  setView("triage");
+}
+
+function bindDiffCopy(button, container) {
+  if (!button || !container) return;
+  button.addEventListener("click", async () => {
+    const payload = container.dataset.copy || "";
+    if (!payload) {
+      showToast("Summary unavailable");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(payload);
+      showToast("Summary copied");
+    } catch (err) {
+      showToast("Copy failed");
+    }
+  });
+}
+
+function formatSnapshotQuality(quality) {
+  if (!quality || typeof quality !== "object") return "No quality data.";
+  const payload = {
+    completeness: quality.completeness ?? quality.overall,
+    sections: quality.sections || {},
+    gaps: quality.gaps || [],
+    warnings: quality.warnings || [],
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
+function snapshotLabel(snapshot) {
+  const ts = snapshot?.captured_at || snapshot?.capturedAt || snapshot?.timestamp;
+  const date = ts ? new Date(ts) : null;
+  const label = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : ts || "Snapshot";
+  const profile = snapshot?.profile ? ` · ${snapshot.profile}` : "";
+  return `${label}${profile}`;
+}
+
+function renderSnapshotEntities() {
+  if (!snapshotSubjectSelect) return;
+  snapshotSubjectSelect.innerHTML = "";
+  if (!snapshotEntities.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No subjects yet";
+    snapshotSubjectSelect.appendChild(option);
+    return;
+  }
+  snapshotEntities.forEach((entity) => {
+    const option = document.createElement("option");
+    option.value = entity.canonical_id;
+    const name = entity.display_name || entity.canonical_id;
+    option.textContent = `${name} (${entity.kind})`;
+    snapshotSubjectSelect.appendChild(option);
+  });
+}
+
+function renderSnapshotHistory() {
+  if (!snapshotHistoryList) return;
+  snapshotHistoryList.innerHTML = "";
+  if (!snapshotHistoryItems.length) {
+    const empty = document.createElement("li");
+    empty.classList.add("history-empty");
+    empty.textContent = "No snapshots captured yet.";
+    snapshotHistoryList.appendChild(empty);
+    return;
+  }
+  snapshotHistoryItems.forEach((snap) => {
+    const li = document.createElement("li");
+    li.classList.add("history-item");
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    const label = snapshotLabel(snap);
+    const kind = snap?.subject?.kind;
+    const golden = goldenBaselines.find((entry) => entry.kind === kind);
+    const isGolden = golden && golden.snapshot_id === snap.snapshot_id;
+    title.textContent = label;
+    if (isGolden) {
+      const badge = document.createElement("span");
+      badge.classList.add("badge");
+      badge.textContent = "Golden";
+      title.appendChild(badge);
+    }
+    const meta = document.createElement("div");
+    meta.classList.add("history-meta");
+    const completeness = snap?.quality?.completeness ?? snap?.quality?.overall;
+    const gapCount = Array.isArray(snap?.quality?.gaps) ? snap.quality.gaps.length : 0;
+    const warnCount = Array.isArray(snap?.quality?.warnings) ? snap.quality.warnings.length : 0;
+    meta.textContent = `Completeness: ${completeness != null ? Math.round(completeness * 100) : "—"}% · Gaps: ${gapCount} · Warnings: ${warnCount}`;
+    const actions = document.createElement("div");
+    actions.classList.add("history-actions");
+    const exportBtn = document.createElement("button");
+    exportBtn.type = "button";
+    exportBtn.classList.add("ghost", "small");
+    exportBtn.textContent = "Export JSON";
+    exportBtn.addEventListener("click", () => {
+      const name = sanitizeFilename(`${snap.snapshot_id || "snapshot"}.json`);
+      downloadJson(snap, name);
+    });
+    actions.appendChild(exportBtn);
+    if (kind && !isGolden) {
+      const setBtn = document.createElement("button");
+      setBtn.type = "button";
+      setBtn.classList.add("ghost", "small");
+      setBtn.textContent = "Set golden";
+      setBtn.addEventListener("click", async () => {
+        const labelText = prompt("Optional label for golden baseline:", kind);
+        await setGoldenBaseline(kind, snap.snapshot_id, labelText || "");
+        goldenBaselines = await fetchGoldenBaselines();
+        renderSnapshotHistory();
+      });
+      actions.appendChild(setBtn);
+    }
+    if (kind && golden && golden.snapshot_id) {
+      const compareBtn = document.createElement("button");
+      compareBtn.type = "button";
+      compareBtn.classList.add("ghost", "small");
+      compareBtn.textContent = "Compare golden";
+      compareBtn.addEventListener("click", async () => {
+        setDiffLoading(snapshotDiffMeta, snapshotDiffOutput, snapshotDiffTriage, "Golden diff running...");
+        const diff = await compareGoldenBaseline(snap.snapshot_id);
+        if (snapshotDiffMeta) {
+          snapshotDiffMeta.textContent = diff ? "Golden diff generated" : "Golden diff failed";
+        }
+        if (snapshotDiffOutput) {
+          snapshotDiffOutput.textContent = formatDiffSummary(diff?.diff || diff || {});
+        }
+        if (snapshotDiffTriage) {
+          renderDiffTriage(snapshotDiffTriage, diff?.diff || diff || {});
+        }
+      });
+      actions.appendChild(compareBtn);
+    }
+    li.appendChild(title);
+    li.appendChild(meta);
+    li.appendChild(actions);
+    snapshotHistoryList.appendChild(li);
+  });
+}
+
+function updateSnapshotDiffOptions() {
+  if (!snapshotDiffSelectA || !snapshotDiffSelectB) return;
+  snapshotDiffSelectA.innerHTML = "";
+  snapshotDiffSelectB.innerHTML = "";
+  snapshotHistoryItems.forEach((snap) => {
+    const id = snap.snapshot_id || snap.snapshotId;
+    if (!id) return;
+    const label = snapshotLabel(snap);
+    const optA = document.createElement("option");
+    optA.value = id;
+    optA.textContent = label;
+    const optB = document.createElement("option");
+    optB.value = id;
+    optB.textContent = label;
+    snapshotDiffSelectA.appendChild(optA);
+    snapshotDiffSelectB.appendChild(optB);
+  });
+}
+
+async function refreshSnapshotEntities() {
+  snapshotEntities = await fetchSnapshotEntities();
+  renderSnapshotEntities();
+  if (snapshotSubjectSelect && snapshotEntities.length) {
+    if (!snapshotSubjectSelect.value) {
+      snapshotSubjectSelect.value = snapshotEntities[0].canonical_id;
+    }
+  }
+}
+
+async function refreshSnapshotHistory() {
+  const canonicalId = snapshotSubjectSelect?.value;
+  if (!canonicalId) {
+    snapshotHistoryItems = [];
+    renderSnapshotHistory();
+    return;
+  }
+  goldenBaselines = await fetchGoldenBaselines();
+  snapshotHistoryItems = await fetchSnapshotHistory(canonicalId, 20);
+  renderSnapshotHistory();
+  updateSnapshotDiffOptions();
+  if (snapshotQualityMeta) {
+    snapshotQualityMeta.textContent = canonicalId;
+  }
+  if (snapshotQualityOutput) {
+    const latest = snapshotHistoryItems[0];
+    snapshotQualityOutput.textContent = formatSnapshotQuality(latest?.quality);
+  }
+}
+
+async function runSnapshotDiff() {
+  if (!snapshotDiffSelectA || !snapshotDiffSelectB) return;
+  const idA = snapshotDiffSelectA.value;
+  const idB = snapshotDiffSelectB.value;
+  if (!idA || !idB) {
+    if (snapshotDiffMeta) snapshotDiffMeta.textContent = "Select two snapshots to compare.";
+    if (snapshotDiffOutput) snapshotDiffOutput.textContent = "";
+    return;
+  }
+  setDiffLoading(snapshotDiffMeta, snapshotDiffOutput, snapshotDiffTriage, "Diff running...");
+  const canonicalId = snapshotSubjectSelect?.value || "global";
+  const cached = getCachedSnapshotDiff(canonicalId, idA, idB);
+  const diff = cached || (await fetchSnapshotEngineDiff(idA, idB));
+  if (diff && !cached) {
+    cacheSnapshotDiff(canonicalId, idA, idB, diff);
+  }
+  if (snapshotDiffMeta) {
+    snapshotDiffMeta.textContent = diff ? "Diff generated" : "Diff failed";
+  }
+  if (snapshotDiffOutput) {
+    snapshotDiffOutput.textContent = formatDiffSummary(diff || {});
+  }
+  if (snapshotDiffTriage) {
+    renderDiffTriage(snapshotDiffTriage, diff);
+  }
+}
+
 function getDiffKey(item) {
   if (!item || typeof item !== "object") return null;
   return (
@@ -6101,10 +7698,29 @@ async function runIncidentWorkspace() {
     return;
   }
   const timeframe = getIncidentTimeframe();
+  const incident = await createIncident({
+    symptom_id: null,
+    title: symptom || "Incident workspace",
+    description: `${user || "Unknown user"} → ${device || "Unknown device"}`,
+  });
+  if (incident?.incident_id) {
+    activeIncidentId = incident.incident_id;
+  }
+  if (incident?.incident_id) {
+    await captureIncidentSnapshots({
+      user,
+      device,
+      symptom,
+      symptom_id: null,
+      timestamp: new Date().toISOString(),
+      incident_id: incident.incident_id,
+    });
+  }
   const context = {
     user,
     device,
     symptom,
+    incident_id: incident?.incident_id || null,
     timeframe: {
       start: timeframe.start.toISOString(),
       end: timeframe.end.toISOString(),
@@ -6210,6 +7826,12 @@ async function runIncidentWorkspace() {
 
     const analysis = buildIncidentAnalysis(signals, context);
     const report = buildIncidentReport(context, reportData, signals, analysis);
+    if (incident?.incident_id) {
+      const incidentGraph = await fetchIncidentGraph(incident.incident_id);
+      const incidentTimeline = await fetchIncidentTimeline(incident.incident_id);
+      report.incident_graph = incidentGraph;
+      report.incident_timeline = incidentTimeline;
+    }
     setOutput("incident", report);
     setOutputStatus("incident", {
       state: "ok",
@@ -6372,7 +7994,7 @@ function buildReportDiff(a, b) {
   };
 }
 
-function runReportDiff() {
+async function runReportDiff() {
   if (!reportDiffSelectA || !reportDiffSelectB) return;
   const idA = reportDiffSelectA.value;
   const idB = reportDiffSelectB.value;
@@ -6381,11 +8003,16 @@ function runReportDiff() {
     if (reportDiffOutput) reportDiffOutput.textContent = "";
     return;
   }
+  setDiffLoading(reportDiffMeta, reportDiffOutput, reportDiffTriage, "Diff running...");
   const items = getReportHistoryItems();
   const entryA = items.find((entry) => entry.id === idA);
   const entryB = items.find((entry) => entry.id === idB);
   if (!entryA || !entryB) return;
-  const diff = buildReportDiff(entryA.data, entryB.data);
+  const cached = getCachedReportDiff(idA, idB);
+  const diff = cached || (await fetchSnapshotDiff(idA, idB)) || buildReportDiff(entryA.data, entryB.data);
+  if (!cached) {
+    cacheReportDiff(idA, idB, diff);
+  }
   if (reportDiffMeta) {
     reportDiffMeta.innerHTML = "";
     const header = document.createElement("span");
@@ -6411,6 +8038,9 @@ function runReportDiff() {
   }
   if (reportDiffOutput) {
     reportDiffOutput.textContent = formatDiffSummary(diff);
+  }
+  if (reportDiffTriage) {
+    renderDiffTriage(reportDiffTriage, diff);
   }
 }
 
@@ -6762,6 +8392,76 @@ async function updateConfigPartial(payload, successMessage) {
   }
 }
 
+function parseCsvList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatCsvList(list) {
+  if (!Array.isArray(list)) return "";
+  return list.filter(Boolean).join(", ");
+}
+
+function parseZoneMap(value) {
+  if (!value) return [];
+  const lines = String(value)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const entries = [];
+  lines.forEach((line) => {
+    const parts = line.split(",").map((part) => part.trim()).filter(Boolean);
+    if (!parts.length) return;
+    const [subnet, zone, site] = parts;
+    if (subnet) {
+      entries.push({ subnet, zone: zone || null, site: site || null });
+    }
+  });
+  return entries;
+}
+
+function formatZoneMap(entries) {
+  if (!Array.isArray(entries)) return "";
+  return entries
+    .map((entry) => {
+      const subnet = entry.subnet || "";
+      const zone = entry.zone || "";
+      const site = entry.site || "";
+      return [subnet, zone, site].filter(Boolean).join(", ");
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function parseDiffImpactOverrides(text) {
+  const overrides = {};
+  if (!text) return overrides;
+  String(text)
+    .split("\n")
+    .forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return;
+      const parts = trimmed.split("=");
+      if (parts.length < 2) return;
+      const key = parts[0].trim();
+      const value = parts.slice(1).join("=").trim().toLowerCase();
+      if (!key || !value) return;
+      overrides[key] = value;
+    });
+  return overrides;
+}
+
+function formatDiffImpactOverrides(overrides) {
+  if (!overrides || typeof overrides !== "object") return "";
+  return Object.entries(overrides)
+    .map(([key, value]) => `${key} = ${value}`)
+    .join("\n");
+}
+
 function getConfigPayloadFromForm() {
   const payload = {
     tenant_id: cfgTenantId?.value.trim(),
@@ -6774,6 +8474,23 @@ function getConfigPayloadFromForm() {
     ps_org: cfgPsOrg?.value.trim(),
     azure_tenant_id: cfgAzureTenantId?.value.trim(),
     azure_subscription_id: cfgAzureSubscriptionId?.value.trim(),
+    time_thresholds: {
+      warn_ms: Number.parseInt(cfgTimeWarn?.value || "", 10) || undefined,
+      high_ms: Number.parseInt(cfgTimeHigh?.value || "", 10) || undefined,
+    },
+    ntp_servers: parseCsvList(cfgNtpServers?.value || ""),
+    cert_stores: parseCsvList(cfgCertStores?.value || ""),
+    cert_expiring_days: Number.parseInt(cfgCertExpiring?.value || "", 10) || undefined,
+    tls_endpoints: parseCsvList(cfgTlsEndpoints?.value || ""),
+    latency_endpoints: parseCsvList(cfgLatencyEndpoints?.value || ""),
+    dns_probe_targets: parseCsvList(cfgDnsProbeTargets?.value || ""),
+    dns_resolvers: parseCsvList(cfgDnsResolvers?.value || ""),
+    enable_public_resolvers: Boolean(cfgPublicResolvers?.checked),
+    process_include_command_line: Boolean(cfgProcessCmdline?.checked),
+    process_max_items: Number.parseInt(cfgProcessMax?.value || "", 10) || undefined,
+    zone_map: parseZoneMap(cfgZoneMap?.value || ""),
+    diff_impact_overrides: parseDiffImpactOverrides(cfgDiffImpactOverrides?.value || ""),
+    mock_mode: Boolean(cfgMockMode?.checked),
   };
   const secret = cfgClientSecret?.value.trim();
   if (secret) {
@@ -6794,6 +8511,23 @@ function applyConfigToForm(config) {
   cfgAzureTenantId.value = config.azure_tenant_id || "";
   cfgAzureSubscriptionId.value = config.azure_subscription_id || "";
   cfgClientSecret.value = config.client_secret || "";
+  if (cfgTimeWarn) cfgTimeWarn.value = config.time_thresholds?.warn_ms ?? "";
+  if (cfgTimeHigh) cfgTimeHigh.value = config.time_thresholds?.high_ms ?? "";
+  if (cfgNtpServers) cfgNtpServers.value = formatCsvList(config.ntp_servers);
+  if (cfgCertStores) cfgCertStores.value = formatCsvList(config.cert_stores);
+  if (cfgCertExpiring) cfgCertExpiring.value = config.cert_expiring_days ?? "";
+  if (cfgTlsEndpoints) cfgTlsEndpoints.value = formatCsvList(config.tls_endpoints);
+  if (cfgLatencyEndpoints) cfgLatencyEndpoints.value = formatCsvList(config.latency_endpoints);
+  if (cfgDnsProbeTargets) cfgDnsProbeTargets.value = formatCsvList(config.dns_probe_targets);
+  if (cfgDnsResolvers) cfgDnsResolvers.value = formatCsvList(config.dns_resolvers);
+  if (cfgPublicResolvers) cfgPublicResolvers.checked = Boolean(config.enable_public_resolvers);
+  if (cfgProcessCmdline) cfgProcessCmdline.checked = Boolean(config.process_include_command_line);
+  if (cfgProcessMax) cfgProcessMax.value = config.process_max_items ?? "";
+  if (cfgZoneMap) cfgZoneMap.value = formatZoneMap(config.zone_map);
+  if (cfgDiffImpactOverrides) {
+    cfgDiffImpactOverrides.value = formatDiffImpactOverrides(config.diff_impact_overrides);
+  }
+  if (cfgMockMode) cfgMockMode.checked = Boolean(config.mock_mode);
   if (!config.client_secret && cfgClientSecret.placeholder.includes("set")) {
     cfgClientSecret.placeholder = "Enter to update";
   }
@@ -7628,6 +9362,15 @@ async function preflightGraph(service) {
 
 async function preflightAction(service, action) {
   if (service === "system") return { ok: true };
+  const response = await runSystemTask("action_preflight", { service, action });
+  if (response?.ok && response.data) {
+    return response.data;
+  }
+  const errorText = String(response?.error || "");
+  const fallbackAllowed = errorText.includes("Unknown action") || errorText.includes("action_preflight");
+  if (!fallbackAllowed) {
+    return { ok: false, data: response };
+  }
   const meta = ACTIONS_UI?.[service]?.[action];
   if (!meta) return { ok: true };
   const targetService = meta.preflightService || service;
@@ -7640,11 +9383,25 @@ async function preflightAction(service, action) {
   return { ok: true };
 }
 
+function formatPreflightDiagnostics(details) {
+  const diagnostics = Array.isArray(details?.diagnostics) ? details.diagnostics : [];
+  if (!diagnostics.length) return null;
+  return diagnostics
+    .map((diag) => diag?.message || diag?.type || "Preflight diagnostic")
+    .filter(Boolean)
+    .join("\n");
+}
+
 function handlePreflightFailure(service, action, details) {
   const label = activityLabel(service, action);
+  const summary = formatPreflightDiagnostics(details);
   setOutput(service, {
     ok: false,
     error: "Preflight failed",
+    summary,
+    diagnostics: details?.diagnostics || null,
+    checks: details?.checks || null,
+    capability: details?.capability || null,
     details,
   });
   setOutputStatus(service, {
@@ -7680,6 +9437,35 @@ function shouldIncludePackStep(step, includeSteps) {
   return true;
 }
 
+function resolveFirstDomainController(context) {
+  const list = context["domaincontroller.list_domain_controllers"];
+  if (Array.isArray(list) && list.length) {
+    const entry = list.find((row) => row?.hostname || row?.HostName || row?.name);
+    if (entry) {
+      return entry.hostname || entry.HostName || entry.name;
+    }
+  }
+  const nltest = context["domaincontroller.list_dcs_nltest"];
+  if (Array.isArray(nltest) && nltest.length) {
+    const entry = nltest.find((row) => row?.hostname || row?.name);
+    if (entry) return entry.hostname || entry.name;
+  }
+  return null;
+}
+
+function applyPackAutoParams(step, params, context) {
+  const resolved = { ...(params || {}) };
+  if (step?.service === "domaincontroller" && step?.action === "show_replication_partners") {
+    if (!resolved.dc) {
+      const dc = resolveFirstDomainController(context);
+      if (dc) {
+        resolved.dc = dc;
+      }
+    }
+  }
+  return resolved;
+}
+
 async function runActionPack(pack, options = {}) {
   if (actionPackState.has(pack.id)) {
     showToast("Action pack already running");
@@ -7693,7 +9479,18 @@ async function runActionPack(pack, options = {}) {
   setActionPackRunning(pack.id, true);
   let hadFailures = false;
   let stoppedEarly = false;
+  const packResults = [];
   const runParamsSnapshot = { stepParams, includeSteps, dryRun };
+  const packContext = {};
+  const packSubjects = deriveSubjectsFromPack(pack, stepParams);
+  if (packSubjects.length) {
+    await captureSnapshots(packSubjects, "core", {
+      source: "action_pack",
+      pack_id: pack.id,
+      pack_name: pack.name,
+      phase: "pre",
+    });
+  }
   for (const step of pack.steps) {
     if (state.cancelled) {
       addActivity(`Cancelled pack: ${pack.name}`);
@@ -7717,12 +9514,30 @@ async function runActionPack(pack, options = {}) {
     const override = stepParams[stepKey] || {};
     const defaults = getActionPackStepDefaults(pack, step) || {};
     const params = { ...defaults, ...(step.params || {}), ...(override?.params || {}), ...override };
+    const resolvedParams = applyPackAutoParams(step, params, packContext);
     const controller = new AbortController();
     state.controller = controller;
-    const result = await runAction(step.service, step.action, params, {
+    const startedAt = performance.now();
+    const result = await runAction(step.service, step.action, resolvedParams, {
       controller,
       track: false,
     });
+    const elapsedMs = performance.now() - startedAt;
+    const artifact = extractArtifact(result?.data);
+    packResults.push({
+      service: step.service,
+      action: step.action,
+      label,
+      params: resolvedParams,
+      ok: Boolean(result?.ok),
+      data: result?.ok ? result.data : null,
+      error: result?.ok ? null : result?.data || result?.error || null,
+      elapsed_ms: Math.round(elapsedMs),
+      artifact: artifact || null,
+    });
+    if (result?.ok) {
+      packContext[`${step.service}.${step.action}`] = result.data;
+    }
     if (state.cancelled || result?.cancelled) {
       addActivity(`Cancelled pack: ${pack.name}`);
       showToast("Action pack cancelled");
@@ -7737,6 +9552,14 @@ async function runActionPack(pack, options = {}) {
         break;
       }
     }
+  }
+  if (!state.cancelled && packSubjects.length) {
+    await captureSnapshots(packSubjects, "core", {
+      source: "action_pack",
+      pack_id: pack.id,
+      pack_name: pack.name,
+      phase: "post",
+    });
   }
   actionPackState.delete(pack.id);
   setActionPackRunning(pack.id, false);
@@ -7760,6 +9583,9 @@ async function runActionPack(pack, options = {}) {
   });
   if (!state.cancelled) {
     showToast(dryRun ? "Action pack dry-run completed" : "Action pack completed");
+  }
+  if (!state.cancelled && pack.bundleOnComplete && packResults.length) {
+    exportActionPackBundle(pack, packResults, runParamsSnapshot, status);
   }
 }
 
@@ -8008,18 +9834,52 @@ function initTileLayout() {
   });
 }
 
-function setSection(section) {
+function setSection(section, opts = {}) {
+  const resolved = SECTION_ALIASES[section] || section;
   navLinks.forEach((link) => link.classList.toggle("active", link.dataset.section === section));
+  const activeLink = document.querySelector(`.nav-link.active[data-section="${section}"]`);
+  if (activeLink) {
+    const group = activeLink.closest(".nav-group");
+    if (group && !group.classList.contains("open")) {
+      group.classList.add("open");
+    }
+    if (navList) {
+      requestAnimationFrame(() => {
+        activeLink.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        updateNavShadows();
+      });
+    }
+  }
   panels.forEach((panel) => {
-    if (panel.dataset.panel === section) {
+    if (panel.dataset.panel === resolved) {
       panel.style.display = panel.dataset.display || "flex";
     } else {
       panel.style.display = "none";
     }
   });
-  pageTitle.textContent = section.charAt(0).toUpperCase() + section.slice(1);
-  pageSubtitle.textContent = subtitles[section] || "";
+  pageTitle.textContent =
+    serviceLabels?.[section] ||
+    serviceLabels?.[resolved] ||
+    section.charAt(0).toUpperCase() + section.slice(1);
+  pageSubtitle.textContent = subtitles[section] || subtitles[resolved] || "";
   sidebar.classList.remove("open");
+  if (opts.scrollTarget) {
+    const target = document.getElementById(opts.scrollTarget);
+    if (target) {
+      setTimeout(() => {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    }
+  }
+}
+
+function updateNavShadows() {
+  if (!navList) return;
+  const { scrollTop, scrollHeight, clientHeight } = navList;
+  const atTop = scrollTop <= 1;
+  const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+  navList.classList.toggle("shadow-top", !atTop);
+  navList.classList.toggle("shadow-bottom", !atBottom);
 }
 
 async function fetchStatus() {
@@ -8054,6 +9914,23 @@ async function fetchConfig() {
     cfgPsOrg.value = data.ps_org || "";
     cfgAzureTenantId.value = data.azure_tenant_id || "";
     cfgAzureSubscriptionId.value = data.azure_subscription_id || "";
+    if (cfgTimeWarn) cfgTimeWarn.value = data.time_thresholds?.warn_ms ?? "";
+    if (cfgTimeHigh) cfgTimeHigh.value = data.time_thresholds?.high_ms ?? "";
+    if (cfgNtpServers) cfgNtpServers.value = formatCsvList(data.ntp_servers);
+    if (cfgCertStores) cfgCertStores.value = formatCsvList(data.cert_stores);
+    if (cfgCertExpiring) cfgCertExpiring.value = data.cert_expiring_days ?? "";
+    if (cfgTlsEndpoints) cfgTlsEndpoints.value = formatCsvList(data.tls_endpoints);
+    if (cfgLatencyEndpoints) cfgLatencyEndpoints.value = formatCsvList(data.latency_endpoints);
+    if (cfgDnsProbeTargets) cfgDnsProbeTargets.value = formatCsvList(data.dns_probe_targets);
+    if (cfgDnsResolvers) cfgDnsResolvers.value = formatCsvList(data.dns_resolvers);
+    diffImpactOverrides = data.diff_impact_overrides || {};
+    if (cfgDiffImpactOverrides) {
+      cfgDiffImpactOverrides.value = formatDiffImpactOverrides(diffImpactOverrides);
+    }
+    if (cfgPublicResolvers) cfgPublicResolvers.checked = Boolean(data.enable_public_resolvers);
+    if (cfgProcessCmdline) cfgProcessCmdline.checked = Boolean(data.process_include_command_line);
+    if (cfgProcessMax) cfgProcessMax.value = data.process_max_items ?? "";
+    if (cfgZoneMap) cfgZoneMap.value = formatZoneMap(data.zone_map);
     if (data.client_secret_set) {
       cfgClientSecret.placeholder = data.use_keychain ? "Stored in keychain" : "•••••• (set)";
     } else if (cfgClientSecret.placeholder.includes("set")) {
@@ -8087,23 +9964,8 @@ async function saveConfig() {
     showToast("Config is locked. Disable the lock to update.");
     return;
   }
-  const payload = {
-    tenant_id: cfgTenantId.value.trim(),
-    client_id: cfgClientId.value.trim(),
-    graph_user_id: cfgGraphUserId.value.trim(),
-    onedrive_drive_id: cfgOnedriveDriveId.value.trim(),
-    spo_admin_url: cfgSpoAdminUrl.value.trim(),
-    ps_auth_mode: cfgPsAuthMode.value,
-    ps_user_principal_name: cfgPsUpn.value.trim(),
-    ps_org: cfgPsOrg.value.trim(),
-    azure_tenant_id: cfgAzureTenantId.value.trim(),
-    azure_subscription_id: cfgAzureSubscriptionId.value.trim(),
-    reload: true,
-  };
-  const secret = cfgClientSecret.value.trim();
-  if (secret) {
-    payload.client_secret = secret;
-  }
+  const payload = getConfigPayloadFromForm();
+  payload.reload = true;
   try {
     const res = await fetch("/api/config", {
       method: "POST",
@@ -8273,12 +10135,43 @@ function extractErrorMeta(data) {
   };
 }
 
+function extractErrorText(meta) {
+  if (!meta) return "";
+  const parts = [];
+  if (meta.message) parts.push(String(meta.message));
+  if (meta.code) parts.push(String(meta.code));
+  if (meta.hint) parts.push(String(meta.hint));
+  if (typeof meta.detail === "string") {
+    parts.push(meta.detail);
+  } else if (meta.detail && typeof meta.detail === "object") {
+    if (meta.detail.error) {
+      const err = meta.detail.error;
+      if (err.message) parts.push(String(err.message));
+      if (err.details) parts.push(String(err.details));
+    }
+    if (meta.detail.meta?.non_terminating_errors) {
+      try {
+        parts.push(JSON.stringify(meta.detail.meta.non_terminating_errors));
+      } catch (err) {
+        // ignore JSON errors
+      }
+    }
+    try {
+      parts.push(JSON.stringify(meta.detail));
+    } catch (err) {
+      // ignore JSON errors
+    }
+  }
+  return parts.join(" ").toLowerCase();
+}
+
 function buildTriage(meta) {
   if (!meta) return null;
   const recommendations = [];
   const status = Number(meta.status || 0);
   const code = String(meta.code || "");
   const message = String(meta.message || "");
+  const errorText = extractErrorText(meta);
 
   if (meta.hint) {
     recommendations.push(meta.hint);
@@ -8315,6 +10208,24 @@ function buildTriage(meta) {
   }
   if (meta.detail && typeof meta.detail === "string" && meta.detail.toLowerCase().includes("module")) {
     recommendations.push("Install the missing PowerShell module and retry.");
+  }
+  if (errorText.includes("module") && (errorText.includes("not found") || errorText.includes("could not be loaded"))) {
+    recommendations.push("Install or import the missing PowerShell module, then retry.");
+  }
+  if (errorText.includes("access is denied") || errorText.includes("unauthorized")) {
+    recommendations.push("Run with elevated privileges or ensure the account has required rights.");
+  }
+  if (errorText.includes("rpc server is unavailable")) {
+    recommendations.push("Check RPC service status and firewall rules between client and target.");
+  }
+  if (errorText.includes("dns") && (errorText.includes("failed") || errorText.includes("not found") || errorText.includes("nxdomain"))) {
+    recommendations.push("Verify DNS records and server reachability, then retry.");
+  }
+  if (errorText.includes("no such host")) {
+    recommendations.push("Verify the hostname and DNS resolution.");
+  }
+  if (errorText.includes("connection refused") || errorText.includes("actively refused")) {
+    recommendations.push("Check the target service is listening and firewall rules allow the connection.");
   }
   if (!recommendations.length) {
     recommendations.push("Review the error details and retry after verifying inputs.");
@@ -8395,6 +10306,96 @@ function buildIncidentContext(params) {
     }
   });
   return { params: safeParams, highlights };
+}
+
+function collectSnapshotCandidates(meta, context) {
+  const candidates = [];
+  const addCandidate = (aliasType, value, kind) => {
+    if (!aliasType || !value) return;
+    const trimmed = String(value).trim();
+    if (!trimmed) return;
+    candidates.push({ aliasType, value: trimmed, kind: kind || null });
+  };
+  const params = meta?.params || {};
+  const highlights = context?.highlights || {};
+  const sources = [params, highlights];
+  sources.forEach((source) => {
+    Object.entries(source || {}).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      const normalized = String(key || "").toLowerCase();
+      const values = Array.isArray(value) ? value : [value];
+      values.forEach((entry) => {
+        const text = typeof entry === "string" ? entry : String(entry);
+        if (!text) return;
+        if (normalized.includes("user") || normalized.includes("upn") || normalized.includes("mailbox")) {
+          addCandidate("upn", text, "user");
+          return;
+        }
+        if (normalized.includes("dc")) {
+          addCandidate("hostname", text, "dc");
+          return;
+        }
+        if (normalized.includes("dns")) {
+          addCandidate("hostname", text, "dns_server");
+          return;
+        }
+        if (normalized.includes("dhcp")) {
+          addCandidate("hostname", text, "dhcp_server");
+          return;
+        }
+        if (normalized.includes("file") || normalized.includes("share") || normalized.includes("smb")) {
+          addCandidate("hostname", text, "file_server");
+          return;
+        }
+        if (normalized.includes("print") || normalized.includes("printer")) {
+          addCandidate("hostname", text, "print_server");
+          return;
+        }
+        if (normalized.includes("device") || normalized.includes("host") || normalized.includes("server")) {
+          addCandidate(isIpAddress(text) ? "ip" : "hostname", text, "device");
+          return;
+        }
+        if (normalized.includes("ip")) {
+          addCandidate("ip", text, "device");
+          return;
+        }
+      });
+    });
+  });
+  return candidates;
+}
+
+async function resolveSnapshotCandidates(candidates) {
+  const resolved = [];
+  const seen = new Set();
+  for (const candidate of candidates || []) {
+    const aliasType = candidate.aliasType;
+    const aliasValue = candidate.value;
+    const key = `${aliasType}:${aliasValue}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const entity = await resolveSnapshotSubject(aliasType, aliasValue);
+    if (entity) {
+      resolved.push({ ...candidate, entity });
+    }
+  }
+  return resolved;
+}
+
+function extractEvidenceRefsFromSnapshots(snapshots) {
+  const refs = new Set();
+  snapshots.forEach((snapshot) => {
+    if (Array.isArray(snapshot?.evidence_refs)) {
+      snapshot.evidence_refs.forEach((ref) => refs.add(ref));
+    }
+    const probeResults = snapshot?.probe_results || [];
+    probeResults.forEach((probe) => {
+      if (Array.isArray(probe?.evidence_refs)) {
+        probe.evidence_refs.forEach((ref) => refs.add(ref));
+      }
+    });
+  });
+  return Array.from(refs);
 }
 
 function initRunMeta(service, action, params) {
@@ -8995,6 +10996,47 @@ async function exportIncidentBundle(service) {
   if (activity && activity.length) {
     entries.push({ name: "activity.json", data: JSON.stringify(activity.slice(0, 25), null, 2) });
   }
+
+  const snapshotCandidates = collectSnapshotCandidates(meta, context);
+  const resolvedSubjects = await resolveSnapshotCandidates(snapshotCandidates);
+  const canonicalIds = resolvedSubjects.map((entry) => entry.entity?.canonical_id).filter(Boolean);
+  const snapshotSets = [];
+  for (const entry of resolvedSubjects) {
+    const canonicalId = entry.entity?.canonical_id;
+    if (!canonicalId) continue;
+    const snapshots = await fetchSnapshotHistory(canonicalId, 5);
+    snapshotSets.push({
+      canonical_id: canonicalId,
+      kind: entry.entity?.kind,
+      display_name: entry.entity?.display_name,
+      snapshots,
+    });
+  }
+  if (snapshotSets.length) {
+    entries.push({ name: "snapshots.json", data: JSON.stringify(snapshotSets, null, 2) });
+  }
+  const diffs = [];
+  for (const set of snapshotSets) {
+    const snapshots = set.snapshots || [];
+    if (snapshots.length < 2) continue;
+    const diff = await fetchSnapshotEngineDiff(snapshots[0].snapshot_id, snapshots[1].snapshot_id);
+    if (diff) {
+      diffs.push({ canonical_id: set.canonical_id, diff });
+    }
+  }
+  if (diffs.length) {
+    entries.push({ name: "snapshot-diffs.json", data: JSON.stringify(diffs, null, 2) });
+  }
+  if (canonicalIds.length) {
+    const events = await fetchSnapshotEvents(canonicalIds, 50);
+    if (events.length) {
+      entries.push({ name: "snapshot-events.json", data: JSON.stringify(events, null, 2) });
+    }
+  }
+  const evidenceRefs = extractEvidenceRefsFromSnapshots(snapshotSets.flatMap((entry) => entry.snapshots || []));
+  if (evidenceRefs.length) {
+    entries.push({ name: "evidence-refs.json", data: JSON.stringify(evidenceRefs, null, 2) });
+  }
   const stamp = generatedAt.replace(/[:.]/g, "-");
   const base = sanitizeFilename(`${service}-${meta?.action || "output"}-${stamp}`);
   const bundleName = `${base}.zip`;
@@ -9027,6 +11069,96 @@ async function exportIncidentBundle(service) {
   showToast("Incident bundle exported");
 }
 
+function buildPackSummary(pack, results, status, runParams) {
+  const lines = [];
+  lines.push(`Action pack: ${pack.name || pack.id}`);
+  lines.push(`Status: ${status}`);
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+  lines.push("Steps:");
+  results.forEach((result, index) => {
+    const label = result.label || `${result.service}.${result.action}`;
+    const outcome = result.ok ? "OK" : "FAILED";
+    lines.push(`- ${index + 1}. ${label}: ${outcome}`);
+  });
+  if (runParams) {
+    lines.push("");
+    lines.push("Params:");
+    try {
+      lines.push(JSON.stringify(runParams, null, 2));
+    } catch (err) {
+      lines.push("Unable to serialize params.");
+    }
+  }
+  return lines.join("\n");
+}
+
+function exportActionPackBundle(pack, results, runParams, status) {
+  const generatedAt = new Date().toISOString();
+  const stamp = generatedAt.replace(/[:.]/g, "-");
+  const base = sanitizeFilename(`pack-${pack.id || "action-pack"}-${stamp}`);
+  const bundleName = `${base}.zip`;
+  const entries = [];
+  const summary = buildPackSummary(pack, results, status, runParams);
+  entries.push({ name: "summary.txt", data: summary });
+  entries.push({
+    name: "pack.json",
+    data: JSON.stringify(
+      {
+        id: pack.id,
+        name: pack.name,
+        description: pack.description,
+        status,
+        generated_at: generatedAt,
+        params: runParams,
+      },
+      null,
+      2
+    ),
+  });
+  entries.push({ name: "steps.json", data: JSON.stringify(results, null, 2) });
+
+  const artifacts = [];
+  results.forEach((result, index) => {
+    const stepLabel = sanitizeFilename(`${index + 1}-${result.service}-${result.action}`);
+    const payload = result.data ?? result.error ?? null;
+    entries.push({
+      name: `step-${stepLabel}.json`,
+      data: JSON.stringify(
+        {
+          label: result.label,
+          service: result.service,
+          action: result.action,
+          ok: result.ok,
+          params: result.params || {},
+          data: result.data ?? null,
+          error: result.error ?? null,
+        },
+        null,
+        2
+      ),
+    });
+    const rows = resolveIncidentRows(payload);
+    if (rows && rows.length) {
+      entries.push({ name: `step-${stepLabel}.csv`, data: toCsv(rows) });
+    }
+    if (result?.artifact?.url) {
+      artifacts.push({
+        step: stepLabel,
+        name: result.artifact.name,
+        url: result.artifact.url,
+      });
+    }
+  });
+
+  if (artifacts.length) {
+    entries.push({ name: "artifacts.json", data: JSON.stringify(artifacts, null, 2) });
+  }
+
+  downloadZip(bundleName, entries);
+  showToast("Action pack incident bundle exported");
+}
+
 function hasPowerShellFallback(service) {
   const actions = ACTIONS_UI?.[service] || {};
   return Object.values(actions).some((meta) => meta?.mode === "powershell");
@@ -9038,6 +11170,7 @@ function classifyError(meta) {
   const code = String(meta.code || "").toLowerCase();
   const message = String(meta.message || "").toLowerCase();
   const detailText = typeof meta.detail === "string" ? meta.detail.toLowerCase() : "";
+  const errorText = extractErrorText(meta);
 
   if (
     status === 401 ||
@@ -9052,6 +11185,27 @@ function classifyError(meta) {
   }
   if (status === 429 || message.includes("throttle") || message.includes("too many")) {
     return { type: "throttle", label: "Throttled", summary: "Graph rate limits were hit." };
+  }
+  if (errorText.includes("module") && (errorText.includes("not found") || errorText.includes("could not be loaded"))) {
+    return { type: "missing_module", label: "Missing module", summary: "Required PowerShell module is not installed." };
+  }
+  if (errorText.includes("access is denied") || errorText.includes("unauthorized")) {
+    return { type: "access_denied", label: "Access denied", summary: "The account lacks required rights." };
+  }
+  if (errorText.includes("rpc server is unavailable")) {
+    return { type: "rpc_unavailable", label: "RPC unavailable", summary: "RPC server is unavailable or blocked." };
+  }
+  if (
+    errorText.includes("dns") &&
+    (errorText.includes("failed") || errorText.includes("not found") || errorText.includes("nxdomain"))
+  ) {
+    return { type: "dns_failure", label: "DNS failure", summary: "Name resolution failed." };
+  }
+  if (errorText.includes("no such host")) {
+    return { type: "dns_failure", label: "DNS failure", summary: "Host name could not be resolved." };
+  }
+  if (errorText.includes("connection refused") || errorText.includes("actively refused")) {
+    return { type: "connection_refused", label: "Connection refused", summary: "Target refused the connection." };
   }
   if (status >= 500 || code.includes("serviceunavailable") || message.includes("service unavailable")) {
     return { type: "incident", label: "Service incident", summary: "Graph returned a 5xx transient error." };
@@ -9333,6 +11487,26 @@ function buildExplanations(service, payload) {
     if (classification?.type === "throttle") {
       causes.push("Too many requests within a short window.");
       actions.push("Reduce request volume and retry after a delay.");
+    }
+    if (classification?.type === "missing_module") {
+      causes.push("Required PowerShell module is not installed on this host.");
+      actions.push("Install the missing module and restart the PowerShell session.");
+    }
+    if (classification?.type === "access_denied") {
+      causes.push("Insufficient rights for the requested operation.");
+      actions.push("Run as administrator or use an account with elevated rights.");
+    }
+    if (classification?.type === "rpc_unavailable") {
+      causes.push("RPC service unavailable or blocked by firewall.");
+      actions.push("Check RPC services and firewall rules between client and target.");
+    }
+    if (classification?.type === "dns_failure") {
+      causes.push("DNS name resolution failed.");
+      actions.push("Verify DNS records and resolve the hostname before retrying.");
+    }
+    if (classification?.type === "connection_refused") {
+      causes.push("Target refused the connection.");
+      actions.push("Verify the service is listening and firewall allows the port.");
     }
     if (classification?.type === "incident") {
       causes.push("Service incident or transient failure.");
@@ -9938,7 +12112,7 @@ async function executeUpdate(service, updateConfig, itemId, updates) {
         data,
       };
     }
-    return { ok: true, data: data.data };
+    return { ok: true, data: unwrapEnvelopeData(data.data) };
   } catch (err) {
     return { ok: false, error: err.message || "Update failed" };
   }
@@ -9964,7 +12138,7 @@ async function executeBulkUpdate(service, updateConfig, items) {
     if (!data.ok) {
       return { ok: false, error: data.error || "Bulk update failed", data };
     }
-    return { ok: true, data: data.data };
+    return { ok: true, data: unwrapEnvelopeData(data.data) };
   } catch (err) {
     return { ok: false, error: err.message || "Bulk update failed" };
   }
@@ -10249,6 +12423,219 @@ function renderValueTree(value) {
   return container;
 }
 
+function jsonPointer(parts) {
+  if (!parts || !parts.length) return "/";
+  return (
+    "/" +
+    parts
+      .map((part) => String(part).replace(/~/g, "~0").replace(/\//g, "~1"))
+      .join("/")
+  );
+}
+
+function createInspectorState(rootValue) {
+  return {
+    rootValue,
+    valueMap: new Map(),
+    selectedPointer: null,
+    searchQuery: "",
+    matches: [],
+    matchIndex: -1,
+  };
+}
+
+function selectInspectorNode(modal, element, pointer) {
+  if (!modal || !element) return;
+  const prev = modal.querySelector(".json-selected");
+  if (prev) prev.classList.remove("json-selected");
+  element.classList.add("json-selected");
+  modal._inspectorState.selectedPointer = pointer;
+}
+
+function renderJsonInspector(value, options = {}) {
+  const state = options.state || createInspectorState(value);
+  const container = document.createElement("div");
+  container.classList.add("json-inspector");
+  if (options.wrap) {
+    container.classList.add("wrap");
+  }
+  const maxItems = options.maxItems || 200;
+  const step = options.step || 200;
+
+  const renderNode = (val, path, depth, label, isRoot = false) => {
+    if (isPrimitive(val)) {
+      const row = document.createElement("div");
+      row.classList.add("json-row");
+      row.style.setProperty("--depth", depth);
+      const key = document.createElement("span");
+      key.classList.add("json-key");
+      key.textContent = label ?? "";
+      const sep = document.createElement("span");
+      sep.classList.add("json-sep");
+      sep.textContent = label != null ? ":" : "";
+      const valueEl = document.createElement("span");
+      valueEl.classList.add("json-value");
+      valueEl.textContent = formatValue(val);
+      row.appendChild(key);
+      row.appendChild(sep);
+      row.appendChild(valueEl);
+      const pointer = jsonPointer(path);
+      row.dataset.pointer = pointer;
+      row.dataset.search = `${label ?? ""} ${formatValue(val)}`.toLowerCase();
+      state.valueMap.set(pointer, val);
+      row.addEventListener("click", (event) => {
+        event.stopPropagation();
+        selectInspectorNode(options.modal, row, pointer);
+      });
+      return row;
+    }
+
+    const details = document.createElement("details");
+    details.classList.add("json-node");
+    details.open = isRoot;
+    details.style.setProperty("--depth", depth);
+    const summary = document.createElement("summary");
+    summary.classList.add("json-summary");
+    const key = document.createElement("span");
+    key.classList.add("json-key");
+    key.textContent = label ?? (isRoot ? "root" : "");
+    const sep = document.createElement("span");
+    sep.classList.add("json-sep");
+    sep.textContent = label != null || isRoot ? ":" : "";
+    const type = document.createElement("span");
+    type.classList.add("json-type");
+    const isArray = Array.isArray(val);
+    const count = isArray ? val.length : Object.keys(val || {}).length;
+    type.textContent = isArray ? `Array(${count})` : `Object(${count})`;
+    summary.appendChild(key);
+    summary.appendChild(sep);
+    summary.appendChild(type);
+    details.appendChild(summary);
+
+    const pointer = jsonPointer(path);
+    details.dataset.pointer = pointer;
+    details.dataset.search = `${label ?? ""} ${type.textContent}`.toLowerCase();
+    state.valueMap.set(pointer, val);
+
+    summary.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectInspectorNode(options.modal, details, pointer);
+    });
+
+    const children = document.createElement("div");
+    children.classList.add("json-children");
+    details.appendChild(children);
+
+    if (isArray) {
+      let limit = maxItems;
+      const renderArray = () => {
+        children.innerHTML = "";
+        const sliced = val.slice(0, limit);
+        sliced.forEach((item, idx) => {
+          children.appendChild(renderNode(item, [...path, idx], depth + 1, `[${idx}]`));
+        });
+        if (limit < val.length) {
+          const more = document.createElement("div");
+          more.classList.add("json-more");
+          more.textContent = `Showing first ${limit} of ${val.length} items. `;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.classList.add("ghost", "small");
+          btn.textContent = `Load ${Math.min(step, val.length - limit)} more`;
+          btn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            limit = Math.min(val.length, limit + step);
+            renderArray();
+            if (options.modal) {
+              runModalSearch(options.modal, options.modal._inspectorState.searchQuery || "");
+            }
+          });
+          more.appendChild(btn);
+          children.appendChild(more);
+        }
+      };
+      renderArray();
+    } else {
+      Object.entries(val || {}).forEach(([childKey, childVal]) => {
+        children.appendChild(renderNode(childVal, [...path, childKey], depth + 1, childKey));
+      });
+    }
+    return details;
+  };
+
+  container.appendChild(renderNode(value, [], 0, null, true));
+  return { container, state };
+}
+
+function runModalSearch(modal, queryOverride) {
+  if (!modal) return;
+  const state = modal._inspectorState;
+  if (!state) return;
+  const input = modal.querySelector("#modal-search");
+  const meta = modal.querySelector("#modal-search-meta");
+  const query = (queryOverride !== undefined ? queryOverride : input?.value || "").toLowerCase().trim();
+  state.searchQuery = query;
+  const matches = [];
+  modal.querySelectorAll("[data-search]").forEach((node) => {
+    node.classList.remove("match", "match-active");
+    if (!query) return;
+    if ((node.dataset.search || "").includes(query)) {
+      node.classList.add("match");
+      matches.push(node);
+    }
+  });
+  state.matches = matches;
+  state.matchIndex = matches.length ? 0 : -1;
+  if (matches.length) {
+    matches[0].classList.add("match-active");
+    matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    if (meta) meta.textContent = `1 / ${matches.length} matches`;
+  } else {
+    if (meta) meta.textContent = query ? "0 matches" : "";
+  }
+}
+
+function jumpModalSearch(modal, direction) {
+  if (!modal) return;
+  const state = modal._inspectorState;
+  if (!state || !state.matches.length) return;
+  state.matches[state.matchIndex]?.classList.remove("match-active");
+  const nextIndex = (state.matchIndex + direction + state.matches.length) % state.matches.length;
+  state.matchIndex = nextIndex;
+  const node = state.matches[nextIndex];
+  node.classList.add("match-active");
+  node.scrollIntoView({ behavior: "smooth", block: "center" });
+  const meta = modal.querySelector("#modal-search-meta");
+  if (meta) meta.textContent = `${nextIndex + 1} / ${state.matches.length} matches`;
+}
+
+async function copyModalSelection(modal, mode) {
+  if (!modal) return;
+  const state = modal._inspectorState;
+  if (!state) return;
+  const pointer = state.selectedPointer;
+  const value = pointer ? state.valueMap.get(pointer) : null;
+  let payload = null;
+  if (mode === "all") {
+    payload = JSON.stringify(state.rootValue, null, 2);
+  } else if (!pointer) {
+    showToast("Select a node to copy");
+    return;
+  } else if (mode === "path") {
+    payload = pointer;
+  } else if (mode === "value") {
+    payload = isPrimitive(value) ? String(value ?? "") : JSON.stringify(value, null, 2);
+  } else {
+    payload = JSON.stringify(value, null, 2);
+  }
+  try {
+    await navigator.clipboard.writeText(payload);
+    showToast("Copied");
+  } catch (err) {
+    showToast("Copy failed");
+  }
+}
+
 function getOutputSearchQuery(service) {
   return (outputSearchQueries[service] || "").toLowerCase().trim();
 }
@@ -10381,9 +12768,19 @@ function ensureModal() {
         <div class="modal-actions">
           <button class="ghost small" id="modal-expand">Expand all</button>
           <button class="ghost small" id="modal-collapse">Collapse all</button>
+          <button class="ghost small" id="modal-copy-all">Copy JSON</button>
+          <button class="ghost small" id="modal-top">Back to top</button>
           <button class="ghost small" id="modal-edit">Edit</button>
           <button class="primary small" id="modal-save">Save</button>
           <button class="ghost small" id="modal-close">Close</button>
+        </div>
+      </div>
+      <div class="modal-toolbar">
+        <div class="modal-search">
+          <input id="modal-search" type="search" placeholder="Search keys/values" />
+          <button class="ghost small" id="modal-search-prev">Prev</button>
+          <button class="ghost small" id="modal-search-next">Next</button>
+          <span class="modal-search-meta" id="modal-search-meta"></span>
         </div>
       </div>
       <div class="modal-body" id="modal-body"></div>
@@ -10406,7 +12803,7 @@ function ensureModal() {
   const toggleModalDetails = (open) => {
     const body = modal.querySelector("#modal-body");
     if (!body) return;
-    body.querySelectorAll("details.pretty-details").forEach((detail) => {
+    body.querySelectorAll("details.json-node").forEach((detail) => {
       detail.open = open;
     });
   };
@@ -10415,6 +12812,26 @@ function ensureModal() {
   }
   if (collapseButton) {
     collapseButton.addEventListener("click", () => toggleModalDetails(false));
+  }
+
+  modal.dataset.wrap = "true";
+
+  const searchInput = modal.querySelector("#modal-search");
+  const searchPrev = modal.querySelector("#modal-search-prev");
+  const searchNext = modal.querySelector("#modal-search-next");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => runModalSearch(modal));
+  }
+  if (searchPrev) {
+    searchPrev.addEventListener("click", () => jumpModalSearch(modal, -1));
+  }
+  if (searchNext) {
+    searchNext.addEventListener("click", () => jumpModalSearch(modal, 1));
+  }
+
+  const copyAll = modal.querySelector("#modal-copy-all");
+  if (copyAll) {
+    copyAll.addEventListener("click", () => copyModalSelection(modal, "all"));
   }
 
   window.addEventListener("keydown", (event) => {
@@ -10435,6 +12852,7 @@ function showModal(title, data, service) {
   const saveButton = modal.querySelector("#modal-save");
   const expandButton = modal.querySelector("#modal-expand");
   const collapseButton = modal.querySelector("#modal-collapse");
+  const topButton = modal.querySelector("#modal-top");
   titleEl.textContent = title;
   bodyEl.innerHTML = "";
 
@@ -10483,28 +12901,18 @@ function showModal(title, data, service) {
     bodyEl.appendChild(panel);
   }
 
-  const detailMap = new Map();
-  Object.entries(data).forEach(([key, value]) => {
-    const row = document.createElement("div");
-    row.classList.add("detail-row");
-    const label = document.createElement("div");
-    label.classList.add("detail-key");
-    label.textContent = key;
-    const val = document.createElement("div");
-    val.classList.add("detail-value");
-    if (isPrimitive(value)) {
-      val.textContent = formatValue(value);
-    } else {
-      val.appendChild(renderValueTree(value));
-    }
-    row.appendChild(label);
-    row.appendChild(val);
-    bodyEl.appendChild(row);
-    detailMap.set(key, val);
-  });
+  const inspector = renderJsonInspector(data, { modal, wrap: modal.dataset.wrap === "true", maxItems: 200, step: 200 });
+  modal._inspectorState = inspector.state;
+  bodyEl.appendChild(inspector.container);
+  if (topButton) {
+    topButton.onclick = () => {
+      bodyEl.scrollTo({ top: 0, behavior: "smooth" });
+    };
+  }
+  runModalSearch(modal, "");
 
   if (expandButton && collapseButton) {
-    const hasNested = Boolean(bodyEl.querySelector("details.pretty-details"));
+    const hasNested = Boolean(bodyEl.querySelector("details.json-node"));
     expandButton.style.display = hasNested ? "inline-flex" : "none";
     collapseButton.style.display = hasNested ? "inline-flex" : "none";
   }
@@ -10637,22 +13045,22 @@ function showModal(title, data, service) {
         if (result?.ok) {
           Object.assign(data, updates);
           Object.assign(original, updates);
-          Object.entries(updates).forEach(([key, value]) => {
-            const el = detailMap.get(key);
-            if (el) {
-              el.innerHTML = "";
-              if (isPrimitive(value)) {
-                el.textContent = formatValue(value);
-              } else {
-                el.appendChild(renderValueTree(value));
-              }
-            }
-          });
-        modal.classList.remove("editing");
-        if (saveButton) saveButton.style.display = "none";
-        if (editButton) editButton.textContent = "Edit";
-        showToast("User updated");
-      }
+          const existing = bodyEl.querySelector(".json-inspector");
+          if (existing) existing.remove();
+          const refreshed = renderJsonInspector(data, { modal, wrap: modal.dataset.wrap === "true", maxItems: 200, step: 200 });
+          modal._inspectorState = refreshed.state;
+          const editPanel = bodyEl.querySelector(".edit-panel");
+          if (editPanel) {
+            bodyEl.insertBefore(refreshed.container, editPanel);
+          } else {
+            bodyEl.appendChild(refreshed.container);
+          }
+          runModalSearch(modal, modal._inspectorState.searchQuery || "");
+          modal.classList.remove("editing");
+          if (saveButton) saveButton.style.display = "none";
+          if (editButton) editButton.textContent = "Edit";
+          showToast("User updated");
+        }
     };
   }
 
@@ -11601,12 +14009,19 @@ function setOutput(service, content) {
   let rawText = "";
   let parsed = null;
   const isBulkSummary = typeof content === "object" && content?.__bulk_summary__;
+  const isPowerShellEnvelope =
+    typeof content === "object" &&
+    content !== null &&
+    Object.prototype.hasOwnProperty.call(content, "ok") &&
+    Object.prototype.hasOwnProperty.call(content, "data") &&
+    Object.prototype.hasOwnProperty.call(content, "error") &&
+    Object.prototype.hasOwnProperty.call(content, "meta");
 
   if (typeof content === "string") {
     rawText = content;
     parsed = tryParseJson(content);
   } else {
-    parsed = content;
+    parsed = isPowerShellEnvelope ? content.data : content;
     rawText = JSON.stringify(content, null, 2) || "OK";
   }
 
@@ -11617,6 +14032,7 @@ function setOutput(service, content) {
     dashboard.textContent = rawText;
   }
   lastOutputs[service] = parsed ?? rawText;
+  updateArtifactButton(service, extractArtifact(content));
   if (!isBulkSummary) {
     setBulkFailures(service, null);
   }
@@ -11627,6 +14043,68 @@ function setOutput(service, content) {
   if (service === "reports") {
     updateReportExportOptions(parsed);
   }
+}
+
+function extractArtifact(content) {
+  if (!content || typeof content !== "object") return null;
+  const meta = content.meta || content?.data?.meta;
+  if (meta?.artifact) return meta.artifact;
+  if (meta?.artifact_url) {
+    return {
+      url: meta.artifact_url,
+      name: meta.artifact_name || meta.artifact_url,
+    };
+  }
+  if (content.artifact) return content.artifact;
+  return null;
+}
+
+function updateArtifactButton(service, artifact) {
+  const card = document.querySelector(`.output-card[data-panel="${service}"]`);
+  if (!card) return;
+  let actions = card.querySelector(".output-actions");
+  if (!actions) {
+    const clearButton = card.querySelector(`.clear-output[data-output-target="${service}"]`);
+    actions = document.createElement("div");
+    actions.classList.add("output-actions");
+    if (clearButton && clearButton.parentElement === card) {
+      card.insertBefore(actions, clearButton);
+    } else {
+      card.appendChild(actions);
+    }
+  }
+  let button = actions.querySelector(".artifact-download");
+  if (!artifact) {
+    if (button) button.remove();
+    return;
+  }
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.classList.add("ghost", "small", "artifact-download");
+    actions.appendChild(button);
+  }
+  button.textContent = "Download report";
+  button.dataset.url = artifact.url || "";
+  button.onclick = () => {
+    const url = button.dataset.url;
+    if (!url) return;
+    window.open(url, "_blank");
+  };
+}
+
+function unwrapEnvelopeData(payload) {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    Object.prototype.hasOwnProperty.call(payload, "ok") &&
+    Object.prototype.hasOwnProperty.call(payload, "data") &&
+    Object.prototype.hasOwnProperty.call(payload, "error") &&
+    Object.prototype.hasOwnProperty.call(payload, "meta")
+  ) {
+    return payload.data;
+  }
+  return payload;
 }
 
 function confirmAction(service, action, params = {}) {
@@ -11779,6 +14257,7 @@ async function runAction(service, action, params = {}, options = {}) {
       updateMetrics();
       return { ok: false, data };
     }
+    const payload = unwrapEnvelopeData(data.data);
     if (shouldStoreContext(service, action)) {
       lastActionContext[service] = { action, params };
     }
@@ -11800,12 +14279,12 @@ async function runAction(service, action, params = {}, options = {}) {
     });
     if (service === "topology") {
       if (action === "collect_topology") {
-        topologyData = data.data;
+        topologyData = payload;
         topologyPing = null;
-        const snapshot = storeTopologySnapshot(data.data);
+        const snapshot = storeTopologySnapshot(payload);
         syncTopologyHistory(snapshot);
       } else if (action === "ping_targets") {
-        topologyPing = data.data;
+        topologyPing = payload;
       }
     }
     addActivity(`Ran: ${activityLabel(service, action)}`);
@@ -11816,14 +14295,14 @@ async function runAction(service, action, params = {}, options = {}) {
         label: activityLabel(service, action),
         timestamp: Date.now(),
         params,
-        data: data.data,
+        data: payload,
       });
     }
     stats.success += 1;
     saveStats(stats);
     updateMetrics();
     showToast("Action completed");
-    return { ok: true, data: data.data };
+    return { ok: true, data: payload };
   } catch (err) {
     if (err.name === "AbortError") {
       finalizeRunMeta(service, { ok: false, cancelled: true, error: "Aborted" });
@@ -12195,6 +14674,7 @@ function updateMetrics() {
 function modeLabel(mode) {
   if (mode === "powershell") return "PowerShell";
   if (mode === "ssh") return "SSH";
+  if (mode === "local") return "Local";
   return "Graph";
 }
 
@@ -12381,8 +14861,8 @@ function setupOutputViews() {
     explainButton.classList.add("tab");
     explainButton.dataset.view = "explain";
     explainButton.textContent = "Explain";
-    const wantsGraph = service === "topology-report";
-    const includeTable = !wantsGraph;
+    const wantsGraph = service === "topology-report" || service === "incident";
+    const includeTable = service !== "topology-report";
     let tableButton = null;
     if (includeTable) {
       tableButton = document.createElement("button");
@@ -12495,6 +14975,7 @@ function populateRunner(service) {
   const resetButton = form.querySelector(".runner-reset");
   const actionsRow = form.querySelector(".runner-actions");
   let cancelButton = form.querySelector(".runner-cancel");
+  let snapshotButton = form.querySelector(".runner-snapshot");
   if (!cancelButton && actionsRow) {
     cancelButton = document.createElement("button");
     cancelButton.type = "button";
@@ -12507,6 +14988,18 @@ function populateRunner(service) {
   if (cancelButton && !cancelButton.dataset.bound) {
     cancelButton.dataset.bound = "true";
     cancelButton.addEventListener("click", () => cancelAction(service));
+  }
+  if (!snapshotButton && actionsRow) {
+    snapshotButton = document.createElement("button");
+    snapshotButton.type = "button";
+    snapshotButton.classList.add("ghost", "small", "runner-snapshot");
+    snapshotButton.dataset.service = service;
+    snapshotButton.textContent = "Capture snapshot";
+    actionsRow.appendChild(snapshotButton);
+  }
+  if (snapshotButton && !snapshotButton.dataset.bound) {
+    snapshotButton.dataset.bound = "true";
+    snapshotButton.addEventListener("click", () => captureSnapshotFromPanel(service));
   }
 
   if (!Object.keys(actions).length) {
@@ -12622,8 +15115,179 @@ function readRunnerParams(service) {
   return params;
 }
 
+const SNAPSHOT_KIND_BY_SERVICE = {
+  exchange: "user",
+  onedrive: "user",
+  sharepoint: "user",
+  teams: "user",
+  entra: "user",
+  azure: "user",
+  defender: "user",
+  powerplatform: "user",
+  purview: "user",
+  localad: "user",
+  endpoint: "device",
+  domaincontroller: "dc",
+  printers: "print_server",
+  network: "device",
+  ssh: "device",
+  fileserver: "file_server",
+  topology: "admin_host",
+  time: "admin_host",
+  certificates: "admin_host",
+  processes: "admin_host",
+  baselines: "admin_host",
+  eventlogs: "admin_host",
+  registry: "admin_host",
+};
+
+const SNAPSHOT_USER_KEYS = [
+  "user_id",
+  "user_principal_name",
+  "userprincipalname",
+  "shared_mailbox",
+  "mailbox",
+  "user",
+  "upn",
+  "user_dn",
+  "userdn",
+];
+
+const SNAPSHOT_HOST_KEYS = [
+  "host",
+  "hostname",
+  "host_name",
+  "computer",
+  "computer_name",
+  "device",
+  "device_id",
+  "deviceid",
+  "server",
+  "server_name",
+  "fqdn",
+  "ip",
+  "ip_address",
+  "address",
+  "dc",
+  "domain",
+];
+
+function isGuidValue(value) {
+  if (!value) return false;
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
+    String(value)
+  );
+}
+
+function normalizeIdentifierValue(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) return value[0];
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (raw.includes(",")) {
+    return raw.split(",")[0].trim();
+  }
+  return raw;
+}
+
+function pickParamValue(params, keys) {
+  for (const key of keys) {
+    if (params[key]) return { key, value: normalizeIdentifierValue(params[key]) };
+  }
+  return null;
+}
+
+function aliasTypeFor(kind, key, value) {
+  const lowerKey = String(key || "").toLowerCase();
+  if (kind === "user") {
+    if (lowerKey.includes("dn")) return "user_dn";
+    if (value && value.includes("@")) return "upn";
+    if (isGuidValue(value)) return "objectId";
+    return "user_id";
+  }
+  if (lowerKey.includes("domain")) return "domain";
+  return isIpAddress(value) ? "ip" : "hostname";
+}
+
+function inferSnapshotSubjectFromPanel(service) {
+  const params = readRunnerParams(service);
+  const defaultKind = SNAPSHOT_KIND_BY_SERVICE[service] || "admin_host";
+  let kind = defaultKind;
+  let identifier = null;
+  let key = null;
+
+  if (kind === "user") {
+    const picked = pickParamValue(params, SNAPSHOT_USER_KEYS);
+    if (picked) {
+      identifier = picked.value;
+      key = picked.key;
+    }
+  } else if (kind === "dc") {
+    const picked = pickParamValue(params, ["dc", "domain", ...SNAPSHOT_HOST_KEYS]);
+    if (picked) {
+      identifier = picked.value;
+      key = picked.key;
+    }
+  } else if (kind === "file_server" || kind === "print_server") {
+    const picked = pickParamValue(params, ["server", "host", ...SNAPSHOT_HOST_KEYS]);
+    if (picked) {
+      identifier = picked.value;
+      key = picked.key;
+    }
+  } else if (kind === "device") {
+    const picked = pickParamValue(params, SNAPSHOT_HOST_KEYS);
+    if (picked) {
+      identifier = picked.value;
+      key = picked.key;
+    }
+  }
+
+  if (!identifier && defaultKind !== "admin_host") {
+    const fallback = pickParamValue(params, SNAPSHOT_HOST_KEYS);
+    if (fallback) {
+      identifier = fallback.value;
+      key = fallback.key;
+      kind = "device";
+    }
+  }
+
+  if (!identifier && kind !== "admin_host") {
+    return null;
+  }
+
+  const identifiers = {};
+  if (identifier) {
+    identifiers[aliasTypeFor(kind, key, identifier)] = identifier;
+  }
+  return { kind, identifiers };
+}
+
+async function captureSnapshotFromPanel(service) {
+  const subject = inferSnapshotSubjectFromPanel(service);
+  if (!subject) {
+    showToast("Enter a user/host field to capture a snapshot.");
+    return;
+  }
+  const result = await captureSnapshots([subject], "core", { source: "panel", service }, activeIncidentId);
+  if (!result) {
+    showToast("Snapshot capture failed");
+    return;
+  }
+  await refreshSnapshotEntities();
+  if (subject && snapshotSubjectSelect && result.results?.length) {
+    const first = result.results.find((entry) => entry?.ok)?.result;
+    if (first?.canonical_id) {
+      snapshotSubjectSelect.value = first.canonical_id;
+    }
+  }
+  await refreshSnapshotHistory();
+  showToast("Snapshot captured");
+}
+
 navLinks.forEach((link) => {
-  link.addEventListener("click", () => setSection(link.dataset.section));
+  link.addEventListener("click", () =>
+    setSection(link.dataset.section, { scrollTarget: link.dataset.scroll })
+  );
 });
 
 navGroupToggles.forEach((toggle) => {
@@ -12637,6 +15301,21 @@ navGroupToggles.forEach((toggle) => {
 navToggle.addEventListener("click", () => {
   sidebar.classList.toggle("open");
 });
+
+if (navList) {
+  navList.addEventListener("scroll", () => {
+    updateNavShadows();
+  });
+  window.addEventListener("resize", () => {
+    updateNavShadows();
+  });
+  updateNavShadows();
+}
+
+initDiffTabs("snapshot");
+initDiffTabs("report");
+bindDiffCopy(snapshotDiffCopy, snapshotDiffTriage);
+bindDiffCopy(reportDiffCopy, reportDiffTriage);
 
 document.getElementById("connect-ps").addEventListener("click", () => {
   showToast("PowerShell connection queued");
@@ -13271,6 +15950,67 @@ if (reportDiffSelectB) {
     runReportDiff();
   });
 }
+if (snapshotCaptureButton) {
+  snapshotCaptureButton.addEventListener("click", async () => {
+    const kind = snapshotSubjectKind?.value || "user";
+    const identifier = snapshotSubjectValue?.value.trim();
+    const displayName = snapshotSubjectName?.value.trim();
+    const profile = snapshotProfileSelect?.value || "core";
+    if (!identifier && kind !== "admin_host") {
+      showToast("Enter an identifier");
+      return;
+    }
+    const identifiers = {};
+    if (identifier) {
+      if (kind === "user") {
+        identifiers.upn = identifier;
+      } else {
+        const aliasType = isIpAddress(identifier) ? "ip" : "hostname";
+        identifiers[aliasType] = identifier;
+      }
+    }
+    const subject = { kind, identifiers };
+    if (displayName) subject.display_name = displayName;
+    const result = await captureSnapshots([subject], profile, { source: "manual" });
+    if (!result) {
+      showToast("Snapshot capture failed");
+      return;
+    }
+    await refreshSnapshotEntities();
+    const first = result.results?.find((entry) => entry?.ok)?.result;
+    if (first?.canonical_id && snapshotSubjectSelect) {
+      snapshotSubjectSelect.value = first.canonical_id;
+    }
+    await refreshSnapshotHistory();
+    showToast("Snapshot captured");
+  });
+}
+if (snapshotHistoryRefresh) {
+  snapshotHistoryRefresh.addEventListener("click", () => {
+    refreshSnapshotEntities();
+    refreshSnapshotHistory();
+  });
+}
+if (snapshotSubjectSelect) {
+  snapshotSubjectSelect.addEventListener("change", () => {
+    refreshSnapshotHistory();
+  });
+}
+if (snapshotDiffRunButton) {
+  snapshotDiffRunButton.addEventListener("click", () => {
+    runSnapshotDiff();
+  });
+}
+if (snapshotDiffSelectA) {
+  snapshotDiffSelectA.addEventListener("change", () => {
+    runSnapshotDiff();
+  });
+}
+if (snapshotDiffSelectB) {
+  snapshotDiffSelectB.addEventListener("change", () => {
+    runSnapshotDiff();
+  });
+}
 
 if (packAddStepButton) {
   packAddStepButton.addEventListener("click", () => {
@@ -13574,6 +16314,7 @@ document.querySelectorAll(".clear-output").forEach((button) => {
       return;
     }
     setOutputStatus(target, { state: "idle", text: "Idle", meta: "", running: false });
+    updateArtifactButton(target, null);
   });
 });
 
@@ -13678,9 +16419,12 @@ renderActivity(loadActivity());
 updateMetrics();
 renderAuditServiceOptions();
 fetchAuditLogs();
+refreshSymptomTemplates();
+refreshSnapshotEntities().then(() => refreshSnapshotHistory());
 if (sshTerminalOutput) {
   setSshConnectionStatus("fail", "Disconnected");
 }
 renderIssues();
+renderIncidents();
 fetchTopologyHistory();
 refreshTopologyChangeViews();

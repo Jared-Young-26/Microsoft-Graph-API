@@ -1,0 +1,11 @@
+{
+  "default_gw": "10.0.0.1",
+  "routes": [
+    {
+      "DestinationPrefix": "0.0.0.0/0",
+      "NextHop": "10.0.0.1",
+      "InterfaceAlias": "Ethernet",
+      "RouteMetric": 25
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "hostname": "ADMINBOX",
+  "domain": "CONTOSO",
+  "manufacturer": "Mock",
+  "model": "Virtual",
+  "os_name": "Windows 11",
+  "os_version": "10.0.22621",
+  "os_build": "22621",
+  "os_architecture": "x64",
+  "last_boot": "2026-01-31T08:12:00Z",
+  "uptime_seconds": 86400
+}

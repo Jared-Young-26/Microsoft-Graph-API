@@ -9,10 +9,70 @@ import subprocess
 import uuid
 import threading
 import json
+import re
 
 # Load environment variables from .env file
 load_dotenv()
 REQUIRED_ENV_VARS = ["TENANT_ID", "CLIENT_ID", "CLIENT_SECRET"]
+
+SENSITIVE_KEYWORDS = (
+    "password",
+    "passphrase",
+    "secret",
+    "token",
+    "credential",
+    "private",
+    "client_secret",
+    "refresh_token",
+    "access_token",
+    "apikey",
+    "api_key",
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = str(key or "").lower()
+    if not normalized:
+        return False
+    if normalized.endswith("_key") or normalized.endswith("apikey"):
+        return True
+    return any(keyword in normalized for keyword in SENSITIVE_KEYWORDS)
+
+
+def _redact_payload(value, depth: int = 0):
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, str):
+        redacted = value
+        for keyword in SENSITIVE_KEYWORDS:
+            pattern = re.compile(rf"(?i)({re.escape(keyword)}\\s*[:=]\\s*)(\\S+)")
+            redacted = pattern.sub(r"\\1[redacted]", redacted)
+        return redacted
+    if depth > 6:
+        return "[truncated]"
+    if isinstance(value, list):
+        return [_redact_payload(item, depth + 1) for item in value]
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, val in value.items():
+            if _is_sensitive_key(key):
+                sanitized[key] = "[redacted]"
+            else:
+                sanitized[key] = _redact_payload(val, depth + 1)
+        return sanitized
+    return value
+
+
+def is_powershell_envelope(value) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return all(key in value for key in ("ok", "data", "error", "meta"))
+
+
+def unwrap_powershell_data(value):
+    if is_powershell_envelope(value):
+        return value.get("data")
+    return value
 
 class GraphAPIError(RuntimeError):
     def __init__(
@@ -255,38 +315,147 @@ class PowerShellSession:
         except FileNotFoundError as e:
             raise RuntimeError("PowerShell (pwsh) not found. Install PowerShell 7 and ensure 'pwsh' is on PATH.") from e
 
-    def run(self, script):
-        self._start()
-        token = f"__CODEX_PS_END__{uuid.uuid4().hex}"
-        wrapped = (
-            "$ErrorActionPreference = 'Stop'\n"
-            "$__codex_ok = $true\n"
-            "try {\n"
-            f"{script}\n"
-            "} catch {\n"
-            "  $__codex_ok = $false\n"
-            "  $_ | Out-String | Write-Output\n"
-            "}\n"
-            f"if ($__codex_ok) {{ Write-Output '{token}::OK' }} else {{ Write-Output '{token}::ERR' }}\n"
+    def _build_param_block(self, parameters):
+        if not parameters:
+            return "$__codex_params = @{}"
+        payload = json.dumps(parameters)
+        payload = payload.replace("'", "''")
+        return (
+            "$__codex_params = @{}; "
+            f"try {{ $__codex_params = '{payload}' | ConvertFrom-Json -AsHashtable }} "
+            "catch { $__codex_params = @{} }"
         )
 
-        output_lines = []
+    def _wrap_script(self, script, *, parameters=None, depth=8, capture_text=False, working_dir=None):
+        token = f"__CODEX_PS_ENVELOPE__{uuid.uuid4().hex}"
+        param_block = self._build_param_block(parameters)
+        invoke_with_params = False
+        if parameters:
+            stripped = (script or "").strip()
+            if stripped and all(ch not in stripped for ch in ["\n", ";", "|", "`", "{", "}"]) and " " not in stripped:
+                invoke_with_params = True
+        invoke_flag = "$true" if invoke_with_params else "$false"
+        cmd_literal = script.replace("'", "''") if script else ""
+        workdir_block = ""
+        if working_dir:
+            workdir_literal = working_dir.replace("'", "''")
+            workdir_block = f"Push-Location '{workdir_literal}'"
+        pop_block = "Pop-Location" if working_dir else ""
+        capture_block = "| Out-String" if capture_text else ""
+        return token, (
+            "$ErrorActionPreference = 'Stop'\n"
+            "$ProgressPreference = 'SilentlyContinue'\n"
+            "$Error.Clear()\n"
+            f"{param_block}\n"
+            "foreach ($k in $__codex_params.Keys) { Set-Variable -Name $k -Value $__codex_params[$k] -Scope Local }\n"
+            "$__codex_ok = $true\n"
+            "$__codex_error = $null\n"
+            "$__codex_data = $null\n"
+            "$__codex_start = Get-Date\n"
+            "try {\n"
+            f"{workdir_block}\n"
+            f"  if ({invoke_flag}) {{ $__codex_data = & '{cmd_literal}' @__codex_params {capture_block} }}\n"
+            "  else {\n"
+            f"    $__codex_data = & {{\n{script}\n    }} {capture_block}\n"
+            "  }\n"
+            "} catch {\n"
+            "  $__codex_ok = $false\n"
+            "  $__codex_error = $_\n"
+            "} finally {\n"
+            f"  {pop_block}\n"
+            "}\n"
+            "$__codex_end = Get-Date\n"
+            "$__codex_errors = @()\n"
+            "if ($Error.Count -gt 0) {\n"
+            "  $__codex_errors = $Error | ForEach-Object {\n"
+            "    [PSCustomObject]@{\n"
+            "      message = $_.Exception.Message\n"
+            "      type = $_.Exception.GetType().FullName\n"
+            "      category = $_.CategoryInfo.Reason\n"
+            "      fully_qualified_error_id = $_.FullyQualifiedErrorId\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+            "$__codex_error_info = $null\n"
+            "if ($__codex_error) {\n"
+            "  $__codex_error_info = [PSCustomObject]@{\n"
+            "    message = $__codex_error.Exception.Message\n"
+            "    type = $__codex_error.Exception.GetType().FullName\n"
+            "    category = $__codex_error.CategoryInfo.Reason\n"
+            "    fully_qualified_error_id = $__codex_error.FullyQualifiedErrorId\n"
+            "    script_stack_trace = $__codex_error.ScriptStackTrace\n"
+            "    details = ($__codex_error | Out-String).Trim()\n"
+            "  }\n"
+            "}\n"
+            "$__codex_meta = [PSCustomObject]@{\n"
+            "  started_at = $__codex_start.ToString('o')\n"
+            "  ended_at = $__codex_end.ToString('o')\n"
+            "  duration_ms = [math]::Round((($__codex_end) - $__codex_start).TotalMilliseconds, 2)\n"
+            "  error_count = $Error.Count\n"
+            "  non_terminating_errors = $__codex_errors\n"
+            "}\n"
+            "$__codex_payload = [PSCustomObject]@{\n"
+            "  ok = $__codex_ok\n"
+            "  data = $__codex_data\n"
+            "  error = $__codex_error_info\n"
+            "  meta = $__codex_meta\n"
+            "}\n"
+            f"Write-Output '{token}::BEGIN'\n"
+            f"$__codex_payload | ConvertTo-Json -Depth {depth} -Compress\n"
+            f"Write-Output '{token}::END'\n"
+        )
+
+    def _read_envelope(self, token):
+        payload_lines = []
+        started = False
+        while True:
+            line = self.process.stdout.readline()
+            if line == "":
+                break
+            line_stripped = line.strip()
+            if line_stripped == f"{token}::BEGIN":
+                started = True
+                payload_lines = []
+                continue
+            if line_stripped == f"{token}::END":
+                break
+            if started:
+                payload_lines.append(line)
+        return "".join(payload_lines).strip()
+
+    def _execute_enveloped(self, script, *, parameters=None, depth=8, capture_text=False, working_dir=None):
+        self._start()
+        token, wrapped = self._wrap_script(
+            script,
+            parameters=parameters,
+            depth=depth,
+            capture_text=capture_text,
+            working_dir=working_dir,
+        )
         with self._lock:
             self.process.stdin.write(wrapped)
             self.process.stdin.flush()
+            payload_text = self._read_envelope(token)
+        if not payload_text:
+            return {"ok": False, "data": None, "error": {"message": "No PowerShell output"}, "meta": {}}
+        try:
+            payload = json.loads(payload_text)
+        except json.JSONDecodeError as exc:
+            payload = {
+                "ok": False,
+                "data": payload_text,
+                "error": {"message": f"Failed to parse PowerShell JSON: {exc}"},
+                "meta": {},
+            }
+        if parameters:
+            payload.setdefault("meta", {})
+            payload["meta"]["parameters"] = _redact_payload(parameters)
+        payload["data"] = _redact_payload(payload.get("data"))
+        payload["error"] = _redact_payload(payload.get("error"))
+        return payload
 
-            while True:
-                line = self.process.stdout.readline()
-                if line == "":
-                    break
-                line_stripped = line.strip()
-                if line_stripped == f"{token}::OK":
-                    return "".join(output_lines).strip()
-                if line_stripped == f"{token}::ERR":
-                    output = "".join(output_lines).strip()
-                    raise PowerShellCommandError("PowerShell command failed.", output=output)
-                output_lines.append(line)
-        return "".join(output_lines).strip()
+    def run(self, script, parameters=None, working_dir=None):
+        return self._execute_enveloped(script, parameters=parameters, capture_text=True, working_dir=working_dir)
 
     def close(self):
         if not self.process or self.process.poll() is not None:
@@ -299,11 +468,14 @@ class PowerShellSession:
         except Exception:
             pass
 
-    def run_json(self, script, depth=8):
-        output = self.run(f"{script} | ConvertTo-Json -Depth {depth}")
-        if not output:
-            return None
-        return json.loads(output)
+    def run_json(self, script_or_command, parameters=None, depth=8, working_dir=None):
+        return self._execute_enveloped(
+            script_or_command,
+            parameters=parameters,
+            depth=depth,
+            capture_text=False,
+            working_dir=working_dir,
+        )
 
 
 class PowerShellModuleClient:
@@ -322,25 +494,26 @@ class PowerShellModuleClient:
             return True
         script = self._connect_script()
         if script:
-            self.session.run(script)
+            result = self.session.run(script)
+            if isinstance(result, dict) and not result.get("ok", True):
+                raise PowerShellCommandError("PowerShell connect failed.", output=result)
         self.connected = True
         return True
 
-    def run(self, script):
+    def run(self, script, parameters=None, working_dir=None):
         self.connect()
-        return self.session.run(script)
+        return self.session.run(script, parameters=parameters, working_dir=working_dir)
 
-    def run_json(self, script):
-        output = self.run(f"{script} | ConvertTo-Json -Depth 8")
-        if not output:
-            return None
-        return json.loads(output)
+    def run_json(self, script, parameters=None, depth=8, working_dir=None):
+        return self.session.run_json(script, parameters=parameters, depth=depth, working_dir=working_dir)
 
     def disconnect(self):
         script = self._disconnect_script()
         if script:
             try:
-                self.session.run(script)
+                result = self.session.run(script)
+                if isinstance(result, dict) and not result.get("ok", True):
+                    raise PowerShellCommandError("PowerShell disconnect failed.", output=result)
             except PowerShellCommandError:
                 pass
         self.connected = False

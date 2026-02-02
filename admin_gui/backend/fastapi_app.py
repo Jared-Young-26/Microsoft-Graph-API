@@ -1,7 +1,7 @@
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import asyncio
@@ -20,6 +20,31 @@ from .core import (
     get_action_source,
     _list_action_snapshots,
     _get_action_snapshot,
+    _diff_action_snapshots,
+    _list_engine_snapshots,
+    _get_engine_snapshot,
+    _list_snapshot_entities,
+    _diff_engine_snapshots,
+    _resolve_snapshot_subject,
+    _list_snapshot_events,
+    _list_symptom_templates,
+    _get_symptom_template,
+    _create_incident,
+    _list_incidents,
+    _get_incident,
+    _update_incident,
+    _link_incident_snapshot,
+    _link_incident_event,
+    _build_incident_graph,
+    _build_incident_timeline,
+    _list_golden_snapshots,
+    _set_golden_snapshot,
+    _clear_golden_snapshot,
+    _diff_golden_snapshot,
+    _extract_action_payload,
+    _capture_snapshots,
+    ensure_snapshot_scheduler,
+    ARTIFACTS_DIR,
 )
 from platform_core.interpreter import interpret_response
 from microsoft import GraphAPIError, PowerShellCommandError
@@ -27,6 +52,7 @@ from microsoft import GraphAPIError, PowerShellCommandError
 ROOT = Path(__file__).resolve().parents[1]
 
 app = FastAPI(title="Graph Admin Studio API")
+ensure_snapshot_scheduler()
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,6 +151,14 @@ def get_audit(
     return {"ok": True, "data": data}
 
 
+@app.get("/api/artifacts/{filename}")
+def get_artifact(filename: str):
+    path = ARTIFACTS_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return FileResponse(path, filename=path.name)
+
+
 @app.post("/api/config/export")
 def export_config(payload: ConfigExportRequest):
     data = payload.model_dump()
@@ -152,7 +186,13 @@ def run_task(task: TaskRequest):
         data = dispatch_task(task.service, task.action, task.params)
         normalized = None
         try:
-            normalized = interpret_response(task.service, task.action, data, source=get_action_source(task.service, task.action))
+            normalized_payload = _extract_action_payload(data)
+            normalized = interpret_response(
+                task.service,
+                task.action,
+                normalized_payload,
+                source=get_action_source(task.service, task.action),
+            )
         except Exception:
             normalized = None
         return {"ok": True, "data": data, "normalized": normalized}
@@ -233,9 +273,10 @@ def list_snapshots(
     type: str | None = None,
     target: str | None = None,
     prefix: str | None = None,
+    action: str | None = None,
     limit: int | None = 50,
 ):
-    data = _list_action_snapshots(snapshot_type=type, target=target, prefix=prefix, limit=limit)
+    data = _list_action_snapshots(snapshot_type=type, target=target, prefix=prefix, action=action, limit=limit)
     return {"ok": True, "data": data}
 
 
@@ -244,6 +285,187 @@ def get_snapshot(snapshot_id: str):
     data = _get_action_snapshot(snapshot_id)
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshot not found"})
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/history")
+def get_snapshot_history(canonical_id: str | None = None, limit: int | None = 20):
+    data = _list_engine_snapshots(canonical_id=canonical_id, limit=limit or 20)
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/engine/{snapshot_id}")
+def get_engine_snapshot(snapshot_id: str):
+    data = _get_engine_snapshot(snapshot_id)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshot not found"})
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/entities")
+def list_snapshot_entities(limit: int | None = 200):
+    data = _list_snapshot_entities(limit=limit or 200)
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/engine/diff")
+def diff_engine_snapshots(snapshot_a: str | None = None, snapshot_b: str | None = None, a: str | None = None, b: str | None = None):
+    left = snapshot_a or a
+    right = snapshot_b or b
+    data = _diff_engine_snapshots(left, right)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshots not found"})
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/golden")
+def list_golden_snapshots():
+    data = _list_golden_snapshots()
+    return {"ok": True, "data": data}
+
+
+@app.post("/api/snapshots/golden")
+def set_golden_snapshot(payload: dict):
+    try:
+        kind = payload.get("kind")
+        snapshot_id = payload.get("snapshot_id")
+        label = payload.get("label")
+        data = _set_golden_snapshot(kind, snapshot_id, label)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.delete("/api/snapshots/golden/{kind}")
+def clear_golden_snapshot(kind: str):
+    try:
+        data = _clear_golden_snapshot(kind)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/snapshots/golden/diff")
+def diff_golden_snapshot(snapshot_id: str):
+    try:
+        data = _diff_golden_snapshot(snapshot_id)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/snapshots/resolve")
+def resolve_snapshot_subject(alias_type: str | None = None, alias_value: str | None = None):
+    data = _resolve_snapshot_subject(alias_type, alias_value)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "No matching subject"})
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/events")
+def list_snapshot_events(canonical_ids: str | None = None, limit: int | None = 50):
+    ids = [cid for cid in (canonical_ids or "").split(",") if cid]
+    data = _list_snapshot_events(canonical_ids=ids, limit=limit or 50)
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/symptoms")
+def list_symptoms():
+    return {"ok": True, "data": _list_symptom_templates()}
+
+
+@app.get("/api/symptoms/{symptom_id}")
+def get_symptom(symptom_id: str):
+    data = _get_symptom_template(symptom_id)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Symptom template not found"})
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/incidents")
+def list_incidents(limit: int | None = 50):
+    data = _list_incidents(limit=limit or 50)
+    return {"ok": True, "data": data}
+
+
+@app.post("/api/incidents")
+def create_incident(payload: dict):
+    try:
+        data = _create_incident(payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/incidents/{incident_id}")
+def get_incident(incident_id: str):
+    data = _get_incident(incident_id)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Incident not found"})
+    return {"ok": True, "data": data}
+
+
+@app.put("/api/incidents/{incident_id}")
+def update_incident(incident_id: str, payload: dict):
+    try:
+        data = _update_incident(incident_id, payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/incidents/{incident_id}/snapshots")
+def link_incident_snapshot(incident_id: str, payload: dict):
+    try:
+        data = _link_incident_snapshot(incident_id, payload.get("snapshot_id"))
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/incidents/{incident_id}/events")
+def link_incident_event(incident_id: str, payload: dict):
+    try:
+        data = _link_incident_event(incident_id, payload.get("event_id"))
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/incidents/{incident_id}/graph")
+def incident_graph(incident_id: str):
+    try:
+        data = _build_incident_graph(incident_id)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/incidents/{incident_id}/timeline")
+def incident_timeline(incident_id: str):
+    try:
+        data = _build_incident_timeline(incident_id)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/snapshots/capture")
+def capture_snapshot(payload: dict):
+    try:
+        data = _capture_snapshots(payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/snapshots/diff")
+def diff_snapshots(snapshot_a: str | None = None, snapshot_b: str | None = None, a: str | None = None, b: str | None = None):
+    left = snapshot_a or a
+    right = snapshot_b or b
+    data = _diff_action_snapshots(left, right)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshots not found"})
     return {"ok": True, "data": data}
 
 

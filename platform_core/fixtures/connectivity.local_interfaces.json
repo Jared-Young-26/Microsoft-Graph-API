@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Ethernet",
+    "interface_index": 12,
+    "ipv4": ["10.0.0.10"],
+    "ipv6": [],
+    "dns_servers": ["10.0.0.5"],
+    "gateway": "10.0.0.1"
+  }
+]

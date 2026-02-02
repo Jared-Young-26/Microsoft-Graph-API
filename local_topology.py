@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from microsoft import PowerShellModuleClient
+from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_powershell_data
 
 
 def _ps_quote(value):
@@ -17,6 +17,15 @@ def _ps_value(value):
     if isinstance(value, (list, tuple, set)):
         return "@(" + ",".join(_ps_value(v) for v in value) + ")"
     return f"'{_ps_quote(value)}'"
+
+
+def _unwrap_or_error(result, errors, source):
+    if is_powershell_envelope(result):
+        if not result.get("ok", True):
+            errors.append({"source": source, "error": result.get("error")})
+            return None
+        return unwrap_powershell_data(result)
+    return result
 
 
 class LocalTopologyClient:
@@ -225,36 +234,46 @@ class LocalTopologyClient:
         }
 
         try:
-            data["dhcp_leases"] = self.list_dhcp_leases(
-                dhcp_server=dhcp_server, scope_ids=None, max_items=max_items
-            )
+            leases = self.list_dhcp_leases(dhcp_server=dhcp_server, scope_ids=None, max_items=max_items)
+            data["dhcp_leases"] = _unwrap_or_error(leases, errors, "dhcp")
         except Exception as exc:
             errors.append({"source": "dhcp", "error": str(exc)})
 
         try:
-            data["dns_records"] = self.list_dns_records(
+            records = self.list_dns_records(
                 dns_server=dns_server, zones=dns_zones, record_types=record_types, max_items=max_items
             )
+            data["dns_records"] = _unwrap_or_error(records, errors, "dns")
         except Exception as exc:
             errors.append({"source": "dns", "error": str(exc)})
 
         try:
-            data["printers"] = self.list_print_queues(print_server=print_server, max_items=max_items)
+            printers = self.list_print_queues(print_server=print_server, max_items=max_items)
+            data["printers"] = _unwrap_or_error(printers, errors, "printers")
         except Exception as exc:
             errors.append({"source": "printers", "error": str(exc)})
 
         if include_print_jobs:
             try:
-                data["print_jobs"] = self.list_print_jobs(print_server=print_server, max_items=max_items)
+                jobs = self.list_print_jobs(print_server=print_server, max_items=max_items)
+                data["print_jobs"] = _unwrap_or_error(jobs, errors, "print_jobs")
             except Exception as exc:
                 errors.append({"source": "print_jobs", "error": str(exc)})
 
         try:
-            data["smb_sessions"] = self.list_smb_sessions(smb_server=smb_server, max_items=max_items)
+            sessions = self.list_smb_sessions(smb_server=smb_server, max_items=max_items)
+            data["smb_sessions"] = _unwrap_or_error(sessions, errors, "smb")
         except Exception as exc:
             errors.append({"source": "smb", "error": str(exc)})
 
-        return data
+        return {
+            "ok": True,
+            "data": data,
+            "error": None,
+            "meta": {
+                "errors": errors,
+            },
+        }
 
     def ping_targets(self, targets, count=1, timeout_seconds=2, ipv6=False):
         if not targets:

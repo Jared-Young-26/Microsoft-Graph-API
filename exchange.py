@@ -578,8 +578,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
     def enable_shared_mailbox_sent_items(self, shared_mailbox):
         commands = self.shared_mailbox_sent_items_commands(shared_mailbox)
         script = ";\n".join(commands)
-        self.run(script)
-        return True
+        return self.run(script)
 
     def _disconnect_script(self):
         return "Disconnect-ExchangeOnline -Confirm:$false"

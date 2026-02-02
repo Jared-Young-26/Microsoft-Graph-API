@@ -1,10 +1,18 @@
 from datetime import datetime, timezone
 
-from microsoft import PowerShellModuleClient
+from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_powershell_data
 
 
 def _ps_quote(value):
     return str(value).replace("'", "''")
+
+
+def _unwrap_or_error(result):
+    if is_powershell_envelope(result):
+        if not result.get("ok", True):
+            return None, result
+        return unwrap_powershell_data(result), None
+    return result, None
 
 
 class LocalPrinterClient:
@@ -110,8 +118,15 @@ class LocalPrinterClient:
                 return value
             return [value]
 
-        printers_list = _ensure_list(printers)
-        gpo_list = _ensure_list(gpo_mappings)
+        printers_list, printers_error = _unwrap_or_error(printers)
+        if printers_error is not None:
+            return printers_error
+        gpo_list, gpo_error = _unwrap_or_error(gpo_mappings)
+        if gpo_error is not None:
+            return gpo_error
+
+        printers_list = _ensure_list(printers_list)
+        gpo_list = _ensure_list(gpo_list)
 
         by_name = {p.get("Name"): p for p in printers_list if p.get("Name")}
         by_share = {p.get("ShareName"): p for p in printers_list if p.get("ShareName")}
@@ -176,7 +191,7 @@ class LocalPrinterClient:
                     }
                 )
 
-        return {
+        result_payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "counts": {
                 "printers": len(printers_list),
@@ -188,6 +203,17 @@ class LocalPrinterClient:
             "gpo_printer_mappings": gpo_list,
             "matches": matches,
             "conflicts": conflicts,
+        }
+        return {
+            "ok": True,
+            "data": result_payload,
+            "error": None,
+            "meta": {
+                "sources": {
+                    "printers": printers.get("meta") if is_powershell_envelope(printers) else None,
+                    "gpo_mappings": gpo_mappings.get("meta") if is_powershell_envelope(gpo_mappings) else None,
+                }
+            },
         }
 
 

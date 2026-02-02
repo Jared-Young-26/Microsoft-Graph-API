@@ -1,0 +1,11 @@
+{
+  "watchlist_id": "network.core",
+  "items": [
+    {
+      "path": "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters",
+      "values": {"Hostname": "ADMINBOX", "Domain": "contoso.local"},
+      "value_types": {"Hostname": "String", "Domain": "String"},
+      "last_write_time": "2026-01-31T09:05:00Z"
+    }
+  ]
+}
