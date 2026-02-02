@@ -299,6 +299,12 @@ class PowerShellSession:
         except Exception:
             pass
 
+    def run_json(self, script, depth=8):
+        output = self.run(f"{script} | ConvertTo-Json -Depth {depth}")
+        if not output:
+            return None
+        return json.loads(output)
+
 
 class PowerShellModuleClient:
     def __init__(self, session=None, pwsh_path="pwsh"):

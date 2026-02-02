@@ -212,6 +212,10 @@ class LocalTopologyClient:
         errors = []
         data = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "dhcp_server": dhcp_server,
+            "dns_server": dns_server,
+            "print_server": print_server,
+            "smb_server": smb_server,
             "dhcp_leases": None,
             "dns_records": None,
             "printers": None,

@@ -112,6 +112,107 @@ class SharePointClient(ServiceClient):
         response = self.get(f"/sites/{site_id}/lists/{list_id}/columns")
         return response.json().get("value", [])
 
+    def create_list_column(
+        self,
+        site_id,
+        list_id,
+        display_name,
+        column_type="text",
+        required=False,
+        description=None,
+        default_value=None,
+        choices=None,
+    ):
+        payload = {
+            "name": display_name,
+            "displayName": display_name,
+            "required": bool(required),
+        }
+        if description:
+            payload["description"] = description
+        if default_value is not None:
+            payload["defaultValue"] = {"value": default_value}
+
+        column_type = (column_type or "text").lower()
+        if column_type == "choice":
+            choice_list = choices or []
+            payload["choice"] = {"choices": list(choice_list), "displayAs": "dropDown"}
+        elif column_type == "number":
+            payload["number"] = {}
+        elif column_type == "boolean":
+            payload["boolean"] = {}
+        elif column_type == "datetime":
+            payload["dateTime"] = {"displayAs": "default"}
+        else:
+            payload["text"] = {}
+
+        response = self.post(f"/sites/{site_id}/lists/{list_id}/columns", json=payload)
+        return response.json()
+
+    def update_list_column(
+        self,
+        site_id,
+        list_id,
+        column_id,
+        updates=None,
+        display_name=None,
+        description=None,
+        required=None,
+        hidden=None,
+        default_value=None,
+        choices=None,
+    ):
+        payload = {}
+        if updates:
+            payload.update(updates)
+        if display_name is not None:
+            payload["displayName"] = display_name
+        if description is not None:
+            payload["description"] = description
+        if required is not None:
+            payload["required"] = bool(required)
+        if hidden is not None:
+            payload["hidden"] = bool(hidden)
+        if default_value is not None:
+            payload["defaultValue"] = {"value": default_value}
+        if choices is not None:
+            payload["choice"] = {"choices": list(choices), "displayAs": "dropDown"}
+
+        response = self.patch(f"/sites/{site_id}/lists/{list_id}/columns/{column_id}", json=payload)
+        return response.json()
+
+    def delete_list_column(self, site_id, list_id, column_id):
+        self.delete(f"/sites/{site_id}/lists/{list_id}/columns/{column_id}")
+        return True
+
+    def list_site_permissions(self, site_id):
+        response = self.get(f"/sites/{site_id}/permissions")
+        return response.json().get("value", [])
+
+    def grant_site_permission(self, site_id, principal_id, principal_type="user", roles=None):
+        roles_list = roles or ["read"]
+        entry = {}
+        if principal_type == "group":
+            entry["group"] = {"id": principal_id}
+        else:
+            entry["user"] = {"id": principal_id}
+        payload = {"roles": list(roles_list), "grantedToIdentities": [entry]}
+        response = self.post(f"/sites/{site_id}/permissions", json=payload)
+        return response.json()
+
+    def delete_site_permission(self, site_id, permission_id):
+        self.delete(f"/sites/{site_id}/permissions/{permission_id}")
+        return True
+
+    def update_site_permission(self, site_id, permission_id, roles=None, updates=None):
+        payload = {}
+        if updates:
+            payload.update(updates)
+        if roles is not None:
+            payload["roles"] = list(roles)
+        response = self.patch(f"/sites/{site_id}/permissions/{permission_id}", json=payload)
+        return response.json() if response.content else True
+
     def create_list(self, site_id, display_name, columns=None, template="genericList", description=None):
         payload = {"displayName": display_name, "list": {"template": template}}
         if description:

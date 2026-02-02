@@ -100,10 +100,22 @@ class EntraClient(ServiceClient):
         response = self.get(f"/groups/{group_id}")
         return response.json()
 
-    def create_group(self, display_name, mail_nickname, security_enabled=True, mail_enabled=False, group_types=None, description=None):
+    def create_group(
+        self,
+        display_name,
+        mail_nickname=None,
+        security_enabled=True,
+        mail_enabled=False,
+        group_types=None,
+        description=None,
+        visibility=None,
+    ):
+        nickname = mail_nickname or "".join(ch for ch in display_name if ch.isalnum() or ch in ("_", "-"))
+        if not nickname:
+            nickname = display_name.replace(" ", "")
         payload = {
             "displayName": display_name,
-            "mailNickname": mail_nickname,
+            "mailNickname": nickname,
             "securityEnabled": security_enabled,
             "mailEnabled": mail_enabled,
         }
@@ -111,6 +123,8 @@ class EntraClient(ServiceClient):
             payload["groupTypes"] = group_types
         if description:
             payload["description"] = description
+        if visibility:
+            payload["visibility"] = visibility
         response = self.post("/groups", json=payload)
         return response.json()
 
@@ -155,6 +169,74 @@ class EntraClient(ServiceClient):
 
     def get_service_principal(self, sp_id):
         response = self.get(f"/servicePrincipals/{sp_id}")
+        return response.json()
+
+    def list_role_definitions(self, top=50, select=None):
+        params = {"$top": top}
+        if select:
+            params["$select"] = ",".join(select) if isinstance(select, (list, tuple)) else select
+        response = self.get("/roleManagement/directory/roleDefinitions", params=params)
+        return response.json().get("value", [])
+
+    def list_role_assignments(self, top=50, principal_id=None, role_definition_id=None, directory_scope_id=None):
+        params = {"$top": top}
+        filters = []
+        if principal_id:
+            filters.append(f"principalId eq '{principal_id}'")
+        if role_definition_id:
+            filters.append(f"roleDefinitionId eq '{role_definition_id}'")
+        if directory_scope_id:
+            filters.append(f"directoryScopeId eq '{directory_scope_id}'")
+        if filters:
+            params["$filter"] = " and ".join(filters)
+        response = self.get("/roleManagement/directory/roleAssignments", params=params)
+        return response.json().get("value", [])
+
+    def assign_role(self, principal_id, role_definition_id, directory_scope_id="/"):
+        payload = {
+            "principalId": principal_id,
+            "roleDefinitionId": role_definition_id,
+            "directoryScopeId": directory_scope_id,
+        }
+        response = self.post("/roleManagement/directory/roleAssignments", json=payload)
+        return response.json()
+
+    def remove_role_assignment(self, role_assignment_id):
+        self.delete(f"/roleManagement/directory/roleAssignments/{role_assignment_id}")
+        return True
+
+    def create_application(self, display_name, sign_in_audience="AzureADMyOrg", owners=None, notes=None):
+        payload = {"displayName": display_name, "signInAudience": sign_in_audience}
+        if notes:
+            payload["notes"] = notes
+        response = self.post("/applications", json=payload)
+        app = response.json()
+        if owners:
+            for owner_id in owners:
+                owner_payload = {"@odata.id": f"https://graph.microsoft.com/v1.0/directoryObjects/{owner_id}"}
+                self.post(f"/applications/{app.get('id')}/owners/$ref", json=owner_payload)
+        return app
+
+    def update_application(self, app_id, updates=None, display_name=None, sign_in_audience=None, notes=None):
+        payload = {}
+        if updates:
+            payload.update(updates)
+        if display_name is not None:
+            payload["displayName"] = display_name
+        if sign_in_audience is not None:
+            payload["signInAudience"] = sign_in_audience
+        if notes is not None:
+            payload["notes"] = notes
+        response = self.patch(f"/applications/{app_id}", json=payload)
+        return response.json() if response.content else True
+
+    def delete_application(self, app_id):
+        self.delete(f"/applications/{app_id}")
+        return True
+
+    def create_service_principal(self, app_id):
+        payload = {"appId": app_id}
+        response = self.post("/servicePrincipals", json=payload)
         return response.json()
 
     def list_users_powershell(self, top=50, **powershell_options):

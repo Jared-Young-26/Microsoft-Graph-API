@@ -792,6 +792,37 @@
             <pre class="output" data-output="topology-report"></pre>
             <button class="ghost small clear-output" data-output-target="topology-report">Clear</button>
           </div>
+          <div class="card" data-panel="topology">
+            <div class="card-title">Topology changes</div>
+            <div class="card-subtitle">Diff snapshots and recent changes</div>
+            <div class="stack">
+              <button class="chip" id="topology-diff-24h">What changed in the last 24h?</button>
+              <div class="form form-grid diff-grid">
+                <label>
+                  Snapshot A
+                  <select id="topology-diff-a"></select>
+                </label>
+                <label>
+                  Snapshot B
+                  <select id="topology-diff-b"></select>
+                </label>
+              </div>
+              <div class="runner-actions">
+                <button type="button" class="ghost" id="topology-diff-run">Compare snapshots</button>
+              </div>
+            </div>
+          </div>
+          <div class="card output-card" data-panel="topology">
+            <div class="card-title">Topology change report</div>
+            <div class="card-subtitle">DHCP/DNS diffs</div>
+            <pre class="output" data-output="topology-changes"></pre>
+            <button class="ghost small clear-output" data-output-target="topology-changes">Clear</button>
+          </div>
+          <div class="card" data-panel="topology">
+            <div class="card-title">Topology timeline</div>
+            <div class="card-subtitle">Snapshot history with deltas</div>
+            <ul class="timeline" id="topology-timeline"></ul>
+          </div>
 
           <div class="card" data-panel="reports">
             <div class="card-title">Reports toolkit</div>
@@ -894,6 +925,10 @@
               <div class="card-subtitle" id="action-pack-runner-title">Select a pack to configure</div>
               <div class="action-pack-runner-steps" id="action-pack-runner-steps"></div>
               <div class="runner-actions">
+                <label class="field checkbox pack-dry-run">
+                  <input type="checkbox" id="action-pack-dry-run" />
+                  <span>Dry-run (safe steps only)</span>
+                </label>
                 <button type="button" class="primary" id="action-pack-run">Run pack</button>
                 <button type="button" class="ghost" id="action-pack-run-cancel">Cancel</button>
               </div>
@@ -995,6 +1030,46 @@
                 <li><strong>GPO audit</strong>: Requires ActiveDirectory + GroupPolicy modules on the host.</li>
               </ul>
             </details>
+          </div>
+          <div class="card output-card full" data-panel="reports" id="incident-workspace">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Incident workspace</div>
+                <div class="card-subtitle">User + device triage with correlation and recommendations</div>
+              </div>
+              <div class="card-actions">
+                <button class="primary small" id="incident-run">Run workspace</button>
+                <button class="ghost small" id="incident-run-fix" disabled>Run fix pack</button>
+              </div>
+            </div>
+            <div class="incident-form">
+              <label>
+                User UPN or ID
+                <input id="incident-user" type="text" placeholder="user@contoso.com" />
+              </label>
+              <label>
+                Device name or ID
+                <input id="incident-device" type="text" placeholder="DEVICE-123" />
+              </label>
+              <label>
+                Lookback (hours)
+                <input id="incident-lookback" type="number" min="1" value="24" />
+              </label>
+              <label>
+                Start (optional)
+                <input id="incident-start" type="datetime-local" />
+              </label>
+              <label>
+                End (optional)
+                <input id="incident-end" type="datetime-local" />
+              </label>
+              <label class="incident-wide">
+                Symptom / context
+                <textarea id="incident-symptom" rows="3" placeholder="User reports MFA prompt loop after device change"></textarea>
+              </label>
+            </div>
+            <pre class="output" data-output="incident"></pre>
+            <button class="ghost small clear-output" data-output-target="incident">Clear</button>
           </div>
           <div class="card output-card" data-panel="reports">
             <div class="card-title">Reports output</div>
@@ -1205,6 +1280,29 @@
                 </div>
               </div>
             </details>
+            <details class="profile-panel" id="secure-config-panel">
+              <summary>Secure config transfer</summary>
+              <div class="profile-bar">
+                <div class="profile-row">
+                  <label>
+                    Passphrase (optional)
+                    <input id="config-passphrase" type="password" placeholder="Leave blank to use keychain" />
+                  </label>
+                  <label>
+                    Keychain fallback
+                    <input type="text" value="Enabled when passphrase is empty" disabled />
+                  </label>
+                  <div class="profile-actions">
+                    <button type="button" class="ghost small" id="config-export">Export encrypted</button>
+                    <button type="button" class="primary small" id="config-import">Import encrypted</button>
+                  </div>
+                </div>
+                <div class="note">
+                  Encrypted exports include client secrets. Use a passphrase for portability; keychain is best for local backups.
+                </div>
+              </div>
+              <input id="config-import-file" type="file" accept=".json,.enc" hidden />
+            </details>
             <details class="info">
               <summary>Where to find Graph app credentials</summary>
               <ul>
@@ -1221,6 +1319,7 @@
               </div>
               <div class="card-actions">
                 <button class="primary small" id="run-health-check">Run health check</button>
+                <button class="ghost small" id="run-smoke-test">Run smoke test</button>
               </div>
             </div>
             <div class="health-status" id="health-status">
@@ -1242,6 +1341,93 @@
             <div class="note">Runs Graph probes for each service and verifies required PowerShell modules.</div>
             <pre class="output" data-output="health"></pre>
             <button class="ghost small clear-output" data-output-target="health">Clear</button>
+          </div>
+          <div class="card" data-panel="settings">
+            <div class="card-title">Security posture transparency</div>
+            <div class="card-subtitle">Permissions, boundaries, and secret storage</div>
+            <div class="runner-actions">
+              <button type="button" class="primary" id="security-refresh">Refresh overview</button>
+            </div>
+            <div class="note">Use this report to communicate what the tool can and cannot do.</div>
+          </div>
+          <div class="card output-card" data-panel="settings">
+            <div class="card-title">Security posture report</div>
+            <div class="card-subtitle">Current permissions and boundaries</div>
+            <pre class="output" data-output="security"></pre>
+            <button class="ghost small clear-output" data-output-target="security">Clear</button>
+          </div>
+          <div class="card full" data-panel="settings" id="audit-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Audit log</div>
+                <div class="card-subtitle">Tracked changes for inline and bulk updates</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="audit-refresh">Refresh</button>
+                <button class="ghost small" id="audit-export-json">Export JSON</button>
+                <button class="ghost small" id="audit-export-csv">Export CSV</button>
+              </div>
+            </div>
+            <div class="audit-filters">
+              <label>
+                Service
+                <select id="audit-service"></select>
+              </label>
+              <label>
+                Action
+                <input id="audit-action" type="text" placeholder="update_user" />
+              </label>
+              <label>
+                Status
+                <select id="audit-status">
+                  <option value="">Any</option>
+                  <option value="true">Success</option>
+                  <option value="false">Failed</option>
+                </select>
+              </label>
+              <label>
+                User
+                <input id="audit-user" type="text" placeholder="jaredyoung" />
+              </label>
+              <label>
+                Query
+                <input id="audit-query" type="search" placeholder="search text" />
+              </label>
+              <label>
+                Since
+                <input id="audit-since" type="datetime-local" />
+              </label>
+              <label>
+                Until
+                <input id="audit-until" type="datetime-local" />
+              </label>
+              <label>
+                Limit
+                <select id="audit-limit">
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200" selected>200</option>
+                  <option value="500">500</option>
+                </select>
+              </label>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Service</th>
+                    <th>Action</th>
+                    <th>Item</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="audit-table-body"></tbody>
+              </table>
+              <div class="note" id="audit-empty">No audit entries found.</div>
+            </div>
           </div>
         </section>
       </main>

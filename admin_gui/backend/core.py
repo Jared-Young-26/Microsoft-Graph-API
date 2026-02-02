@@ -3,7 +3,11 @@ import os
 import sys
 import inspect
 import time
-from datetime import datetime, timezone
+import getpass
+import socket
+import base64
+import secrets
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
@@ -12,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 TOPOLOGY_HISTORY_PATH = Path(__file__).resolve().parent / "topology_history.json"
 TOPOLOGY_HISTORY_DEFAULT_LIMIT = 50
+AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
+ACTION_SNAPSHOT_PATH = Path(__file__).resolve().parent / "action_snapshots.jsonl"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -24,7 +30,19 @@ try:
 except Exception:
     keyring = None
 
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+except Exception:
+    Fernet = None
+    InvalidToken = Exception
+    PBKDF2HMAC = None
+    hashes = None
+
 KEYCHAIN_SERVICE = "graph-admin-studio"
+EXPORT_KEYCHAIN_PREFIX = "export"
+CONFIG_EXPORT_VERSION = 1
 
 
 def _keychain_key(tenant_id, client_id):
@@ -52,7 +70,105 @@ def _delete_keychain_secret(tenant_id, client_id):
         keyring.delete_password(KEYCHAIN_SERVICE, _keychain_key(tenant_id, client_id))
     except Exception:
         return
+
+
+def _export_keychain_key(tenant_id, client_id):
+    tenant = tenant_id or "tenant"
+    client = client_id or "client"
+    return f"{EXPORT_KEYCHAIN_PREFIX}:{tenant}:{client}"
+
+
+def _get_export_key(tenant_id, client_id):
+    if not keyring:
+        return None
+    return keyring.get_password(KEYCHAIN_SERVICE, _export_keychain_key(tenant_id, client_id))
+
+
+def _set_export_key(tenant_id, client_id, secret):
+    if not keyring:
+        raise RuntimeError("Keychain integration not available. Install keyring to enable it.")
+    keyring.set_password(KEYCHAIN_SERVICE, _export_keychain_key(tenant_id, client_id), secret)
+
+
+def _get_or_create_export_key(tenant_id, client_id):
+    existing = _get_export_key(tenant_id, client_id)
+    if existing:
+        return existing
+    if Fernet is None:
+        raise RuntimeError("cryptography is required for secure exports.")
+    new_key = Fernet.generate_key().decode("utf-8")
+    _set_export_key(tenant_id, client_id, new_key)
+    return new_key
+
+
+def _derive_key(passphrase, salt):
+    if Fernet is None or PBKDF2HMAC is None or hashes is None:
+        raise RuntimeError("cryptography is required for secure exports.")
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=120_000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(passphrase.encode("utf-8")))
+
+
+def _encrypt_payload(payload, passphrase=None, use_keychain=False, tenant_id=None, client_id=None):
+    if Fernet is None:
+        raise RuntimeError("cryptography is required for secure exports.")
+    passphrase = passphrase or None
+    if passphrase:
+        salt = secrets.token_bytes(16)
+        key = _derive_key(passphrase, salt)
+        kdf = "pbkdf2-sha256"
+        keychain_used = False
+    else:
+        if not use_keychain:
+            raise RuntimeError("Passphrase required (or enable keychain fallback).")
+        key = _get_or_create_export_key(tenant_id, client_id).encode("utf-8")
+        salt = None
+        kdf = "keychain"
+        keychain_used = True
+    token = Fernet(key).encrypt(json.dumps(payload).encode("utf-8"))
+    return {
+        "format": "graph-admin-studio-config",
+        "version": CONFIG_EXPORT_VERSION,
+        "kdf": kdf,
+        "salt": base64.b64encode(salt).decode("utf-8") if salt else None,
+        "token": token.decode("utf-8"),
+        "keychain": keychain_used,
+    }
+
+
+def _decrypt_payload(blob, passphrase=None, tenant_id=None, client_id=None):
+    if Fernet is None:
+        raise RuntimeError("cryptography is required for secure imports.")
+    if not isinstance(blob, dict):
+        raise RuntimeError("Invalid config payload.")
+    token = blob.get("token")
+    if not token:
+        raise RuntimeError("Encrypted payload missing token.")
+    salt_b64 = blob.get("salt")
+    passphrase = passphrase or None
+    if salt_b64:
+        if not passphrase:
+            raise RuntimeError("Passphrase required to decrypt this export.")
+        salt = base64.b64decode(salt_b64)
+        key = _derive_key(passphrase, salt)
+    else:
+        key_string = _get_export_key(tenant_id, client_id)
+        if not key_string:
+            raise RuntimeError("Keychain export key not found. Provide a passphrase instead.")
+        key = key_string.encode("utf-8")
+    try:
+        raw = Fernet(key).decrypt(token.encode("utf-8"))
+    except InvalidToken as exc:
+        raise RuntimeError("Failed to decrypt config payload. Check passphrase/keychain.") from exc
+    return json.loads(raw.decode("utf-8"))
 from exchange import ExchangeClient
+from platform_core.snapshots import SnapshotStore, normalize_topology_snapshot
+from platform_core.action_snapshots import SnapshotStore as ActionSnapshotStore
+from platform_core.interpreter import interpret_response
 from onedrive import OneDriveClient
 from sharepoint import SharePointClient
 from teams import TeamsClient
@@ -81,87 +197,316 @@ def _write_config_file(data):
     CONFIG_PATH.write_text(json.dumps(cleaned, indent=2))
 
 
-def _normalize_list(value):
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    return [value]
+TOPOLOGY_STORE = SnapshotStore(
+    TOPOLOGY_HISTORY_PATH,
+    normalizer=normalize_topology_snapshot,
+    max_entries=TOPOLOGY_HISTORY_DEFAULT_LIMIT,
+)
+ACTION_SNAPSHOT_STORE = ActionSnapshotStore(ACTION_SNAPSHOT_PATH)
 
 
 def _read_topology_history(limit=None):
-    if not TOPOLOGY_HISTORY_PATH.exists():
-        return []
-    try:
-        data = json.loads(TOPOLOGY_HISTORY_PATH.read_text())
-        history = data if isinstance(data, list) else []
-    except Exception:
-        history = []
-    if limit:
-        try:
-            limit_val = int(limit)
-            history = history[:limit_val]
-        except Exception:
-            pass
-    return history
-
-
-def _write_topology_history(history):
-    TOPOLOGY_HISTORY_PATH.write_text(json.dumps(history, indent=2))
-
-
-def _trim_topology_snapshot(data):
-    if not isinstance(data, dict):
-        return None
-    timestamp = data.get("generated_at") or data.get("timestamp") or datetime.now(timezone.utc).isoformat()
-    leases = _normalize_list(data.get("dhcp_leases"))
-    dns_records = _normalize_list(data.get("dns_records"))
-    trimmed_leases = []
-    for lease in leases:
-        if not isinstance(lease, dict):
-            continue
-        trimmed = {
-            "HostName": lease.get("HostName") or lease.get("hostName"),
-            "IPAddress": lease.get("IPAddress") or lease.get("IpAddress") or lease.get("ip"),
-            "ClientId": lease.get("ClientId"),
-            "LeaseExpiryTime": lease.get("LeaseExpiryTime"),
-            "ScopeId": lease.get("ScopeId"),
-        }
-        if trimmed.get("HostName") or trimmed.get("IPAddress"):
-            trimmed_leases.append(trimmed)
-    trimmed_records = []
-    for record in dns_records:
-        if not isinstance(record, dict):
-            continue
-        trimmed = {
-            "Zone": record.get("Zone"),
-            "HostName": record.get("HostName"),
-            "RecordType": record.get("RecordType"),
-            "RecordData": record.get("RecordData"),
-        }
-        if trimmed.get("HostName") or trimmed.get("RecordData"):
-            trimmed_records.append(trimmed)
-    return {
-        "timestamp": timestamp,
-        "dhcp_leases": trimmed_leases,
-        "dns_records": trimmed_records,
-    }
+    return TOPOLOGY_STORE.load(limit=limit)
 
 
 def _append_topology_history(snapshot, limit=None):
-    history = _read_topology_history()
-    trimmed = _trim_topology_snapshot(snapshot)
-    if not trimmed:
-        return history
-    history.insert(0, trimmed)
+    return TOPOLOGY_STORE.append(snapshot, limit=limit)
+
+
+def _audit_user():
     try:
-        limit_val = int(limit) if limit else TOPOLOGY_HISTORY_DEFAULT_LIMIT
-        if limit_val > 0:
-            history = history[:limit_val]
+        return getpass.getuser()
     except Exception:
-        pass
-    _write_topology_history(history)
-    return history
+        return "unknown"
+
+
+def _audit_host():
+    try:
+        return socket.gethostname()
+    except Exception:
+        return "unknown"
+
+
+def _log_audit(entry):
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user": _audit_user(),
+        "host": _audit_host(),
+        **(entry or {}),
+    }
+    try:
+        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        return
+
+
+def _parse_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return None
+
+
+def _read_audit_log(
+    service=None,
+    action=None,
+    ok=None,
+    user=None,
+    since=None,
+    until=None,
+    query=None,
+    limit=200,
+    offset=0,
+):
+    if not AUDIT_LOG_PATH.exists():
+        return {"items": [], "count": 0, "total": 0}
+    try:
+        lines = AUDIT_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return {"items": [], "count": 0, "total": 0}
+
+    since_dt = _parse_datetime(since)
+    until_dt = _parse_datetime(until)
+    query_text = str(query).lower() if query else None
+    service = service or None
+    action = action or None
+    user = user or None
+    if isinstance(ok, str):
+        if ok.strip() == "":
+            ok = None
+        else:
+            ok = ok.lower() in ("true", "1", "yes", "ok")
+
+    items = []
+    total = 0
+    skipped = 0
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except Exception:
+            continue
+        if service and entry.get("service") != service:
+            continue
+        if action and entry.get("action") != action:
+            continue
+        if ok is not None and bool(entry.get("ok")) != ok:
+            continue
+        if user and user.lower() not in str(entry.get("user", "")).lower():
+            continue
+        ts = _parse_datetime(entry.get("timestamp"))
+        if since_dt and ts and ts < since_dt:
+            continue
+        if until_dt and ts and ts > until_dt:
+            continue
+        if query_text:
+            hay = " ".join(
+                str(entry.get(key, ""))
+                for key in ("service", "action", "item_id", "user", "host", "error", "request_id")
+            ).lower()
+            if query_text not in hay:
+                continue
+        total += 1
+        if skipped < (offset or 0):
+            skipped += 1
+            continue
+        if limit and len(items) >= int(limit):
+            continue
+        items.append(entry)
+    return {"items": items, "count": len(items), "total": total}
+
+
+def _global_admin_check(user_id):
+    if not user_id:
+        raise ValueError("User ID or UPN is required for global admin check.")
+    client = STATE.get_client("entra")
+    resolved_user_id = None
+    resolved_upn = None
+    try:
+        user = client.get_user(user_id)
+        if isinstance(user, dict):
+            resolved_user_id = user.get("id") or resolved_user_id
+            resolved_upn = user.get("userPrincipalName") or resolved_upn
+    except Exception:
+        resolved_user_id = None
+
+    target_id = resolved_user_id or user_id
+    roles = client.list_role_definitions(top=200)
+    global_roles = []
+    for role in roles or []:
+        name = str(role.get("displayName") or "").lower()
+        if name in ("global administrator", "company administrator"):
+            global_roles.append(role)
+    role_ids = [role.get("id") for role in global_roles if role.get("id")]
+    assignments = []
+    for role_id in role_ids:
+        try:
+            assignments.extend(client.list_role_assignments(top=999, role_definition_id=role_id))
+        except Exception:
+            continue
+
+    is_global_admin = any(
+        assignment.get("principalId") == target_id for assignment in assignments if isinstance(assignment, dict)
+    )
+    return {
+        "user_id": target_id,
+        "user_principal_name": resolved_upn,
+        "is_global_admin": is_global_admin,
+        "role_ids": role_ids,
+        "assignment_count": len(assignments),
+    }
+
+
+def _graph_permission_inventory(client_id):
+    if not client_id:
+        return {"ok": False, "error": "CLIENT_ID is not configured."}
+    graph = STATE.get_graph()
+    try:
+        app_sp = graph.get(
+            "/servicePrincipals",
+            params={
+                "$filter": f"appId eq '{client_id}'",
+                "$select": "id,appId,displayName",
+            },
+        ).json()
+    except Exception as exc:
+        return {"ok": False, "error": f"Failed to query service principal: {exc}"}
+    app_values = app_sp.get("value") or []
+    if not app_values:
+        return {"ok": False, "error": "Service principal for CLIENT_ID not found."}
+    app_entry = app_values[0]
+    app_sp_id = app_entry.get("id")
+
+    try:
+        graph_sp = graph.get(
+            "/servicePrincipals",
+            params={
+                "$filter": "appId eq '00000003-0000-0000-c000-000000000000'",
+                "$select": "id,appRoles,displayName",
+            },
+        ).json()
+    except Exception as exc:
+        return {"ok": False, "error": f"Failed to query Microsoft Graph service principal: {exc}"}
+    graph_values = graph_sp.get("value") or []
+    if not graph_values:
+        return {"ok": False, "error": "Microsoft Graph service principal not found."}
+    graph_entry = graph_values[0]
+    graph_sp_id = graph_entry.get("id")
+    graph_roles = {}
+    for role in graph_entry.get("appRoles") or []:
+        if role.get("allowedMemberTypes") and "Application" not in role.get("allowedMemberTypes"):
+            continue
+        role_id = role.get("id")
+        if role_id:
+            graph_roles[str(role_id)] = role.get("value") or role.get("displayName") or role_id
+
+    try:
+        assignments = graph.get(
+            f"/servicePrincipals/{app_sp_id}/appRoleAssignments",
+            params={"$top": 999},
+        ).json()
+    except Exception as exc:
+        return {"ok": False, "error": f"Failed to list app role assignments: {exc}"}
+
+    assigned = []
+    for item in assignments.get("value") or []:
+        if item.get("resourceId") != graph_sp_id:
+            continue
+        role_id = item.get("appRoleId")
+        name = graph_roles.get(str(role_id)) if role_id else None
+        assigned.append(
+            {
+                "id": role_id,
+                "name": name or str(role_id),
+            }
+        )
+
+    assigned_names = sorted({item.get("name") for item in assigned if item.get("name")})
+    return {
+        "ok": True,
+        "app": {
+            "id": app_sp_id,
+            "app_id": app_entry.get("appId"),
+            "display_name": app_entry.get("displayName"),
+        },
+        "graph_resource": {
+            "id": graph_sp_id,
+            "display_name": graph_entry.get("displayName"),
+        },
+        "assigned": assigned_names,
+        "assigned_count": len(assigned_names),
+    }
+
+
+def _security_posture():
+    cfg = STATE.config
+    modules = _check_powershell_modules(sorted({m for mods in POWERSHELL_MODULES.values() for m in mods}))
+    graph_permissions = _graph_permission_inventory(cfg.client_id)
+    secrets_location = "OS keychain" if cfg.use_keychain else "config file (.env)"
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "app": {
+            "tenant_id": cfg.tenant_id,
+            "client_id": cfg.client_id,
+            "graph_user_id": cfg.graph_user_id,
+            "onedrive_drive_id": cfg.onedrive_drive_id,
+        },
+        "secrets": {
+            "storage": secrets_location,
+            "client_secret_set": bool(cfg.client_secret),
+            "use_keychain": bool(cfg.use_keychain),
+            "keychain_available": keyring is not None,
+            "config_lock": bool(cfg.config_lock),
+        },
+        "permissions": {
+            "graph_app_permissions": graph_permissions,
+            "powershell_modules": modules,
+        },
+        "boundaries": {
+            "local_only": ["localad", "printers", "network", "fileserver", "topology", "ssh"],
+            "cloud_services": [
+                "exchange",
+                "onedrive",
+                "sharepoint",
+                "teams",
+                "entra",
+                "azure",
+                "defender",
+                "powerplatform",
+                "purview",
+                "reports",
+            ],
+            "cannot": [
+                "Operate with delegated user context (app-only Graph only).",
+                "Bypass MFA or conditional access policies.",
+                "Execute remote PowerShell without local host access.",
+                "Store secrets anywhere except local config/keychain.",
+            ],
+            "notes": [
+                "Uses app-only Microsoft Graph permissions (no delegated user context).",
+                "Local-only services run PowerShell on this host and require local module installs.",
+                "Secrets are stored locally only (never transmitted beyond Microsoft Graph).",
+            ],
+        },
+    }
+
+
+AUDIT_ACTION_MAP = {
+    "update_user": ("user_id", "updates"),
+    "update_group": ("group_id", "updates"),
+    "update_event": ("event_id", "updates"),
+    "update_item": ("item_id", "updates"),
+    "update_list_item_fields": ("item_id", "fields"),
+    "update_site_permission": ("permission_id", "updates"),
+    "update_channel": ("channel_id", "updates"),
+}
 
 
 def _value(key, env_key=None, default=None, data=None):
@@ -313,6 +658,51 @@ class BackendState:
             "azure_tenant_id": cfg.azure_tenant_id or "",
             "azure_subscription_id": cfg.azure_subscription_id or "",
         }
+
+    def export_config_encrypted(self, passphrase=None, use_keychain=False):
+        cfg_file = _read_config_file()
+        cfg = self.config
+        tenant_id = cfg.tenant_id or cfg_file.get("tenant_id")
+        client_id = cfg.client_id or cfg_file.get("client_id")
+        client_secret = cfg.client_secret or cfg_file.get("client_secret")
+        if cfg_file.get("use_keychain") and not client_secret:
+            try:
+                client_secret = _get_keychain_secret(tenant_id, client_id)
+            except Exception:
+                client_secret = None
+        cfg_file = dict(cfg_file)
+        if client_secret:
+            cfg_file["client_secret"] = client_secret
+        payload = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "config": cfg_file,
+        }
+        return _encrypt_payload(payload, passphrase=passphrase, use_keychain=use_keychain, tenant_id=tenant_id, client_id=client_id)
+
+    def import_config_encrypted(self, payload, passphrase=None):
+        current = _read_config_file()
+        locked = bool(current.get("config_lock"))
+        if locked:
+            raise RuntimeError("Environment is locked. Disable the lock to import configuration.")
+        tenant_id = current.get("tenant_id")
+        client_id = current.get("client_id")
+        decrypted = _decrypt_payload(payload, passphrase=passphrase, tenant_id=tenant_id, client_id=client_id)
+        config = decrypted.get("config")
+        if not isinstance(config, dict):
+            raise RuntimeError("Invalid config payload.")
+        use_keychain = bool(config.get("use_keychain"))
+        client_secret = config.get("client_secret")
+        if use_keychain and client_secret:
+            if keyring is not None:
+                _set_keychain_secret(config.get("tenant_id"), config.get("client_id"), client_secret)
+                config = dict(config)
+                config.pop("client_secret", None)
+            else:
+                config = dict(config)
+                config["use_keychain"] = False
+        _write_config_file(config)
+        self.reload()
+        return self.get_config_public()
 
     def get_graph(self):
         if self.graph is None:
@@ -478,6 +868,11 @@ def _check_powershell_modules(modules):
             results[module] = {"installed": False, "error": str(exc)}
         except Exception as exc:
             results[module] = {"installed": False, "error": str(exc)}
+    try:
+        session.run_json("Get-Date | Select-Object -First 1")
+        results["PowerShell JSON runner"] = {"installed": True, "version": "ConvertTo-Json"}
+    except Exception as exc:
+        results["PowerShell JSON runner"] = {"installed": False, "error": str(exc)}
     ok = all(entry.get("installed") for entry in results.values()) if results else True
     return {"ok": ok, "modules": results}
 
@@ -529,6 +924,25 @@ def _health_check():
     return {"graph": graph, "powershell": modules}
 
 
+def _smoke_test(services=None):
+    services = services or list(GRAPH_CHECKS.keys())
+    targets = [svc for svc in services if svc in GRAPH_CHECKS]
+    if not targets:
+        targets = list(GRAPH_CHECKS.keys())
+    graph_checks = {"ok": True, "checks": {}}
+    for svc in targets:
+        result = _graph_check(svc)
+        graph_checks["checks"].update(result.get("checks", {}))
+    graph_checks["ok"] = all(check.get("ok") for check in graph_checks["checks"].values()) if graph_checks["checks"] else True
+    modules = _check_powershell_modules(sorted({m for svc in targets for m in POWERSHELL_MODULES.get(svc, [])}))
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "services": targets,
+        "graph": graph_checks,
+        "powershell": modules,
+    }
+
+
 def _tenant_info():
     graph = STATE.get_graph()
     response = graph.get("/organization?$select=id,displayName,verifiedDomains")
@@ -550,6 +964,140 @@ def _tenant_info():
             }
             for d in domains
         ],
+    }
+
+
+def _summarize_signins(signins):
+    if not isinstance(signins, list):
+        return {}
+    summary = {
+        "total": len(signins),
+        "success": 0,
+        "failure": 0,
+        "conditional_access": {},
+        "error_codes": {},
+        "failure_reasons": {},
+        "apps": {},
+    }
+    for entry in signins:
+        status = entry.get("status") if isinstance(entry, dict) else {}
+        error_code = status.get("errorCode") if isinstance(status, dict) else None
+        ca_status = entry.get("conditionalAccessStatus") if isinstance(entry, dict) else None
+        app = entry.get("appDisplayName") if isinstance(entry, dict) else None
+        if error_code in (0, "0", None):
+            summary["success"] += 1
+        else:
+            summary["failure"] += 1
+            reason = status.get("failureReason") if isinstance(status, dict) else None
+            if reason:
+                summary["failure_reasons"][reason] = summary["failure_reasons"].get(reason, 0) + 1
+            summary["error_codes"][str(error_code)] = summary["error_codes"].get(str(error_code), 0) + 1
+        if ca_status:
+            summary["conditional_access"][ca_status] = summary["conditional_access"].get(ca_status, 0) + 1
+        if app:
+            summary["apps"][app] = summary["apps"].get(app, 0) + 1
+    return summary
+
+
+def _summarize_devices(devices):
+    if not isinstance(devices, list):
+        return {}
+    summary = {
+        "total": len(devices),
+        "compliance": {},
+        "operating_systems": {},
+    }
+    for device in devices:
+        if not isinstance(device, dict):
+            continue
+        compliance = device.get("complianceState") or device.get("ComplianceState")
+        os_name = device.get("operatingSystem") or device.get("OperatingSystem")
+        if compliance:
+            summary["compliance"][compliance] = summary["compliance"].get(compliance, 0) + 1
+        if os_name:
+            summary["operating_systems"][os_name] = summary["operating_systems"].get(os_name, 0) + 1
+    return summary
+
+
+def _summarize_ca_policies(policies):
+    if not isinstance(policies, list):
+        return {}
+    summary = {"total": len(policies), "states": {}}
+    for policy in policies:
+        if not isinstance(policy, dict):
+            continue
+        state = policy.get("state")
+        if state:
+            summary["states"][state] = summary["states"].get(state, 0) + 1
+    return summary
+
+
+def _conditional_access_summary_report():
+    graph = STATE.get_graph()
+    response = graph.get(
+        "/identity/conditionalAccess/policies",
+        params={
+            "$select": "id,displayName,state,conditions,grantControls,sessionControls",
+        },
+    )
+    policies = response.json().get("value", [])
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(policies),
+        "summary": _summarize_ca_policies(policies),
+        "policies": policies,
+    }
+
+
+def _sign_in_summary_report(user_id=None, top=25, lookback_hours=None):
+    graph = STATE.get_graph()
+    cfg = STATE.config
+    target_user = user_id or cfg.graph_user_id
+    filters = []
+    if target_user:
+        filters.append(f"userId eq '{target_user}'")
+    if lookback_hours:
+        try:
+            hours = int(lookback_hours)
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            filters.append(f"createdDateTime ge {cutoff.isoformat()}")
+        except Exception:
+            pass
+    params = {
+        "$top": int(top) if top else 25,
+        "$orderby": "createdDateTime desc",
+    }
+    if filters:
+        params["$filter"] = " and ".join(filters)
+    response = graph.get("/auditLogs/signIns", params=params)
+    signins = response.json().get("value", [])
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": target_user,
+        "count": len(signins),
+        "summary": _summarize_signins(signins),
+        "signIns": signins,
+    }
+
+
+def _device_compliance_report(user_id=None, top=50):
+    graph = STATE.get_graph()
+    cfg = STATE.config
+    target_user = user_id or cfg.graph_user_id
+    params = {
+        "$top": int(top) if top else 50,
+        "$select": "id,deviceName,userPrincipalName,complianceState,operatingSystem,lastSyncDateTime,managementAgent",
+    }
+    if target_user:
+        params["$filter"] = f"userId eq '{target_user}'"
+    response = graph.get("/deviceManagement/managedDevices", params=params)
+    devices = response.json().get("value", [])
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": target_user,
+        "count": len(devices),
+        "summary": _summarize_devices(devices),
+        "devices": devices,
     }
 
 
@@ -686,6 +1234,9 @@ def _bulk_update(service, update_action, items, context=None):
         "update_list_item_fields": lambda client, item, ctx: client.update_list_item_fields(
             ctx.get("site_id"), ctx.get("list_id"), item["id"], item["updates"]
         ),
+        "update_site_permission": lambda client, item, ctx: client.update_site_permission(
+            ctx.get("site_id"), item["id"], updates=item["updates"]
+        ),
         "update_channel": lambda client, item, ctx: client.update_channel(
             ctx.get("team_id"), item["id"], item["updates"]
         ),
@@ -699,15 +1250,48 @@ def _bulk_update(service, update_action, items, context=None):
     client = _get_client(service)
     results = []
     for entry in items:
+        item_id = entry.get("id")
+        updates = entry.get("updates") or {}
         try:
-            item_id = entry.get("id")
-            updates = entry.get("updates") or {}
             if not item_id:
                 raise ValueError("Missing item id for bulk update.")
-            result = handlers[update_action](client, {"id": item_id, "updates": updates}, context)
-            results.append({"id": item_id, "ok": True, "data": _jsonable(result)})
+            attempts = 0
+            while True:
+                attempts += 1
+                try:
+                    result = handlers[update_action](client, {"id": item_id, "updates": updates}, context)
+                    results.append({"id": item_id, "ok": True, "data": _jsonable(result)})
+                    _log_audit(
+                        {
+                            "service": service,
+                            "action": update_action,
+                            "item_id": item_id,
+                            "updates": updates,
+                            "context": context,
+                            "ok": True,
+                        }
+                    )
+                    break
+                except GraphAPIError as exc:
+                    status = exc.status_code or 0
+                    if status in (429, 500, 502, 503, 504) and attempts < 3:
+                        wait = exc.retry_after or min((2 ** attempts) + 0.2, 8)
+                        time.sleep(wait)
+                        continue
+                    raise
         except Exception as exc:
             results.append({"id": entry.get("id"), "ok": False, "error": str(exc)})
+            _log_audit(
+                {
+                    "service": service,
+                    "action": update_action,
+                    "item_id": item_id,
+                    "updates": updates,
+                    "context": context,
+                    "ok": False,
+                    "error": str(exc),
+                }
+            )
     ok = all(item.get("ok") for item in results) if results else True
     return {"ok": ok, "count": len(results), "results": results}
 
@@ -723,6 +1307,43 @@ ACTIONS = {
         "list_messages": {"method": "list_messages", "defaults": {"top": 10}},
         "list_events": {"method": "list_events", "defaults": {"top": 10}},
         "update_event": {"method": "update_event", "required": ["event_id", "updates"]},
+        "list_mailbox_permissions": {"method": "list_mailbox_permissions", "required": ["shared_mailbox"]},
+        "add_mailbox_permission": {
+            "method": "add_mailbox_permission",
+            "required": ["shared_mailbox", "user_id"],
+        },
+        "remove_mailbox_permission": {
+            "method": "remove_mailbox_permission",
+            "required": ["shared_mailbox", "user_id"],
+        },
+        "list_send_as_permissions": {"method": "list_send_as_permissions", "required": ["shared_mailbox"]},
+        "add_send_as_permission": {"method": "add_send_as_permission", "required": ["shared_mailbox", "user_id"]},
+        "remove_send_as_permission": {
+            "method": "remove_send_as_permission",
+            "required": ["shared_mailbox", "user_id"],
+        },
+        "list_send_on_behalf": {"method": "list_send_on_behalf", "required": ["shared_mailbox"]},
+        "add_send_on_behalf": {"method": "add_send_on_behalf", "required": ["shared_mailbox", "user_id"]},
+        "remove_send_on_behalf": {
+            "method": "remove_send_on_behalf",
+            "required": ["shared_mailbox", "user_id"],
+        },
+        "list_mailbox_folder_permissions": {
+            "method": "list_mailbox_folder_permissions",
+            "required": ["shared_mailbox"],
+        },
+        "add_mailbox_folder_permission": {
+            "method": "add_mailbox_folder_permission",
+            "required": ["shared_mailbox", "folder_path", "user_id"],
+        },
+        "update_mailbox_folder_permission": {
+            "method": "update_mailbox_folder_permission",
+            "required": ["shared_mailbox", "folder_path", "user_id"],
+        },
+        "remove_mailbox_folder_permission": {
+            "method": "remove_mailbox_folder_permission",
+            "required": ["shared_mailbox", "folder_path", "user_id"],
+        },
     },
     "onedrive": {
         "list_drive_items": {"method": "list_drive_items"},
@@ -735,6 +1356,30 @@ ACTIONS = {
         "list_sites": {"method": "list_sites"},
         "create_list": {"method": "create_list", "required": ["site_id", "display_name"]},
         "list_list_items": {"method": "list_list_items", "required": ["site_id", "list_id"]},
+        "list_list_columns": {"method": "list_list_columns", "required": ["site_id", "list_id"]},
+        "create_list_column": {
+            "method": "create_list_column",
+            "required": ["site_id", "list_id", "display_name"],
+            "list_fields": ["choices"],
+        },
+        "update_list_column": {
+            "method": "update_list_column",
+            "required": ["site_id", "list_id", "column_id"],
+            "list_fields": ["choices"],
+        },
+        "delete_list_column": {"method": "delete_list_column", "required": ["site_id", "list_id", "column_id"]},
+        "list_site_permissions": {"method": "list_site_permissions", "required": ["site_id"]},
+        "grant_site_permission": {
+            "method": "grant_site_permission",
+            "required": ["site_id", "principal_id"],
+            "list_fields": ["roles"],
+        },
+        "delete_site_permission": {"method": "delete_site_permission", "required": ["site_id", "permission_id"]},
+        "update_site_permission": {
+            "method": "update_site_permission",
+            "required": ["site_id", "permission_id"],
+            "list_fields": ["roles"],
+        },
         "list_sites_admin": {"method": "list_sites_powershell"},
         "update_list_item_fields": {
             "method": "update_list_item_fields",
@@ -756,9 +1401,31 @@ ACTIONS = {
             "required": ["user_principal_name", "display_name", "password"],
         },
         "update_user": {"method": "update_user", "required": ["user_id", "updates"]},
-        "update_group": {"method": "update_group", "required": ["group_id", "updates"]},
+        "list_groups": {"method": "list_groups", "defaults": {"top": 10}},
+        "create_group": {
+            "method": "create_group",
+            "required": ["display_name"],
+            "list_fields": ["group_types"],
+        },
+        "delete_group": {"method": "delete_group", "required": ["group_id"]},
+        "update_group": {
+            "method": "update_group",
+            "required": ["group_id", "updates"],
+            "update_fields": ["displayName", "description", "mailEnabled", "securityEnabled", "visibility"],
+        },
         "add_group_member": {"method": "add_group_member", "required": ["group_id", "user_id"]},
+        "list_group_members": {"method": "list_group_members", "required": ["group_id"], "defaults": {"top": 50}},
+        "remove_group_member": {"method": "remove_group_member", "required": ["group_id", "member_id"]},
         "list_service_principals": {"method": "list_service_principals", "defaults": {"top": 10}},
+        "list_applications": {"method": "list_applications", "defaults": {"top": 10}},
+        "create_application": {"method": "create_application", "required": ["display_name"]},
+        "update_application": {"method": "update_application", "required": ["app_id"]},
+        "delete_application": {"method": "delete_application", "required": ["app_id"]},
+        "create_service_principal": {"method": "create_service_principal", "required": ["app_id"]},
+        "list_role_definitions": {"method": "list_role_definitions", "defaults": {"top": 20}},
+        "list_role_assignments": {"method": "list_role_assignments", "defaults": {"top": 50}},
+        "assign_role": {"method": "assign_role", "required": ["principal_id", "role_definition_id"]},
+        "remove_role_assignment": {"method": "remove_role_assignment", "required": ["role_assignment_id"]},
         "set_user_license": {
             "method": "set_user_license_powershell",
             "required": ["user_id"],
@@ -869,45 +1536,546 @@ def _jsonable(value):
         return str(value)
 
 
+SENSITIVE_KEYWORDS = (
+    "password",
+    "passphrase",
+    "secret",
+    "token",
+    "credential",
+    "private",
+    "client_secret",
+    "refresh_token",
+    "access_token",
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = str(key or "").lower()
+    if not normalized:
+        return False
+    if normalized.endswith("_key") or normalized.endswith("apikey"):
+        return True
+    return any(keyword in normalized for keyword in SENSITIVE_KEYWORDS)
+
+
+def sanitize_payload(value, depth: int = 0):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if depth > 6:
+        return "[truncated]"
+    if isinstance(value, list):
+        return [sanitize_payload(item, depth + 1) for item in value]
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, val in value.items():
+            if _is_sensitive_key(key):
+                sanitized[key] = "[redacted]"
+            else:
+                sanitized[key] = sanitize_payload(val, depth + 1)
+        return sanitized
+    return str(value)
+
+
+def classify_action_kind(action: str, service: str | None = None) -> str:
+    if service in {"reports"}:
+        return "read"
+    if action.startswith("list_") or action.startswith("get_") or action.endswith("_report"):
+        return "read"
+    if action.startswith(
+        (
+            "create_",
+            "update_",
+            "delete_",
+            "add_",
+            "remove_",
+            "set_",
+            "enable_",
+            "disable_",
+            "assign_",
+            "link_",
+            "unlink_",
+            "reset_",
+            "restore_",
+        )
+    ):
+        return "write"
+    return "event"
+
+
+TARGET_KEYS = (
+    "user_id",
+    "user_principal_name",
+    "upn",
+    "shared_mailbox",
+    "mailbox",
+    "group_id",
+    "member_id",
+    "site_id",
+    "list_id",
+    "item_id",
+    "drive_id",
+    "event_id",
+    "team_id",
+    "channel_id",
+    "device_id",
+    "host",
+    "printer",
+    "ou_dn",
+    "gpo_name",
+    "unc_path",
+    "id",
+)
+
+
+def _build_snapshot_target(params: dict | None, payload: dict | None = None) -> str:
+    params = params or {}
+    for key in TARGET_KEYS:
+        value = params.get(key)
+        if value:
+            return str(value)
+    if isinstance(payload, dict):
+        for key in TARGET_KEYS:
+            value = payload.get(key)
+            if value:
+                return str(value)
+        if payload.get("id"):
+            return str(payload.get("id"))
+    return "global"
+
+
+SNAPSHOT_READERS = {
+    ("entra", "update_user"): {"method": "get_user", "params": ["user_id"]},
+    ("entra", "delete_user"): {"method": "get_user", "params": ["user_id"]},
+    ("entra", "create_user"): {"method": "get_user", "params": ["user_id"]},
+    ("entra", "update_group"): {"method": "get_group", "params": ["group_id"]},
+    ("entra", "delete_group"): {"method": "get_group", "params": ["group_id"]},
+    ("entra", "create_group"): {"method": "get_group", "params": ["group_id"]},
+    ("entra", "update_application"): {"method": "get_application", "params": ["app_id"]},
+    ("entra", "delete_application"): {"method": "get_application", "params": ["app_id"]},
+    ("entra", "create_application"): {"method": "get_application", "params": ["app_id"]},
+    ("exchange", "update_event"): {"method": "get_event", "params": ["event_id", "user_id"]},
+    ("teams", "update_channel"): {"method": "get_channel", "params": ["team_id", "channel_id"]},
+    ("sharepoint", "update_list_item_fields"): {"method": "get_list_item", "params": ["site_id", "list_id", "item_id"]},
+    ("onedrive", "update_item"): {"method": "get_item_metadata", "params": ["item_id"]},
+}
+
+
+def _resolve_snapshot_reader(service: str, action: str, params: dict | None, result: dict | None):
+    entry = SNAPSHOT_READERS.get((service, action))
+    if not entry:
+        return None
+    required = entry.get("params") or []
+    call_params = {}
+    params = params or {}
+    for key in required:
+        if key in params and params[key] is not None:
+            call_params[key] = params[key]
+    if result and isinstance(result, dict):
+        if "user_id" in required and "user_id" not in call_params and result.get("id"):
+            call_params["user_id"] = result.get("id")
+        if "group_id" in required and "group_id" not in call_params and result.get("id"):
+            call_params["group_id"] = result.get("id")
+        if "app_id" in required and "app_id" not in call_params and result.get("id"):
+            call_params["app_id"] = result.get("id")
+        for key in required:
+            if key not in call_params and key in result:
+                call_params[key] = result.get(key)
+    if not call_params and required:
+        return None
+    return entry.get("method"), call_params
+
+
+def _capture_state_snapshot(service: str, action: str, client, params: dict | None, result: dict | None):
+    resolved = _resolve_snapshot_reader(service, action, params, result)
+    if not resolved:
+        return None
+    method_name, call_params = resolved
+    method = getattr(client, method_name, None)
+    if not method:
+        return None
+    try:
+        return method(**call_params)
+    except Exception:
+        return None
+
+
+def _snapshot_meta(service: str, action: str, stage: str, ok: bool | None = None) -> dict:
+    return {
+        "service": service,
+        "action": action,
+        "stage": stage,
+        "tenant": STATE.config.tenant_id or None,
+        "tool_version": os.getenv("TOOL_VERSION") or "dev",
+        "ok": ok,
+    }
+
+
+def _store_snapshot(snapshot_type: str, target: str, payload: dict | None, meta: dict, source: dict):
+    try:
+        ACTION_SNAPSHOT_STORE.put(snapshot_type, target, payload, meta, source)
+    except Exception:
+        return
+
+
+def _infer_snapshot_entity(service: str, action: str, payload: dict | None, source: str) -> str:
+    if service == "reports":
+        return action or "report"
+    try:
+        normalized = interpret_response(service, action, payload, source=source)
+        return normalized.get("entity") or "record"
+    except Exception:
+        return "record"
+
+
+def _emit_additional_snapshots(service: str, action: str, params: dict | None, result: dict | None, source_kind: str):
+    if not isinstance(result, dict):
+        return
+    meta = _snapshot_meta(service, action, "snapshot", ok=True)
+    base_source = {"kind": source_kind, "service": service, "action": action}
+    params = params or {}
+
+    if service == "topology" and action == "collect_topology":
+        generated = result.get("generated_at")
+        errors = result.get("errors")
+        dhcp_server = params.get("dhcp_server") or result.get("dhcp_server") or "local"
+        dns_server = params.get("dns_server") or result.get("dns_server") or "local"
+        smb_server = params.get("smb_server") or result.get("smb_server") or "local"
+        print_server = params.get("print_server") or result.get("print_server") or "local"
+
+        if result.get("dhcp_leases") is not None:
+            payload = {
+                "generated_at": generated,
+                "server": dhcp_server,
+                "leases": result.get("dhcp_leases"),
+            }
+            _store_snapshot("network.dhcp_leases", str(dhcp_server), sanitize_payload(payload), meta, base_source)
+        if result.get("dns_records") is not None:
+            payload = {
+                "generated_at": generated,
+                "server": dns_server,
+                "records": result.get("dns_records"),
+            }
+            _store_snapshot("network.dns_records", str(dns_server), sanitize_payload(payload), meta, base_source)
+        if result.get("smb_sessions") is not None:
+            payload = {
+                "generated_at": generated,
+                "server": smb_server,
+                "sessions": result.get("smb_sessions"),
+            }
+            _store_snapshot("network.smb_sessions", str(smb_server), sanitize_payload(payload), meta, base_source)
+        if result.get("printers") is not None or result.get("print_jobs") is not None:
+            payload = {
+                "generated_at": generated,
+                "server": print_server,
+                "printers": result.get("printers"),
+                "print_jobs": result.get("print_jobs"),
+                "errors": errors,
+            }
+            _store_snapshot("network.print_server", str(print_server), sanitize_payload(payload), meta, base_source)
+
+    if service == "reports":
+        if action == "user_audit":
+            user = result.get("user") or {}
+            target = (
+                user.get("userPrincipalName")
+                or user.get("user_principal_name")
+                or user.get("id")
+                or params.get("user_id")
+                or "user"
+            )
+            groups = result.get("memberOf") or []
+            licenses = result.get("licenses") or []
+            core = {
+                "generated_at": result.get("generated_at"),
+                "user_id": user.get("id"),
+                "user_principal_name": user.get("userPrincipalName") or user.get("user_principal_name"),
+                "display_name": user.get("displayName") or user.get("display_name"),
+                "account_enabled": user.get("accountEnabled"),
+                "groups": [
+                    {
+                        "id": g.get("id"),
+                        "displayName": g.get("displayName") or g.get("display_name"),
+                        "type": g.get("@odata.type"),
+                    }
+                    for g in groups
+                    if isinstance(g, dict)
+                ],
+                "licenses": [
+                    {
+                        "skuId": l.get("skuId") if isinstance(l, dict) else None,
+                        "skuPartNumber": l.get("skuPartNumber") if isinstance(l, dict) else None,
+                    }
+                    for l in licenses
+                ],
+            }
+            _store_snapshot("entra.user_core", str(target), sanitize_payload(core), meta, base_source)
+
+            signins = result.get("signIns")
+            if isinstance(signins, list) and signins:
+                summary = {
+                    "generated_at": result.get("generated_at"),
+                    "user_id": user.get("id"),
+                    "summary": _summarize_signins(signins),
+                }
+                _store_snapshot("entra.signin_summary", str(target), sanitize_payload(summary), meta, base_source)
+
+        if action == "sign_in_summary":
+            target = result.get("user_id") or params.get("user_id") or "tenant"
+            _store_snapshot("entra.signin_summary", str(target), sanitize_payload(result), meta, base_source)
+
+        if action == "conditional_access_summary":
+            tenant = STATE.config.tenant_id or "tenant"
+            _store_snapshot("entra.conditional_access", str(tenant), sanitize_payload(result), meta, base_source)
+
+        if action == "device_compliance":
+            target = result.get("user_id") or params.get("user_id") or "tenant"
+            _store_snapshot("entra.device_compliance", str(target), sanitize_payload(result), meta, base_source)
+
+
+def _read_action_snapshots():
+    if not ACTION_SNAPSHOT_PATH.exists():
+        return []
+    entries = []
+    try:
+        with ACTION_SNAPSHOT_PATH.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except Exception:
+                    continue
+                entries.append(record)
+    except Exception:
+        return []
+    return entries
+
+
+def _list_action_snapshots(snapshot_type=None, target=None, limit=50, prefix=None):
+    entries = _read_action_snapshots()
+    target_key = str(target).lower() if target else None
+    filtered = []
+    for record in entries:
+        if snapshot_type and record.get("type") != snapshot_type:
+            continue
+        if prefix and not str(record.get("type") or "").startswith(prefix):
+            continue
+        if target_key:
+            if str(record.get("target") or "").lower() != target_key:
+                continue
+        filtered.append(record)
+    filtered.sort(key=lambda item: item.get("collected_at") or "", reverse=True)
+    if limit and limit > 0:
+        return filtered[: int(limit)]
+    return filtered
+
+
+def _get_action_snapshot(snapshot_id):
+    if not snapshot_id:
+        return None
+    entries = _read_action_snapshots()
+    for record in entries:
+        if record.get("id") == snapshot_id:
+            return record
+    return None
+
+def get_action_source(service, action):
+    if service in {"localad", "printers", "network", "ssh", "fileserver", "topology"}:
+        return "powershell"
+    spec = ACTIONS.get(service, {}).get(action, {})
+    method = spec.get("method", "") or ""
+    if "powershell" in method:
+        return "powershell"
+    return "graph"
+
+
+ACTION_ENDPOINTS = {
+    ("entra", "list_users"): "/users",
+    ("entra", "get_user"): "/users/{id}",
+    ("entra", "update_user"): "/users/{id}",
+    ("entra", "list_groups"): "/groups",
+    ("entra", "get_group"): "/groups/{id}",
+    ("entra", "update_group"): "/groups/{id}",
+    ("entra", "list_service_principals"): "/servicePrincipals",
+    ("entra", "list_applications"): "/applications",
+    ("entra", "update_application"): "/applications/{id}",
+    ("exchange", "list_mail_folders"): "/users/{id}/mailFolders",
+    ("exchange", "list_messages"): "/users/{id}/messages",
+    ("exchange", "list_events"): "/users/{id}/events",
+    ("exchange", "update_event"): "/users/{id}/events/{event_id}",
+    ("onedrive", "list_drive_items"): "/drives/{drive_id}/root/children",
+    ("onedrive", "get_user_drive_id"): "/users/{id}/drive",
+    ("sharepoint", "list_sites"): "/sites",
+    ("sharepoint", "list_list_items"): "/sites/{site_id}/lists/{list_id}/items",
+    ("sharepoint", "update_list_item_fields"): "/sites/{site_id}/lists/{list_id}/items/{item_id}",
+    ("teams", "list_channels"): "/teams/{team_id}/channels",
+    ("teams", "update_channel"): "/teams/{team_id}/channels/{channel_id}",
+    ("reports", "user_audit"): "multi:/users,/memberOf,/licenseDetails,/auditLogs/signIns,/registeredDevices",
+    ("reports", "sign_in_summary"): "/auditLogs/signIns",
+    ("reports", "conditional_access_summary"): "/identity/conditionalAccess/policies",
+    ("reports", "device_compliance"): "/deviceManagement/managedDevices",
+    ("topology", "collect_topology"): "powershell:collect_topology",
+}
+
+
+def get_action_endpoint(service, action):
+    return ACTION_ENDPOINTS.get((service, action))
+
+
 def dispatch_task(service, action, params=None):
+    params = params or {}
+    snapshot_enabled = True
+    if isinstance(params, dict) and "_snapshot" in params:
+        snapshot_enabled = bool(params.pop("_snapshot"))
+    source_kind = get_action_source(service, action)
+    source_meta = {
+        "kind": source_kind,
+        "endpoint": get_action_endpoint(service, action),
+        "service": service,
+        "action": action,
+    }
+    request_payload = sanitize_payload(params or {})
+    target = _build_snapshot_target(params or {})
+    action_kind = classify_action_kind(action, service)
     if service == "system":
         data = params or {}
-        if action == "graph_check":
-            return _graph_check(data.get("service"))
-        if action == "check_powershell_modules":
-            modules = data.get("modules") or POWERSHELL_MODULES.get(data.get("service"), [])
-            return _check_powershell_modules(modules)
-        if action == "health_check":
-            return _health_check()
-        if action == "tenant_info":
-            return _tenant_info()
-        raise ValueError(f"Unknown action '{action}' for service '{service}'")
+        try:
+            if action == "graph_check":
+                result = _graph_check(data.get("service"))
+            elif action == "check_powershell_modules":
+                modules = data.get("modules") or POWERSHELL_MODULES.get(data.get("service"), [])
+                result = _check_powershell_modules(modules)
+            elif action == "health_check":
+                result = _health_check()
+            elif action == "smoke_test":
+                result = _smoke_test(data.get("services"))
+            elif action == "tenant_info":
+                result = _tenant_info()
+            elif action == "global_admin_check":
+                result = _global_admin_check(data.get("user_id") or data.get("upn"))
+            elif action == "security_posture":
+                result = _security_posture()
+            else:
+                raise ValueError(f"Unknown action '{action}' for service '{service}'")
+        except Exception as exc:
+            if snapshot_enabled:
+                _store_snapshot(
+                    f"action.{service}.{action}",
+                    target,
+                    {"request": request_payload, "error": str(exc)},
+                    _snapshot_meta(service, action, "event", ok=False),
+                    source_meta,
+                )
+            raise
+        if snapshot_enabled:
+            _store_snapshot(
+                f"action.{service}.{action}",
+                target,
+                {"request": request_payload, "response": sanitize_payload(result)},
+                _snapshot_meta(service, action, "event", ok=True),
+                source_meta,
+            )
+        if action_kind == "read":
+            entity = _infer_snapshot_entity(service, action, result, source_kind)
+            if snapshot_enabled:
+                _store_snapshot(
+                    f"{service}.{entity}",
+                    _build_snapshot_target(params, result if isinstance(result, dict) else None),
+                    sanitize_payload(result),
+                    _snapshot_meta(service, action, "snapshot", ok=True),
+                    source_meta,
+                )
+                _emit_additional_snapshots(service, action, params, result, source_kind)
+        return result
 
     if service == "reports":
         data = params or {}
-        if action == "user_audit":
-            return _user_audit_report(
-                user_id=data.get("user_id"),
-                include_groups=bool(data.get("include_groups", True)),
-                include_licenses=bool(data.get("include_licenses", True)),
-                include_signins=bool(data.get("include_signins", False)),
-                include_devices=bool(data.get("include_devices", False)),
-                include_mailbox_stats=bool(data.get("include_mailbox_stats", False)),
+        try:
+            if action == "user_audit":
+                result = _user_audit_report(
+                    user_id=data.get("user_id"),
+                    include_groups=bool(data.get("include_groups", True)),
+                    include_licenses=bool(data.get("include_licenses", True)),
+                    include_signins=bool(data.get("include_signins", False)),
+                    include_devices=bool(data.get("include_devices", False)),
+                    include_mailbox_stats=bool(data.get("include_mailbox_stats", False)),
+                )
+            elif action == "gpo_audit":
+                result = _gpo_audit_report(name=data.get("name"))
+            elif action == "gpo_link_audit":
+                result = _gpo_link_audit_report(ou_dn=data.get("ou_dn"))
+            elif action == "sign_in_summary":
+                result = _sign_in_summary_report(
+                    user_id=data.get("user_id"),
+                    top=data.get("top", 25),
+                    lookback_hours=data.get("lookback_hours"),
+                )
+            elif action == "conditional_access_summary":
+                result = _conditional_access_summary_report()
+            elif action == "device_compliance":
+                result = _device_compliance_report(
+                    user_id=data.get("user_id"),
+                    top=data.get("top", 50),
+                )
+            else:
+                raise ValueError(f"Unknown action '{action}' for service '{service}'")
+        except Exception as exc:
+            if snapshot_enabled:
+                _store_snapshot(
+                    f"action.{service}.{action}",
+                    target,
+                    {"request": request_payload, "error": str(exc)},
+                    _snapshot_meta(service, action, "event", ok=False),
+                    source_meta,
+                )
+            raise
+        if snapshot_enabled:
+            _store_snapshot(
+                f"action.{service}.{action}",
+                target,
+                {"request": request_payload, "response": sanitize_payload(result)},
+                _snapshot_meta(service, action, "event", ok=True),
+                source_meta,
             )
-        if action == "gpo_audit":
-            return _gpo_audit_report(name=data.get("name"))
-        if action == "gpo_link_audit":
-            return _gpo_link_audit_report(ou_dn=data.get("ou_dn"))
-        raise ValueError(f"Unknown action '{action}' for service '{service}'")
+        if action_kind == "read":
+            entity = _infer_snapshot_entity(service, action, result, source_kind)
+            if snapshot_enabled:
+                _store_snapshot(
+                    f"{service}.{entity}",
+                    _build_snapshot_target(params, result if isinstance(result, dict) else None),
+                    sanitize_payload(result),
+                    _snapshot_meta(service, action, "snapshot", ok=True),
+                    source_meta,
+                )
+                _emit_additional_snapshots(service, action, params, result, source_kind)
+        return result
 
     if action == "bulk_update":
         data = params or {}
-        return _bulk_update(
-            service,
-            data.get("update_action"),
-            data.get("items") or [],
-            data.get("context") or {},
-        )
+        try:
+            result = _bulk_update(
+                service,
+                data.get("update_action"),
+                data.get("items") or [],
+                data.get("context") or {},
+            )
+        except Exception as exc:
+            if snapshot_enabled:
+                _store_snapshot(
+                    f"action.{service}.{action}",
+                    target,
+                    {"request": request_payload, "error": str(exc)},
+                    _snapshot_meta(service, action, "event", ok=False),
+                    source_meta,
+                )
+            raise
+        if snapshot_enabled:
+            _store_snapshot(
+                f"action.{service}.{action}",
+                target,
+                {"request": request_payload, "response": sanitize_payload(result)},
+                _snapshot_meta(service, action, "event", ok=True),
+                source_meta,
+            )
+        return result
 
     if service not in ACTIONS:
         raise ValueError(f"Unknown service '{service}'")
@@ -917,6 +2085,14 @@ def dispatch_task(service, action, params=None):
     spec = ACTIONS[service][action]
     required = spec.get("required", [])
     payload = _normalize_params(spec, params or {})
+    update_fields = spec.get("update_fields") or []
+    if update_fields and not payload.get("updates"):
+        updates = {}
+        for field in update_fields:
+            if field in payload:
+                updates[field] = payload.pop(field)
+        if updates:
+            payload["updates"] = updates
     for key in required:
         if not payload.get(key):
             raise ValueError(f"Missing required parameter: {key}")
@@ -937,5 +2113,93 @@ def dispatch_task(service, action, params=None):
             call_params["user_id"] = STATE.config.graph_user_id
         else:
             raise ValueError("GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in .env.")
-    result = method(**call_params)
+    request_payload = sanitize_payload(call_params)
+    target = _build_snapshot_target(call_params)
+
+    if action_kind == "write" and snapshot_enabled:
+        pre_payload = _capture_state_snapshot(service, action, client, call_params, None)
+        if pre_payload is not None:
+            entity = _infer_snapshot_entity(service, action, pre_payload, source_kind)
+            _store_snapshot(
+                f"{service}.{entity}",
+                _build_snapshot_target(call_params, pre_payload if isinstance(pre_payload, dict) else None),
+                sanitize_payload(pre_payload),
+                _snapshot_meta(service, action, "pre", ok=True),
+                source_meta,
+            )
+    try:
+        result = method(**call_params)
+    except Exception as exc:
+        if snapshot_enabled:
+            _store_snapshot(
+                f"action.{service}.{action}",
+                target,
+                {"request": request_payload, "error": str(exc)},
+                _snapshot_meta(service, action, "event", ok=False),
+                source_meta,
+            )
+        if action in AUDIT_ACTION_MAP:
+            id_key, update_key = AUDIT_ACTION_MAP[action]
+            _log_audit(
+                {
+                    "service": service,
+                    "action": action,
+                    "item_id": call_params.get(id_key),
+                    "updates": call_params.get(update_key),
+                    "context": {
+                        key: call_params.get(key)
+                        for key in ("user_id", "team_id", "site_id", "list_id")
+                        if call_params.get(key) is not None
+                    },
+                    "ok": False,
+                    "error": str(exc),
+                }
+            )
+        raise
+    if snapshot_enabled:
+        _store_snapshot(
+            f"action.{service}.{action}",
+            target,
+            {"request": request_payload, "response": sanitize_payload(result)},
+            _snapshot_meta(service, action, "event", ok=True),
+            source_meta,
+        )
+    if action_kind == "read":
+        entity = _infer_snapshot_entity(service, action, result, source_kind)
+        if snapshot_enabled:
+            _store_snapshot(
+                f"{service}.{entity}",
+                _build_snapshot_target(call_params, result if isinstance(result, dict) else None),
+                sanitize_payload(result),
+                _snapshot_meta(service, action, "snapshot", ok=True),
+                source_meta,
+            )
+            _emit_additional_snapshots(service, action, call_params, result, source_kind)
+    if action_kind == "write" and snapshot_enabled:
+        post_payload = _capture_state_snapshot(service, action, client, call_params, result if isinstance(result, dict) else None)
+        if post_payload is not None:
+            entity = _infer_snapshot_entity(service, action, post_payload, source_kind)
+            _store_snapshot(
+                f"{service}.{entity}",
+                _build_snapshot_target(call_params, post_payload if isinstance(post_payload, dict) else None),
+                sanitize_payload(post_payload),
+                _snapshot_meta(service, action, "post", ok=True),
+                source_meta,
+            )
+    if action in AUDIT_ACTION_MAP:
+        id_key, update_key = AUDIT_ACTION_MAP[action]
+        _log_audit(
+            {
+                "service": service,
+                "action": action,
+                "item_id": call_params.get(id_key),
+                "updates": call_params.get(update_key),
+                "context": {
+                    key: call_params.get(key)
+                    for key in ("user_id", "team_id", "site_id", "list_id")
+                    if call_params.get(key) is not None
+                },
+                "ok": True,
+            }
+        )
     return _jsonable(result)

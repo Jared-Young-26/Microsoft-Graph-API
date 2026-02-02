@@ -13,7 +13,15 @@ try:
 except Exception:
     pty = None
 
-from .core import STATE, dispatch_task
+from .core import (
+    STATE,
+    dispatch_task,
+    _read_audit_log,
+    get_action_source,
+    _list_action_snapshots,
+    _get_action_snapshot,
+)
+from platform_core.interpreter import interpret_response
 from microsoft import GraphAPIError, PowerShellCommandError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +60,16 @@ class ConfigUpdate(BaseModel):
     reload: bool | None = False
 
 
+class ConfigExportRequest(BaseModel):
+    passphrase: str | None = None
+    use_keychain: bool | None = False
+
+
+class ConfigImportRequest(BaseModel):
+    passphrase: str | None = None
+    payload: dict | None = None
+
+
 @app.get("/api/status")
 def status():
     return STATE.status()
@@ -81,11 +99,63 @@ def reload_config():
     return {"ok": True, "data": STATE.get_config_public()}
 
 
+@app.get("/api/audit")
+def get_audit(
+    service: str | None = None,
+    action: str | None = None,
+    ok: str | None = None,
+    user: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    query: str | None = None,
+    limit: int | None = 200,
+    offset: int | None = 0,
+):
+    data = _read_audit_log(
+        service=service,
+        action=action,
+        ok=ok,
+        user=user,
+        since=since,
+        until=until,
+        query=query,
+        limit=limit,
+        offset=offset,
+    )
+    return {"ok": True, "data": data}
+
+
+@app.post("/api/config/export")
+def export_config(payload: ConfigExportRequest):
+    data = payload.model_dump()
+    try:
+        blob = STATE.export_config_encrypted(passphrase=data.get("passphrase"), use_keychain=bool(data.get("use_keychain")))
+        return {"ok": True, "data": blob}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/config/import")
+def import_config(payload: ConfigImportRequest):
+    data = payload.model_dump()
+    try:
+        blob = data.get("payload") or {}
+        result = STATE.import_config_encrypted(blob, passphrase=data.get("passphrase"))
+        return {"ok": True, "data": result}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
 @app.post("/api/task")
 def run_task(task: TaskRequest):
     try:
         data = dispatch_task(task.service, task.action, task.params)
-        return {"ok": True, "data": data}
+        normalized = None
+        try:
+            normalized = interpret_response(task.service, task.action, data, source=get_action_source(task.service, task.action))
+        except Exception:
+            normalized = None
+        return {"ok": True, "data": data, "normalized": normalized}
     except GraphAPIError as exc:
         detail = ""
         rate_limit = {}
@@ -156,6 +226,25 @@ def get_topology_history(limit: int | None = None):
         return {"ok": True, "data": data}
     except Exception as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/snapshots")
+def list_snapshots(
+    type: str | None = None,
+    target: str | None = None,
+    prefix: str | None = None,
+    limit: int | None = 50,
+):
+    data = _list_action_snapshots(snapshot_type=type, target=target, prefix=prefix, limit=limit)
+    return {"ok": True, "data": data}
+
+
+@app.get("/api/snapshots/{snapshot_id}")
+def get_snapshot(snapshot_id: str):
+    data = _get_action_snapshot(snapshot_id)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshot not found"})
+    return {"ok": True, "data": data}
 
 
 @app.post("/api/topology/history")

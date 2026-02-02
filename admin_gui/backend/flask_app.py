@@ -1,7 +1,8 @@
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
-from .core import STATE, dispatch_task
+from .core import STATE, dispatch_task, _read_audit_log, get_action_source, _list_action_snapshots, _get_action_snapshot
+from platform_core.interpreter import interpret_response
 from microsoft import GraphAPIError, PowerShellCommandError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,12 +39,61 @@ def reload_config():
     return jsonify({"ok": True, "data": STATE.get_config_public()})
 
 
+@app.get("/api/audit")
+def get_audit():
+    params = {
+        "service": request.args.get("service") or None,
+        "action": request.args.get("action") or None,
+        "ok": request.args.get("ok"),
+        "user": request.args.get("user") or None,
+        "since": request.args.get("since") or None,
+        "until": request.args.get("until") or None,
+        "query": request.args.get("query") or None,
+        "limit": request.args.get("limit", type=int),
+        "offset": request.args.get("offset", type=int),
+    }
+    data = _read_audit_log(**params)
+    return jsonify({"ok": True, "data": data})
+
+
+@app.post("/api/config/export")
+def export_config():
+    payload = request.get_json(silent=True) or {}
+    passphrase = payload.get("passphrase") or None
+    use_keychain = bool(payload.get("use_keychain"))
+    try:
+        data = STATE.export_config_encrypted(passphrase=passphrase, use_keychain=use_keychain)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/config/import")
+def import_config():
+    payload = request.get_json(silent=True) or {}
+    passphrase = payload.get("passphrase") or None
+    blob = payload.get("payload") or payload.get("data")
+    try:
+        data = STATE.import_config_encrypted(blob, passphrase=passphrase)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.post("/api/task")
 def run_task():
     payload = request.get_json(silent=True) or {}
     try:
-        data = dispatch_task(payload.get("service"), payload.get("action"), payload.get("params"))
-        return jsonify({"ok": True, "data": data})
+        service = payload.get("service")
+        action = payload.get("action")
+        params = payload.get("params")
+        data = dispatch_task(service, action, params)
+        normalized = None
+        try:
+            normalized = interpret_response(service, action, data, source=get_action_source(service, action))
+        except Exception:
+            normalized = None
+        return jsonify({"ok": True, "data": data, "normalized": normalized})
     except GraphAPIError as exc:
         detail = ""
         rate_limit = {}
@@ -112,6 +162,24 @@ def get_topology_history():
         return jsonify({"ok": True, "data": data})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/snapshots")
+def list_snapshots():
+    snapshot_type = request.args.get("type") or None
+    target = request.args.get("target") or None
+    prefix = request.args.get("prefix") or None
+    limit = request.args.get("limit", type=int) or 50
+    data = _list_action_snapshots(snapshot_type=snapshot_type, target=target, prefix=prefix, limit=limit)
+    return jsonify({"ok": True, "data": data})
+
+
+@app.get("/api/snapshots/<snapshot_id>")
+def get_snapshot(snapshot_id):
+    data = _get_action_snapshot(snapshot_id)
+    if not data:
+        return jsonify({"ok": False, "error": "Snapshot not found"}), 404
+    return jsonify({"ok": True, "data": data})
 
 
 @app.post("/api/topology/history")

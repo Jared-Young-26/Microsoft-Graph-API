@@ -36,6 +36,10 @@ const tenantDomains = document.getElementById("tenant-domains");
 const refreshTenantInfoButton = document.getElementById("refresh-tenant-info");
 const saveConfigButton = document.getElementById("save-config");
 const reloadConfigButton = document.getElementById("reload-config");
+const configExportButton = document.getElementById("config-export");
+const configImportButton = document.getElementById("config-import");
+const configPassphraseInput = document.getElementById("config-passphrase");
+const configImportFile = document.getElementById("config-import-file");
 const metricTenants = document.getElementById("metric-tenants");
 const metricTasks = document.getElementById("metric-tasks");
 const metricSuccess = document.getElementById("metric-success");
@@ -62,9 +66,11 @@ const profileExportButton = document.getElementById("profile-export");
 const profileImportButton = document.getElementById("profile-import");
 const profileImportFile = document.getElementById("profile-import-file");
 const healthCheckButton = document.getElementById("run-health-check");
+const smokeTestButton = document.getElementById("run-smoke-test");
 const healthStatusText = document.getElementById("health-status-text");
 const healthSpinner = document.getElementById("health-spinner");
 const healthProgress = document.getElementById("health-progress");
+const securityRefreshButton = document.getElementById("security-refresh");
 const exportActionPacksButton = document.getElementById("export-action-packs");
 const importActionPacksButton = document.getElementById("import-action-packs");
 const actionPackImportFile = document.getElementById("action-pack-import-file");
@@ -108,6 +114,7 @@ const actionPackFilterSelect = document.getElementById("action-pack-filter");
 const actionPackRunnerTitle = document.getElementById("action-pack-runner-title");
 const actionPackRunnerSteps = document.getElementById("action-pack-runner-steps");
 const actionPackRunButton = document.getElementById("action-pack-run");
+const actionPackDryRunToggle = document.getElementById("action-pack-dry-run");
 const actionPackRunCancelButton = document.getElementById("action-pack-run-cancel");
 const packScopeSelect = document.getElementById("pack-scope");
 const actionPackHistoryList = document.getElementById("action-pack-history-list");
@@ -118,8 +125,29 @@ const reportPresetsImportFile = document.getElementById("report-presets-import-f
 const reportQueueList = document.getElementById("report-queue-list");
 const reportQueueStopButton = document.getElementById("report-queue-stop");
 const reportQueueClearButton = document.getElementById("report-queue-clear");
+const auditRefreshButton = document.getElementById("audit-refresh");
+const auditExportJsonButton = document.getElementById("audit-export-json");
+const auditExportCsvButton = document.getElementById("audit-export-csv");
+const auditServiceSelect = document.getElementById("audit-service");
+const auditActionInput = document.getElementById("audit-action");
+const auditStatusSelect = document.getElementById("audit-status");
+const auditUserInput = document.getElementById("audit-user");
+const auditQueryInput = document.getElementById("audit-query");
+const auditSinceInput = document.getElementById("audit-since");
+const auditUntilInput = document.getElementById("audit-until");
+const auditLimitSelect = document.getElementById("audit-limit");
+const auditTableBody = document.getElementById("audit-table-body");
+const auditEmptyNote = document.getElementById("audit-empty");
 const reportHistoryList = document.getElementById("report-history-list");
 const reportHistoryClear = document.getElementById("report-history-clear");
+const incidentRunButton = document.getElementById("incident-run");
+const incidentRunFixButton = document.getElementById("incident-run-fix");
+const incidentUserInput = document.getElementById("incident-user");
+const incidentDeviceInput = document.getElementById("incident-device");
+const incidentLookbackInput = document.getElementById("incident-lookback");
+const incidentStartInput = document.getElementById("incident-start");
+const incidentEndInput = document.getElementById("incident-end");
+const incidentSymptomInput = document.getElementById("incident-symptom");
 const reportDiffSelectA = document.getElementById("report-diff-a");
 const reportDiffSelectB = document.getElementById("report-diff-b");
 const reportDiffRunButton = document.getElementById("report-diff-run");
@@ -143,6 +171,11 @@ const topologyReportButton = document.getElementById("topology-report");
 const topologyExportJsonButton = document.getElementById("topology-export-json");
 const topologyExportCsvButton = document.getElementById("topology-export-csv");
 const topologyHistoryDepthSelect = document.getElementById("topology-history-depth");
+const topologyDiff24hButton = document.getElementById("topology-diff-24h");
+const topologyDiffSelectA = document.getElementById("topology-diff-a");
+const topologyDiffSelectB = document.getElementById("topology-diff-b");
+const topologyDiffRunButton = document.getElementById("topology-diff-run");
+const topologyTimelineList = document.getElementById("topology-timeline");
 const issueUserInput = document.getElementById("issue-user");
 const issueDeviceInput = document.getElementById("issue-device");
 const issueSymptomInput = document.getElementById("issue-symptom");
@@ -151,6 +184,13 @@ const issueClearButton = document.getElementById("issue-clear");
 const issueList = document.getElementById("issue-list");
 const outputSearchQueries = {};
 const lastOutputs = {};
+const lastNormalized = {};
+const lastRunMeta = {};
+const lastOutputStatus = {};
+const GLOBAL_ADMIN_CACHE = new Map();
+const GLOBAL_ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
+const IMPACT_WARN_THRESHOLD = 25;
+const GLOBAL_ADMIN_CHECK_SERVICES = new Set(["entra", "exchange", "onedrive", "sharepoint", "teams", "reports"]);
 const outputTimers = new Map();
 const outputStartTimes = new Map();
 const outputStatusPrefixes = new Map();
@@ -159,6 +199,24 @@ const tableRowCurrent = new WeakMap();
 const tableRowOriginal = new WeakMap();
 const prettyRowCurrent = new WeakMap();
 const prettyRowOriginal = new WeakMap();
+const graphStates = {};
+const SENSITIVE_PARAM_KEYS = new Set([
+  "password",
+  "passphrase",
+  "secret",
+  "token",
+  "access_token",
+  "refresh_token",
+  "client_secret",
+  "private_key",
+  "apikey",
+  "api_key",
+  "credential",
+  "credentials",
+  "certificate",
+  "pfx",
+  "thumbprint",
+]);
 
 const subtitles = {
   dashboard: "Graph-first operations with PowerShell fallback",
@@ -232,6 +290,111 @@ const ACTIONS_UI = {
         { key: "execute", label: "Execute now", type: "checkbox", defaultChecked: true },
       ],
     },
+    list_mailbox_permissions: {
+      label: "List mailbox permissions",
+      mode: "powershell",
+      fields: [{ key: "shared_mailbox", label: "Shared mailbox UPN" }],
+    },
+    add_mailbox_permission: {
+      label: "Add mailbox permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Shared mailbox UPN" },
+        { key: "user_id", label: "User UPN or ID" },
+        { key: "access_rights", label: "Access rights", placeholder: "FullAccess" },
+        { key: "automapping", label: "Auto mapping", type: "checkbox", defaultChecked: true },
+      ],
+    },
+    remove_mailbox_permission: {
+      label: "Remove mailbox permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Shared mailbox UPN" },
+        { key: "user_id", label: "User UPN or ID" },
+        { key: "access_rights", label: "Access rights", placeholder: "FullAccess" },
+      ],
+    },
+    list_send_as_permissions: {
+      label: "List send-as permissions",
+      mode: "powershell",
+      fields: [{ key: "shared_mailbox", label: "Shared mailbox UPN" }],
+    },
+    add_send_as_permission: {
+      label: "Add send-as permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Shared mailbox UPN" },
+        { key: "user_id", label: "User UPN or ID" },
+      ],
+    },
+    remove_send_as_permission: {
+      label: "Remove send-as permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Shared mailbox UPN" },
+        { key: "user_id", label: "User UPN or ID" },
+      ],
+    },
+    list_send_on_behalf: {
+      label: "List send-on-behalf delegates",
+      mode: "powershell",
+      fields: [{ key: "shared_mailbox", label: "Shared mailbox UPN" }],
+    },
+    add_send_on_behalf: {
+      label: "Add send-on-behalf delegate",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Shared mailbox UPN" },
+        { key: "user_id", label: "User UPN or ID" },
+      ],
+    },
+    remove_send_on_behalf: {
+      label: "Remove send-on-behalf delegate",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Shared mailbox UPN" },
+        { key: "user_id", label: "User UPN or ID" },
+      ],
+    },
+    list_mailbox_folder_permissions: {
+      label: "List folder permissions",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Mailbox UPN" },
+        { key: "folder_path", label: "Folder path", placeholder: "Calendar" },
+      ],
+    },
+    add_mailbox_folder_permission: {
+      label: "Add folder permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Mailbox UPN" },
+        { key: "folder_path", label: "Folder path", placeholder: "Calendar" },
+        { key: "user_id", label: "User UPN or ID" },
+        { key: "access_rights", label: "Access rights", placeholder: "Editor" },
+        { key: "delegate", label: "Delegate", type: "checkbox" },
+      ],
+    },
+    update_mailbox_folder_permission: {
+      label: "Update folder permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Mailbox UPN" },
+        { key: "folder_path", label: "Folder path", placeholder: "Calendar" },
+        { key: "user_id", label: "User UPN or ID" },
+        { key: "access_rights", label: "Access rights", placeholder: "Editor" },
+        { key: "delegate", label: "Delegate", type: "checkbox" },
+      ],
+    },
+    remove_mailbox_folder_permission: {
+      label: "Remove folder permission",
+      mode: "powershell",
+      fields: [
+        { key: "shared_mailbox", label: "Mailbox UPN" },
+        { key: "folder_path", label: "Folder path", placeholder: "Calendar" },
+        { key: "user_id", label: "User UPN or ID" },
+      ],
+    },
   },
   onedrive: {
     list_drive_items: {
@@ -285,6 +448,84 @@ const ACTIONS_UI = {
         { key: "site_id", label: "Site ID" },
         { key: "list_id", label: "List ID" },
         { key: "top", label: "Top", type: "number", placeholder: "100" },
+      ],
+    },
+    list_list_columns: {
+      label: "List list columns",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "list_id", label: "List ID" },
+      ],
+    },
+    create_list_column: {
+      label: "Create list column",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "list_id", label: "List ID" },
+        { key: "display_name", label: "Column name" },
+        { key: "column_type", label: "Column type", placeholder: "text" },
+        { key: "required", label: "Required", type: "checkbox" },
+        { key: "description", label: "Description" },
+        { key: "default_value", label: "Default value" },
+        { key: "choices", label: "Choices (comma-separated)" },
+      ],
+    },
+    update_list_column: {
+      label: "Update list column",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "list_id", label: "List ID" },
+        { key: "column_id", label: "Column ID" },
+        { key: "display_name", label: "Display name" },
+        { key: "description", label: "Description" },
+        { key: "required", label: "Required", type: "checkbox" },
+        { key: "hidden", label: "Hidden", type: "checkbox" },
+        { key: "default_value", label: "Default value" },
+        { key: "choices", label: "Choices (comma-separated)" },
+      ],
+    },
+    delete_list_column: {
+      label: "Delete list column",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "list_id", label: "List ID" },
+        { key: "column_id", label: "Column ID" },
+      ],
+    },
+    list_site_permissions: {
+      label: "List site permissions",
+      mode: "graph",
+      fields: [{ key: "site_id", label: "Site ID" }],
+    },
+    grant_site_permission: {
+      label: "Grant site permission",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "principal_id", label: "Principal ID" },
+        { key: "principal_type", label: "Principal type", placeholder: "user" },
+        { key: "roles", label: "Roles (comma-separated)", placeholder: "read,write" },
+      ],
+    },
+    delete_site_permission: {
+      label: "Delete site permission",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "permission_id", label: "Permission ID" },
+      ],
+    },
+    update_site_permission: {
+      label: "Update site permission",
+      mode: "graph",
+      fields: [
+        { key: "site_id", label: "Site ID" },
+        { key: "permission_id", label: "Permission ID" },
+        { key: "roles", label: "Roles (comma-separated)", placeholder: "read,write" },
       ],
     },
     list_sites_admin: {
@@ -343,6 +584,44 @@ const ACTIONS_UI = {
         { key: "account_enabled", label: "Account enabled", type: "checkbox", defaultChecked: true },
       ],
     },
+    list_groups: {
+      label: "List groups",
+      mode: "graph",
+      fields: [
+        { key: "top", label: "Top", type: "number", placeholder: "10" },
+        { key: "select", label: "Select fields (comma-separated)" },
+      ],
+    },
+    create_group: {
+      label: "Create group",
+      mode: "graph",
+      fields: [
+        { key: "display_name", label: "Display name" },
+        { key: "mail_nickname", label: "Mail nickname (optional)" },
+        { key: "description", label: "Description" },
+        { key: "mail_enabled", label: "Mail enabled", type: "checkbox" },
+        { key: "security_enabled", label: "Security enabled", type: "checkbox", defaultChecked: true },
+        { key: "group_types", label: "Group types (comma-separated)", placeholder: "Unified" },
+        { key: "visibility", label: "Visibility", placeholder: "Private" },
+      ],
+    },
+    update_group: {
+      label: "Update group",
+      mode: "graph",
+      fields: [
+        { key: "group_id", label: "Group ID" },
+        { key: "displayName", label: "Display name" },
+        { key: "description", label: "Description" },
+        { key: "mailEnabled", label: "Mail enabled", type: "checkbox" },
+        { key: "securityEnabled", label: "Security enabled", type: "checkbox" },
+        { key: "visibility", label: "Visibility" },
+      ],
+    },
+    delete_group: {
+      label: "Delete group",
+      mode: "graph",
+      fields: [{ key: "group_id", label: "Group ID" }],
+    },
     add_group_member: {
       label: "Add group member",
       mode: "graph",
@@ -350,6 +629,85 @@ const ACTIONS_UI = {
         { key: "group_id", label: "Group ID" },
         { key: "user_id", label: "User ID" },
       ],
+    },
+    list_group_members: {
+      label: "List group members",
+      mode: "graph",
+      fields: [
+        { key: "group_id", label: "Group ID" },
+        { key: "top", label: "Top", type: "number", placeholder: "50" },
+      ],
+    },
+    remove_group_member: {
+      label: "Remove group member",
+      mode: "graph",
+      fields: [
+        { key: "group_id", label: "Group ID" },
+        { key: "member_id", label: "Member ID" },
+      ],
+    },
+    list_role_definitions: {
+      label: "List role definitions",
+      mode: "graph",
+      fields: [{ key: "top", label: "Top", type: "number", placeholder: "20" }],
+    },
+    list_role_assignments: {
+      label: "List role assignments",
+      mode: "graph",
+      fields: [
+        { key: "top", label: "Top", type: "number", placeholder: "50" },
+        { key: "principal_id", label: "Principal ID (optional)" },
+        { key: "role_definition_id", label: "Role definition ID (optional)" },
+        { key: "directory_scope_id", label: "Directory scope ID", placeholder: "/" },
+      ],
+    },
+    assign_role: {
+      label: "Assign role",
+      mode: "graph",
+      fields: [
+        { key: "principal_id", label: "Principal ID" },
+        { key: "role_definition_id", label: "Role definition ID" },
+        { key: "directory_scope_id", label: "Directory scope ID", placeholder: "/" },
+      ],
+    },
+    remove_role_assignment: {
+      label: "Remove role assignment",
+      mode: "graph",
+      fields: [{ key: "role_assignment_id", label: "Role assignment ID" }],
+    },
+    list_applications: {
+      label: "List app registrations",
+      mode: "graph",
+      fields: [{ key: "top", label: "Top", type: "number", placeholder: "10" }],
+    },
+    create_application: {
+      label: "Create app registration",
+      mode: "graph",
+      fields: [
+        { key: "display_name", label: "Display name" },
+        { key: "sign_in_audience", label: "Sign-in audience", placeholder: "AzureADMyOrg" },
+        { key: "notes", label: "Notes (optional)" },
+      ],
+    },
+    update_application: {
+      label: "Update app registration",
+      mode: "graph",
+      fields: [
+        { key: "app_id", label: "Application ID" },
+        { key: "display_name", label: "Display name" },
+        { key: "sign_in_audience", label: "Sign-in audience" },
+        { key: "notes", label: "Notes" },
+      ],
+    },
+    delete_application: {
+      label: "Delete app registration",
+      mode: "graph",
+      fields: [{ key: "app_id", label: "Application ID" }],
+    },
+    create_service_principal: {
+      label: "Create service principal",
+      mode: "graph",
+      fields: [{ key: "app_id", label: "Application ID" }],
     },
     list_service_principals: {
       label: "List service principals",
@@ -410,6 +768,31 @@ const ACTIONS_UI = {
       mode: "powershell",
       preflightService: "localad",
       fields: [{ key: "ou_dn", label: "OU distinguished name" }],
+    },
+    sign_in_summary: {
+      label: "Sign-in summary",
+      mode: "graph",
+      preflightService: "entra",
+      fields: [
+        { key: "user_id", label: "User UPN or ID (optional)" },
+        { key: "top", label: "Top", type: "number", placeholder: "25" },
+        { key: "lookback_hours", label: "Lookback hours (optional)", type: "number", placeholder: "24" },
+      ],
+    },
+    conditional_access_summary: {
+      label: "Conditional Access summary",
+      mode: "graph",
+      preflightService: "entra",
+      fields: [],
+    },
+    device_compliance: {
+      label: "Device compliance summary",
+      mode: "graph",
+      preflightService: "entra",
+      fields: [
+        { key: "user_id", label: "User UPN or ID (optional)" },
+        { key: "top", label: "Top", type: "number", placeholder: "50" },
+      ],
     },
   },
   localad: {
@@ -765,6 +1148,7 @@ const UPDATE_CONTEXT_MAP = {
       idParam: "event_id",
       payloadKey: "updates",
       contextKeys: ["user_id"],
+      allowedFields: ["subject", "importance", "showAs", "isAllDay"],
     },
   },
   onedrive: {
@@ -774,6 +1158,7 @@ const UPDATE_CONTEXT_MAP = {
       idParam: "item_id",
       payloadKey: "updates",
       contextKeys: [],
+      allowedFields: ["name", "description"],
     },
   },
   sharepoint: {
@@ -783,6 +1168,24 @@ const UPDATE_CONTEXT_MAP = {
       idParam: "item_id",
       payloadKey: "fields",
       contextKeys: ["site_id", "list_id"],
+      allowedFields: null,
+      autoValidators: true,
+    },
+    list_list_columns: {
+      updateAction: "update_list_column",
+      idField: "id",
+      idParam: "column_id",
+      payloadKey: "updates",
+      contextKeys: ["site_id", "list_id"],
+      allowedFields: ["displayName", "description", "hidden", "required"],
+    },
+    list_site_permissions: {
+      updateAction: "update_site_permission",
+      idField: "id",
+      idParam: "permission_id",
+      payloadKey: "updates",
+      contextKeys: ["site_id"],
+      allowedFields: ["roles"],
     },
   },
   teams: {
@@ -792,6 +1195,7 @@ const UPDATE_CONTEXT_MAP = {
       idParam: "channel_id",
       payloadKey: "updates",
       contextKeys: ["team_id"],
+      allowedFields: ["displayName", "description"],
     },
   },
   entra: {
@@ -801,9 +1205,69 @@ const UPDATE_CONTEXT_MAP = {
       idParam: "user_id",
       payloadKey: "updates",
       contextKeys: [],
+      allowedFields: [
+        "displayName",
+        "givenName",
+        "surname",
+        "jobTitle",
+        "department",
+        "officeLocation",
+        "mobilePhone",
+        "companyName",
+        "city",
+        "state",
+        "country",
+        "postalCode",
+        "streetAddress",
+        "usageLocation",
+        "userPrincipalName",
+      ],
+      validators: {
+        userPrincipalName: "email",
+      },
+    },
+    list_groups: {
+      updateAction: "update_group",
+      idField: "id",
+      idParam: "group_id",
+      payloadKey: "updates",
+      contextKeys: [],
+      allowedFields: ["displayName", "description", "mailEnabled", "securityEnabled", "visibility"],
+    },
+    list_applications: {
+      updateAction: "update_application",
+      idField: "id",
+      idParam: "app_id",
+      payloadKey: "updates",
+      contextKeys: [],
+      allowedFields: ["displayName", "signInAudience", "notes"],
     },
   },
 };
+
+const READ_ONLY_SHAREPOINT_FIELDS = new Set(
+  [
+    "id",
+    "ID",
+    "contenttype",
+    "contenttypeid",
+    "created",
+    "modified",
+    "editor",
+    "author",
+    "createdby",
+    "modifiedby",
+    "attachments",
+    "attachmentfiles",
+    "owshiddenversion",
+    "uniqueid",
+    "guid",
+    "fileleafref",
+    "filedirref",
+    "filetype",
+    "filesize",
+  ].map((item) => String(item).toLowerCase())
+);
 
 const DEFAULT_QUICK_ACTIONS = [
   { type: "action", service: "exchange", action: "enable_shared_sent_items" },
@@ -863,6 +1327,7 @@ const ACTION_PACK_FAVORITES_KEY = "actionPackFavorites";
 const ACTION_PACK_HISTORY_KEY = "actionPackHistory";
 const ACTION_PACK_PARAMS_KEY = "actionPackParams";
 const REPORT_HISTORY_KEY = "reportHistory";
+const SNAPSHOT_PREFS_KEY = "snapshotPrefs";
 
 const DEFAULT_TEMPLATES = [
   {
@@ -915,6 +1380,154 @@ let currentReportJob = null;
 
 const DEFAULT_ACTION_PACKS = [
   {
+    id: "flagship-user-lifecycle",
+    name: "Flagship: User lifecycle (onboard/offboard)",
+    description:
+      "End-to-end onboarding with verification, dry-run controls, and rollback guidance across cloud + on-prem.",
+    steps: [
+      {
+        type: "note",
+        phase: "Prep",
+        label: "Dry-run + diff preview",
+        note:
+          "Use Dry-run to simulate the workflow. Safe (read-only) steps still execute. Use diff preview on any update steps before applying.",
+      },
+      {
+        type: "note",
+        phase: "Prep",
+        label: "Required inputs",
+        note:
+          "Collect UPN, display name, temp password, group IDs, SKU IDs, Teams IDs, OU DN, and GPO OU DN before running.",
+      },
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_groups: true, include_licenses: true, include_signins: true, include_devices: true },
+        label: "Baseline audit snapshot (optional)",
+        optional: true,
+        safe: true,
+        phase: "Verify",
+      },
+      {
+        service: "entra",
+        action: "create_user",
+        label: "Create Entra user",
+        phase: "Provision",
+      },
+      {
+        service: "entra",
+        action: "add_group_member",
+        label: "Assign group membership",
+        phase: "Provision",
+      },
+      {
+        service: "entra",
+        action: "set_user_license",
+        label: "Assign licenses (PowerShell)",
+        phase: "Provision",
+      },
+      {
+        service: "onedrive",
+        action: "get_user_drive_id",
+        label: "Provision OneDrive",
+        optional: true,
+        safe: true,
+        phase: "Provision",
+      },
+      {
+        service: "exchange",
+        action: "list_mail_folders",
+        label: "Verify mailbox folders",
+        optional: true,
+        safe: true,
+        phase: "Verify",
+      },
+      {
+        service: "teams",
+        action: "list_joined_teams",
+        label: "Verify Teams membership (optional)",
+        optional: true,
+        safe: true,
+        phase: "Verify",
+      },
+      {
+        service: "localad",
+        action: "create_user",
+        label: "Create on-prem AD user (optional)",
+        optional: true,
+        defaultInclude: false,
+        phase: "On-prem",
+      },
+      {
+        service: "localad",
+        action: "move_user_to_ou",
+        label: "Place AD user in OU (optional)",
+        optional: true,
+        defaultInclude: false,
+        phase: "On-prem",
+      },
+      {
+        service: "reports",
+        action: "gpo_link_audit",
+        label: "Verify GPO links for OU (optional)",
+        optional: true,
+        defaultInclude: false,
+        safe: true,
+        phase: "On-prem",
+      },
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_groups: true, include_licenses: true, include_signins: true, include_devices: true },
+        label: "Post-check audit snapshot (optional)",
+        optional: true,
+        safe: true,
+        phase: "Verify",
+      },
+      {
+        type: "note",
+        phase: "Evidence",
+        label: "Evidence bundle export",
+        note:
+          "Use the Export incident bundle button on key outputs to capture evidence for tickets and audits.",
+      },
+      {
+        type: "note",
+        phase: "Rollback",
+        label: "Rollback plan",
+        note:
+          "If validation fails, run the rollback steps below or revert changes manually in Entra/AD.",
+      },
+      {
+        service: "entra",
+        action: "remove_group_member",
+        label: "Rollback: remove group membership",
+        optional: true,
+        defaultInclude: false,
+        rollback: true,
+        phase: "Rollback",
+      },
+      {
+        service: "entra",
+        action: "set_user_license",
+        label: "Rollback: remove licenses (PowerShell)",
+        optional: true,
+        defaultInclude: false,
+        rollback: true,
+        phase: "Rollback",
+      },
+      {
+        service: "localad",
+        action: "disable_account",
+        label: "Rollback: disable on-prem account",
+        optional: true,
+        defaultInclude: false,
+        rollback: true,
+        phase: "Rollback",
+      },
+    ],
+  },
+  {
     id: "onboard-user",
     name: "Onboard user",
     description: "Create user, assign licenses, add to groups, and prep mailbox settings.",
@@ -957,19 +1570,24 @@ const DEFAULT_ACTION_PACKS = [
   },
   {
     id: "offboard-user",
-    name: "Offboard user",
-    description: "Disable account, remove licenses, and capture audit details.",
+    name: "Offboard user (cloud + on-prem)",
+    description: "Capture audit, disable on-prem + cloud access, remove licenses, and document changes.",
     steps: [
       {
         service: "reports",
         action: "user_audit",
         params: { include_groups: true, include_licenses: true },
-        label: "Capture user audit",
+        label: "Capture user audit snapshot",
       },
       {
         service: "localad",
         action: "disable_account",
-        label: "Disable on-prem account (optional)",
+        label: "Disable on-prem account",
+      },
+      {
+        service: "localad",
+        action: "move_user_to_ou",
+        label: "Move to inactive OU (optional)",
         optional: true,
       },
       {
@@ -979,8 +1597,116 @@ const DEFAULT_ACTION_PACKS = [
       },
       {
         service: "entra",
-        action: "add_group_member",
-        label: "Update group memberships (optional)",
+        action: "remove_group_member",
+        label: "Remove from groups (optional)",
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: "printer-incident-triage",
+    name: "Printer incident triage",
+    description: "Assess printer health, validate GPO mappings, and cross-reference conflicts.",
+    steps: [
+      {
+        service: "printers",
+        action: "list_printers",
+        label: "List printers and status",
+      },
+      {
+        service: "printers",
+        action: "list_gpo_printer_mappings",
+        label: "List GPO printer mappings",
+      },
+      {
+        service: "printers",
+        action: "cross_reference_printers_gpo",
+        label: "Cross-reference printers vs GPOs",
+      },
+      {
+        service: "topology",
+        action: "ping_targets",
+        label: "Ping printer targets (optional)",
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: "onedrive-access-triage",
+    name: "User can’t access OneDrive",
+    description: "Verify provisioning, resolve drive ID, and confirm site visibility.",
+    steps: [
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_signins: true, include_licenses: true },
+        label: "Check sign-ins and licenses",
+      },
+      {
+        service: "onedrive",
+        action: "get_user_drive_id",
+        label: "Resolve OneDrive drive ID",
+      },
+      {
+        service: "onedrive",
+        action: "list_drive_items",
+        label: "List root items (optional)",
+        optional: true,
+      },
+      {
+        service: "onedrive",
+        action: "list_personal_sites",
+        label: "Check personal site provisioning (PowerShell)",
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: "license-reconciliation",
+    name: "License reconciliation",
+    description: "Audit assigned licenses and reconcile with intended SKU set.",
+    steps: [
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_groups: true, include_licenses: true },
+        label: "Audit current license state",
+      },
+      {
+        service: "entra",
+        action: "set_user_license",
+        label: "Apply license changes (PowerShell)",
+      },
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_licenses: true },
+        label: "Validate license state (optional)",
+        optional: true,
+      },
+    ],
+  },
+  {
+    id: "conditional-access-triage",
+    name: "Conditional access troubleshooting",
+    description: "Inspect sign-in activity, device posture, and group context to pinpoint CA blocks.",
+    steps: [
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_signins: true, include_devices: true, include_licenses: true },
+        label: "Review sign-ins and device posture",
+      },
+      {
+        service: "entra",
+        action: "list_group_members",
+        label: "Check CA-related group membership (optional)",
+        optional: true,
+      },
+      {
+        service: "entra",
+        action: "list_users",
+        label: "Verify user properties (optional)",
         optional: true,
       },
     ],
@@ -1130,6 +1856,20 @@ const REPORT_PRESETS = [
       { service: "reports", action: "gpo_audit" },
     ],
   },
+  {
+    id: "identity-health",
+    label: "Identity health snapshots",
+    actions: [
+      {
+        service: "reports",
+        action: "user_audit",
+        params: { include_groups: true, include_licenses: true, include_signins: true },
+      },
+      { service: "reports", action: "sign_in_summary", params: { top: 25, lookback_hours: 24 } },
+      { service: "reports", action: "conditional_access_summary" },
+      { service: "reports", action: "device_compliance", params: { top: 50 } },
+    ],
+  },
 ];
 
 let currentPresetId = null;
@@ -1138,6 +1878,7 @@ let sshSocket = null;
 let sshConnected = false;
 let topologyData = null;
 let topologyPing = null;
+let reportHistoryItems = [];
 
 const ISSUE_STORAGE_KEY = "topologyIssues";
 const TOPOLOGY_HISTORY_KEY = "topologyHistory";
@@ -1221,6 +1962,14 @@ function showWarningBanner(message, meta = "") {
 
 function setOutputStatus(service, { state, text, meta, running } = {}) {
   const statusEl = document.querySelector(`.output-status[data-output-status="${service}"]`);
+  lastOutputStatus[service] = {
+    ...(lastOutputStatus[service] || {}),
+    ...(state !== undefined ? { state } : {}),
+    ...(text !== undefined ? { text } : {}),
+    ...(meta !== undefined ? { meta } : {}),
+    ...(running !== undefined ? { running } : {}),
+    updated_at: new Date().toISOString(),
+  };
   if (!statusEl) return;
   if (state) {
     statusEl.classList.remove("ok", "warn", "fail", "running", "idle");
@@ -1315,6 +2064,116 @@ function normalizeList(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+function parseSnapshotTime(value) {
+  if (!value) return null;
+  const ts = new Date(value);
+  if (Number.isNaN(ts.getTime())) return null;
+  return ts;
+}
+
+function formatSnapshotLabel(snapshot) {
+  const ts = parseSnapshotTime(snapshot?.timestamp);
+  const label = ts ? ts.toLocaleString() : String(snapshot?.timestamp || "Snapshot");
+  const leaseCount = normalizeList(snapshot?.dhcp_leases).length;
+  const dnsCount = normalizeList(snapshot?.dns_records).length;
+  return `${label} · DHCP ${leaseCount} · DNS ${dnsCount}`;
+}
+
+function getSnapshotId(snapshot, index) {
+  return snapshot?.timestamp || snapshot?.generated_at || `snapshot-${index}`;
+}
+
+function findSnapshotById(history, id) {
+  if (!id) return null;
+  const match = history.find((snap) => getSnapshotId(snap) === id);
+  return match || null;
+}
+
+function findSnapshotBefore(history, hours) {
+  const target = Date.now() - hours * 60 * 60 * 1000;
+  let candidate = null;
+  let candidateTime = 0;
+  history.forEach((snap) => {
+    const ts = parseSnapshotTime(snap?.timestamp || snap?.generated_at);
+    if (!ts) return;
+    const t = ts.getTime();
+    if (t <= target && t >= candidateTime) {
+      candidateTime = t;
+      candidate = snap;
+    }
+  });
+  if (!candidate && history.length) {
+    candidate = history[history.length - 1];
+  }
+  return candidate;
+}
+
+function renderTopologyDiffSelectors(history) {
+  if (!topologyDiffSelectA || !topologyDiffSelectB) return;
+  const options = history.map((snap, index) => ({
+    id: getSnapshotId(snap, index),
+    label: formatSnapshotLabel(snap),
+  }));
+  const currentA = topologyDiffSelectA.value;
+  const currentB = topologyDiffSelectB.value;
+  topologyDiffSelectA.innerHTML = "";
+  topologyDiffSelectB.innerHTML = "";
+  options.forEach((opt) => {
+    const optionA = document.createElement("option");
+    optionA.value = opt.id;
+    optionA.textContent = opt.label;
+    topologyDiffSelectA.appendChild(optionA);
+    const optionB = document.createElement("option");
+    optionB.value = opt.id;
+    optionB.textContent = opt.label;
+    topologyDiffSelectB.appendChild(optionB);
+  });
+  if (options.length >= 2) {
+    topologyDiffSelectB.value = currentB || options[0].id;
+    topologyDiffSelectA.value = currentA || options[1].id;
+  } else if (options.length === 1) {
+    topologyDiffSelectA.value = options[0].id;
+    topologyDiffSelectB.value = options[0].id;
+  }
+}
+
+function renderTopologyTimeline(history) {
+  if (!topologyTimelineList) return;
+  topologyTimelineList.innerHTML = "";
+  if (!history.length) {
+    const empty = document.createElement("li");
+    empty.textContent = "No topology snapshots yet.";
+    topologyTimelineList.appendChild(empty);
+    return;
+  }
+  history.forEach((snap, index) => {
+    const prev = history[index + 1];
+    const leaseCount = normalizeList(snap?.dhcp_leases).length;
+    const dnsCount = normalizeList(snap?.dns_records).length;
+    const prevLeaseCount = prev ? normalizeList(prev?.dhcp_leases).length : null;
+    const prevDnsCount = prev ? normalizeList(prev?.dns_records).length : null;
+    const leaseDelta =
+      prevLeaseCount === null ? "" : ` (${leaseCount - prevLeaseCount >= 0 ? "+" : ""}${leaseCount - prevLeaseCount})`;
+    const dnsDelta =
+      prevDnsCount === null ? "" : ` (${dnsCount - prevDnsCount >= 0 ? "+" : ""}${dnsCount - prevDnsCount})`;
+    const li = document.createElement("li");
+    const title = document.createElement("div");
+    title.textContent = parseSnapshotTime(snap?.timestamp)?.toLocaleString() || snap?.timestamp || "Snapshot";
+    const meta = document.createElement("div");
+    meta.classList.add("activity-meta");
+    meta.textContent = `DHCP ${leaseCount}${leaseDelta} · DNS ${dnsCount}${dnsDelta}`;
+    li.appendChild(title);
+    li.appendChild(meta);
+    topologyTimelineList.appendChild(li);
+  });
+}
+
+function refreshTopologyChangeViews() {
+  const history = loadTopologyHistory();
+  renderTopologyDiffSelectors(history);
+  renderTopologyTimeline(history);
+}
+
 function loadIssues() {
   try {
     const raw = localStorage.getItem(ISSUE_STORAGE_KEY);
@@ -1374,6 +2233,10 @@ function storeTopologySnapshot(data) {
   if (!data) return;
   const snapshot = {
     timestamp: new Date().toISOString(),
+    dhcp_server: data?.dhcp_server,
+    dns_server: data?.dns_server,
+    print_server: data?.print_server,
+    smb_server: data?.smb_server,
     dhcp_leases: normalizeList(data?.dhcp_leases)
       .map((lease) => ({
         HostName: lease?.HostName || lease?.hostName,
@@ -1397,6 +2260,7 @@ function storeTopologySnapshot(data) {
   const limit = getTopologyHistoryLimit();
   const trimmed = trimHistoryToLimit(history, limit);
   saveTopologyHistory(trimmed);
+  refreshTopologyChangeViews();
   return snapshot;
 }
 
@@ -1405,8 +2269,12 @@ async function fetchTopologyHistory() {
   try {
     const res = await fetch(`/api/topology/history?limit=${limit}`);
     const data = await res.json();
+    if (data && data.normalized) {
+      lastNormalized[service] = data.normalized;
+    }
     if (data?.ok && Array.isArray(data.data)) {
       saveTopologyHistory(trimHistoryToLimit(data.data, limit));
+      refreshTopologyChangeViews();
       return data.data;
     }
   } catch (err) {
@@ -1695,6 +2563,231 @@ function buildDeviceIpMap(data) {
   return map;
 }
 
+function diffDhcpLeases(before, after) {
+  const normalizeLease = (lease) => ({
+    HostName: lease?.HostName || lease?.hostName || "",
+    IPAddress: lease?.IPAddress || lease?.IpAddress || lease?.ip || "",
+    ClientId: lease?.ClientId || "",
+    ScopeId: lease?.ScopeId || "",
+    LeaseExpiryTime: lease?.LeaseExpiryTime || "",
+  });
+  const beforeList = normalizeList(before).map(normalizeLease);
+  const afterList = normalizeList(after).map(normalizeLease);
+
+  const byKey = (lease) => `${lease.HostName}`.toLowerCase() + "|" + `${lease.IPAddress}`.toLowerCase();
+  const beforeMap = new Map(beforeList.map((lease) => [byKey(lease), lease]));
+  const afterMap = new Map(afterList.map((lease) => [byKey(lease), lease]));
+
+  const added = [];
+  const removed = [];
+  afterMap.forEach((lease, key) => {
+    if (!beforeMap.has(key)) added.push(lease);
+  });
+  beforeMap.forEach((lease, key) => {
+    if (!afterMap.has(key)) removed.push(lease);
+  });
+
+  const changed = [];
+  const beforeByHost = new Map();
+  beforeList.forEach((lease) => {
+    const hostKey = String(lease.HostName || "").toLowerCase();
+    if (hostKey) beforeByHost.set(hostKey, lease);
+  });
+  afterList.forEach((lease) => {
+    const hostKey = String(lease.HostName || "").toLowerCase();
+    if (!hostKey || !beforeByHost.has(hostKey)) return;
+    const prev = beforeByHost.get(hostKey);
+    if (prev.IPAddress !== lease.IPAddress) {
+      changed.push({
+        HostName: lease.HostName,
+        previous_ip: prev.IPAddress || null,
+        current_ip: lease.IPAddress || null,
+        previous_scope: prev.ScopeId || null,
+        current_scope: lease.ScopeId || null,
+      });
+    }
+  });
+
+  return { added, removed, changed };
+}
+
+function diffDnsRecords(before, after) {
+  const normalizeRecord = (record) => ({
+    Zone: record?.Zone || "",
+    HostName: record?.HostName || "",
+    RecordType: record?.RecordType || "",
+    RecordData: record?.RecordData || "",
+  });
+  const beforeList = normalizeList(before).map(normalizeRecord);
+  const afterList = normalizeList(after).map(normalizeRecord);
+  const keyFor = (record) =>
+    `${record.Zone}`.toLowerCase() +
+    "|" +
+    `${record.HostName}`.toLowerCase() +
+    "|" +
+    `${record.RecordType}`.toLowerCase() +
+    "|" +
+    `${record.RecordData}`.toLowerCase();
+  const beforeMap = new Map(beforeList.map((record) => [keyFor(record), record]));
+  const afterMap = new Map(afterList.map((record) => [keyFor(record), record]));
+
+  const added = [];
+  const removed = [];
+  afterMap.forEach((record, key) => {
+    if (!beforeMap.has(key)) added.push(record);
+  });
+  beforeMap.forEach((record, key) => {
+    if (!afterMap.has(key)) removed.push(record);
+  });
+
+  const changed = [];
+  const beforeByHost = new Map();
+  beforeList.forEach((record) => {
+    const hostKey = `${record.Zone}|${record.HostName}|${record.RecordType}`.toLowerCase();
+    if (record.HostName) beforeByHost.set(hostKey, record);
+  });
+  afterList.forEach((record) => {
+    const hostKey = `${record.Zone}|${record.HostName}|${record.RecordType}`.toLowerCase();
+    if (!beforeByHost.has(hostKey)) return;
+    const prev = beforeByHost.get(hostKey);
+    if (prev.RecordData !== record.RecordData) {
+      changed.push({
+        Zone: record.Zone,
+        HostName: record.HostName,
+        RecordType: record.RecordType,
+        previous_data: prev.RecordData || null,
+        current_data: record.RecordData || null,
+      });
+    }
+  });
+
+  return { added, removed, changed };
+}
+
+function buildTopologyDiffReport(snapshotA, snapshotB, windowHours = null) {
+  const timestampA = snapshotA?.timestamp || snapshotA?.generated_at || null;
+  const timestampB = snapshotB?.timestamp || snapshotB?.generated_at || null;
+  const dhcpDiff = diffDhcpLeases(snapshotA?.dhcp_leases, snapshotB?.dhcp_leases);
+  const dnsDiff = diffDnsRecords(snapshotA?.dns_records, snapshotB?.dns_records);
+  return {
+    generated_at: new Date().toISOString(),
+    window_hours: windowHours,
+    snapshot_a: {
+      timestamp: timestampA,
+      dhcp_count: normalizeList(snapshotA?.dhcp_leases).length,
+      dns_count: normalizeList(snapshotA?.dns_records).length,
+    },
+    snapshot_b: {
+      timestamp: timestampB,
+      dhcp_count: normalizeList(snapshotB?.dhcp_leases).length,
+      dns_count: normalizeList(snapshotB?.dns_records).length,
+    },
+    summary: {
+      dhcp_added: dhcpDiff.added.length,
+      dhcp_removed: dhcpDiff.removed.length,
+      dhcp_changed: dhcpDiff.changed.length,
+      dns_added: dnsDiff.added.length,
+      dns_removed: dnsDiff.removed.length,
+      dns_changed: dnsDiff.changed.length,
+    },
+    dhcp: dhcpDiff,
+    dns: dnsDiff,
+  };
+}
+
+function parseUncPath(path) {
+  if (!path) return { server: null, share: null };
+  const match = String(path).match(/^\\\\([^\\]+)\\([^\\]+)/);
+  if (!match) return { server: null, share: null };
+  return { server: match[1], share: match[2] };
+}
+
+function normalizePrinterReport(payload) {
+  if (!payload) return { matches: [], printers: [], mappings: [] };
+  if (Array.isArray(payload)) {
+    return { matches: [], printers: payload, mappings: [] };
+  }
+  const matches = normalizeList(payload.matches || payload.Matches);
+  const printers = normalizeList(payload.printers || payload.value || payload.Printers);
+  const mappings = normalizeList(payload.gpo_printer_mappings || payload.gpoMappings || payload.GpoMappings);
+  return { matches, printers, mappings };
+}
+
+function buildPrinterGpoIndex(payload) {
+  const report = normalizePrinterReport(payload);
+  const index = new Map();
+  const servers = new Set();
+  const links = [];
+  report.matches.forEach((raw) => {
+    if (!raw) return;
+    const printerName = raw.printer_name || raw.printerName || raw.PrinterName || "";
+    const shareName = raw.share_name || raw.shareName || raw.ShareName || "";
+    const uncPath = raw.unc_path || raw.uncPath || raw.UncPath || "";
+    const parsed = parseUncPath(uncPath);
+    const server = raw.server || parsed.server || "";
+    if (server) servers.add(server);
+    const entry = {
+      ...raw,
+      printer_name: printerName,
+      share_name: shareName || parsed.share || "",
+      unc_path: uncPath,
+      server,
+      gpo_name: raw.gpo_name || raw.gpoName || raw.GpoName || "",
+      gpo_id: raw.gpo_id || raw.gpoId || raw.GpoId || "",
+    };
+    links.push(entry);
+    [printerName, shareName, entry.share_name].forEach((key) => {
+      if (!key) return;
+      const normalized = String(key).toLowerCase();
+      const list = index.get(normalized) || [];
+      list.push(entry);
+      index.set(normalized, list);
+    });
+  });
+  return { index, links, servers: Array.from(servers.values()) };
+}
+
+function normalizeNetworkAdapters(payload) {
+  if (!payload) return [];
+  const list = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.value)
+      ? payload.value
+      : payload?.InterfaceAlias || payload?.Name || payload?.InterfaceDescription
+        ? [payload]
+        : [];
+  return list
+    .map((adapter) => {
+      const name = adapter?.Name || adapter?.InterfaceAlias || adapter?.InterfaceDescription;
+      if (!name) return null;
+      return {
+        name,
+        status: adapter?.Status || adapter?.MediaConnectionState || adapter?.StatusDescription,
+        mac: adapter?.MacAddress || adapter?.Mac,
+        index: adapter?.ifIndex || adapter?.InterfaceIndex,
+        raw: adapter,
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildUserDeviceIndexFromReport(payload) {
+  const index = new Map();
+  if (!payload || typeof payload !== "object") return index;
+  const user = payload.user;
+  const devices = normalizeList(payload.devices);
+  if (!user || !devices.length) return index;
+  const upn = String(user.userPrincipalName || user.mail || user.id || "").toLowerCase();
+  if (!upn) return index;
+  const deviceNames = devices
+    .map((device) => device?.displayName || device?.deviceId || device?.id)
+    .filter(Boolean);
+  if (deviceNames.length) {
+    index.set(upn, deviceNames);
+  }
+  return index;
+}
+
 function generateIssueReport() {
   if (!topologyData) {
     showToast("Collect topology first");
@@ -1710,9 +2803,17 @@ function generateIssueReport() {
   const historyIndex = buildTopologyHistoryIndex(loadTopologyHistory());
   const smbSessions = normalizeList(topologyData?.smb_sessions);
   const printJobs = normalizeList(topologyData?.print_jobs);
+  const printerReport = lastOutputs["printers"];
+  const printerIndex = buildPrinterGpoIndex(printerReport);
+  const adapters = normalizeNetworkAdapters(lastOutputs["network"]);
+  const adapterNames = adapters.map((adapter) => adapter.name);
+  const reportDeviceIndex = buildUserDeviceIndexFromReport(lastOutputs["reports"]);
 
   const reportItems = issues.map((issue) => {
-    const device = issue.device || "";
+    const user = issue.user || "";
+    const userKey = user.toLowerCase();
+    const deviceCandidates = !issue.device && reportDeviceIndex.has(userKey) ? reportDeviceIndex.get(userKey) : [];
+    const device = issue.device || deviceCandidates?.[0] || "";
     const deviceKey = device.toLowerCase();
     const resolvedIp = deviceIpMap.get(deviceKey);
     const historyMatches = findHistoryMatches(device, historyIndex, 3);
@@ -1728,11 +2829,111 @@ function generateIssueReport() {
     });
     const printerMatches = printJobs.filter((job) => {
       const submitter = String(job?.Submitter || "").toLowerCase();
-      return issue.user && submitter.includes(String(issue.user).toLowerCase());
+      return user && submitter.includes(userKey);
     });
 
+    const printerLinks = [];
+    const seenLinks = new Set();
+    printerMatches.forEach((job) => {
+      const printerName = job?.PrinterName || job?.printerName || "";
+      if (!printerName) return;
+      const key = String(printerName).toLowerCase();
+      const links = printerIndex.index.get(key) || [];
+      if (!links.length) {
+        const entryKey = `${key}|unknown|unknown`;
+        if (!seenLinks.has(entryKey)) {
+          printerLinks.push({
+            printer_name: printerName,
+            share_name: "",
+            gpo_name: "",
+            gpo_id: "",
+            unc_path: "",
+            server: "",
+          });
+          seenLinks.add(entryKey);
+        }
+        return;
+      }
+      links.forEach((link) => {
+        const entryKey = `${key}|${link.gpo_name}|${link.server || ""}`;
+        if (seenLinks.has(entryKey)) return;
+        printerLinks.push(link);
+        seenLinks.add(entryKey);
+      });
+    });
+
+    if (!printerLinks.length && issue.symptom && printerIndex.index.size) {
+      const symptomLower = String(issue.symptom).toLowerCase();
+      let added = 0;
+      printerIndex.index.forEach((links, key) => {
+        if (added >= 3) return;
+        if (!key || !symptomLower.includes(key)) return;
+        links.forEach((link) => {
+          if (added >= 3) return;
+          const entryKey = `${key}|${link.gpo_name}|${link.server || ""}`;
+          if (seenLinks.has(entryKey)) return;
+          printerLinks.push(link);
+          seenLinks.add(entryKey);
+          added += 1;
+        });
+      });
+    }
+
+    const servers = new Set();
+    if (topologyData?.smb_server) servers.add(topologyData.smb_server);
+    if (topologyData?.print_server) servers.add(topologyData.print_server);
+    printerLinks.forEach((link) => {
+      if (link?.server) servers.add(link.server);
+      const parsed = parseUncPath(link?.unc_path);
+      if (parsed.server) servers.add(parsed.server);
+    });
+    const serverList = Array.from(servers.values()).filter(Boolean);
+
+    const paths = [];
+    const base = [];
+    if (user) base.push(user);
+    if (device) base.push(device);
+    if (printerLinks.length) {
+      printerLinks.forEach((link) => {
+        const chain = base.slice();
+        const printerLabel = link.printer_name || link.share_name;
+        if (printerLabel) chain.push(printerLabel);
+        if (link.gpo_name) chain.push(link.gpo_name);
+        if (link.server) chain.push(link.server);
+        if (adapterNames.length) {
+          chain.push(adapterNames.length > 1 ? `Adapters (${adapterNames.length})` : adapterNames[0]);
+        }
+        if (chain.length) paths.push(chain.join(" → "));
+      });
+    } else if (serverList.length) {
+      serverList.forEach((server) => {
+        const chain = base.slice();
+        if (server) chain.push(server);
+        if (adapterNames.length) {
+          chain.push(adapterNames.length > 1 ? `Adapters (${adapterNames.length})` : adapterNames[0]);
+        }
+        if (chain.length) paths.push(chain.join(" → "));
+      });
+    } else if (base.length) {
+      paths.push(base.join(" → "));
+    }
+
+    const timeline = [];
+    if (issue.timestamp) {
+      timeline.push({ timestamp: issue.timestamp, label: "Issue reported", type: "issue" });
+    }
+    printerMatches.forEach((job) => {
+      if (!job?.TimeSubmitted) return;
+      timeline.push({
+        timestamp: job.TimeSubmitted,
+        label: `Print job on ${job.PrinterName || "printer"}`,
+        type: "print",
+      });
+    });
+    timeline.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
     return {
-      user: issue.user || "",
+      user,
       device,
       symptom: issue.symptom || "",
       device_ip: resolvedIp || historyIp || null,
@@ -1741,17 +2942,59 @@ function generateIssueReport() {
       ping,
       smb_sessions: smbMatches,
       printer_jobs: printerMatches,
+      printer_gpo_links: printerLinks,
+      servers: serverList,
+      network_adapters: adapterNames,
+      device_candidates: deviceCandidates || [],
+      correlation_paths: paths,
+      timeline,
     };
   });
 
   const reachable = reportItems.filter((item) => item.ping?.Reachable).length;
   const unreachable = reportItems.filter((item) => item.ping && item.ping.Reachable === false).length;
+  const summarySets = {
+    users: new Set(),
+    devices: new Set(),
+    printers: new Set(),
+    gpos: new Set(),
+    servers: new Set(),
+    adapters: new Set(),
+  };
+  reportItems.forEach((item) => {
+    if (item.user) summarySets.users.add(item.user);
+    if (item.device) summarySets.devices.add(item.device);
+    normalizeList(item.printer_gpo_links).forEach((link) => {
+      if (link?.printer_name) summarySets.printers.add(link.printer_name);
+      if (link?.gpo_name) summarySets.gpos.add(link.gpo_name);
+      if (link?.server) summarySets.servers.add(link.server);
+    });
+    normalizeList(item.servers).forEach((server) => summarySets.servers.add(server));
+    normalizeList(item.network_adapters).forEach((adapter) => summarySets.adapters.add(adapter));
+  });
   const report = {
     generated_at: new Date().toISOString(),
     issue_count: issues.length,
     reachable,
     unreachable,
     smb_server: topologyData?.smb_server || null,
+    print_server: topologyData?.print_server || null,
+    correlation: {
+      summary: {
+        users: summarySets.users.size,
+        devices: summarySets.devices.size,
+        printers: summarySets.printers.size,
+        gpos: summarySets.gpos.size,
+        servers: summarySets.servers.size,
+        adapters: summarySets.adapters.size,
+      },
+      sources: {
+        topology: Boolean(topologyData),
+        printers: Boolean(printerIndex.links?.length),
+        network: Boolean(adapterNames.length),
+        reports: Boolean(reportDeviceIndex.size),
+      },
+    },
     history: {
       snapshots: historyIndex.count,
       last_snapshot: historyIndex.lastSnapshot,
@@ -1770,7 +3013,7 @@ function getGraphPanel(service) {
 
 function buildTopologyGraphData(report) {
   if (!report || !Array.isArray(report.items)) {
-    return { nodes: [], edges: [] };
+    return { nodes: [], edges: [], reportId: null };
   }
   const nodes = new Map();
   const edges = [];
@@ -1794,6 +3037,12 @@ function buildTopologyGraphData(report) {
     addNode(deviceId, deviceLabel, "device", { ping: item.ping });
     addEdge(userId, deviceId, "reports", "issue");
 
+    const serverLabels = new Set();
+    normalizeList(item.servers).forEach((server) => {
+      if (server) serverLabels.add(server);
+    });
+    if (report?.print_server) serverLabels.add(report.print_server);
+
     if (item.device_ip) {
       const ipId = `ip:${item.device_ip}`;
       addNode(ipId, item.device_ip, "ip");
@@ -1807,11 +3056,50 @@ function buildTopologyGraphData(report) {
       addEdge(userId, printerId, "print job", "printer");
     });
 
+    normalizeList(item.printer_gpo_links).forEach((link) => {
+      const printerLabel = link?.printer_name || link?.share_name;
+      if (printerLabel) {
+        const printerId = `printer:${printerLabel.toLowerCase()}`;
+        addNode(printerId, printerLabel, "printer");
+        addEdge(userId, printerId, "print target", "printer");
+        if (link?.gpo_name) {
+          const gpoId = `gpo:${link.gpo_name.toLowerCase()}`;
+          addNode(gpoId, link.gpo_name, "gpo");
+          addEdge(printerId, gpoId, "GPO", "gpo");
+          if (link?.server) {
+            const serverId = `server:${link.server.toLowerCase()}`;
+            addNode(serverId, link.server, "server");
+            addEdge(gpoId, serverId, "server", "server");
+            serverLabels.add(link.server);
+          }
+        }
+      }
+    });
+
     if (normalizeList(item.smb_sessions).length) {
       const serverLabel = report?.smb_server || "SMB Server";
       const serverId = `server:${serverLabel.toLowerCase()}`;
       addNode(serverId, serverLabel, "server");
       addEdge(deviceId, serverId, "SMB", "smb");
+      serverLabels.add(serverLabel);
+    }
+
+    normalizeList(item.servers).forEach((server) => {
+      const serverId = `server:${String(server).toLowerCase()}`;
+      addNode(serverId, server, "server");
+    });
+
+    const adapterTargets = normalizeList(item.network_adapters);
+    if (adapterTargets.length) {
+      const serverTarget = Array.from(serverLabels)[0] || "Local host";
+      const serverId = `server:${String(serverTarget).toLowerCase()}`;
+      addNode(serverId, serverTarget, "server");
+      adapterTargets.forEach((adapter) => {
+        const adapterLabel = String(adapter || "Adapter");
+        const adapterId = `adapter:${adapterLabel.toLowerCase()}`;
+        addNode(adapterId, adapterLabel, "adapter");
+        addEdge(serverId, adapterId, "adapter", "adapter");
+      });
     }
 
     normalizeList(item.history_matches).forEach((match) => {
@@ -1830,7 +3118,11 @@ function buildTopologyGraphData(report) {
     });
   });
 
-  return { nodes: Array.from(nodes.values()), edges };
+  return {
+    nodes: Array.from(nodes.values()),
+    edges,
+    reportId: report?.generated_at || null,
+  };
 }
 
 function layoutGraph(nodes, edges, width, height) {
@@ -1897,6 +3189,202 @@ function layoutGraph(nodes, edges, width, height) {
   }
 }
 
+const GRAPH_LAYOUT_SCOPE = "service";
+const GRAPH_LAYOUT_SERVICE_KEY = "topology-report";
+
+function getGraphLayoutKey(reportId, scope = GRAPH_LAYOUT_SCOPE) {
+  if (scope === "report") {
+    if (!reportId) return null;
+    return `graphLayout:${reportId}`;
+  }
+  return `graphLayout:${GRAPH_LAYOUT_SERVICE_KEY}`;
+}
+
+function parseGraphLayout(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch (err) {
+    return null;
+  }
+}
+
+function loadGraphLayout(reportId) {
+  const serviceKey = getGraphLayoutKey(reportId, "service");
+  const reportKey = getGraphLayoutKey(reportId, "report");
+  const serviceLayout = parseGraphLayout(localStorage.getItem(serviceKey));
+  if (serviceLayout) return serviceLayout;
+  return parseGraphLayout(reportKey ? localStorage.getItem(reportKey) : null);
+}
+
+function saveGraphLayout(state) {
+  if (!state) return;
+  const payload = {
+    reportId: state.reportId || null,
+    nodes: state.graphData.nodes.reduce((acc, node) => {
+      acc[node.id] = { x: node.x, y: node.y };
+      return acc;
+    }, {}),
+    view: state.viewState,
+  };
+  const serviceKey = getGraphLayoutKey(state.reportId, "service");
+  if (serviceKey) {
+    localStorage.setItem(serviceKey, JSON.stringify(payload));
+  }
+  const reportKey = getGraphLayoutKey(state.reportId, "report");
+  if (reportKey) {
+    localStorage.setItem(reportKey, JSON.stringify(payload));
+  }
+}
+
+function autoFitGraph(state, width, height, padding = 40) {
+  if (!state?.graphData?.nodes?.length) return;
+  const nodes = state.graphData.nodes;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  nodes.forEach((node) => {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x);
+    maxY = Math.max(maxY, node.y);
+  });
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
+  const contentWidth = Math.max(1, maxX - minX);
+  const contentHeight = Math.max(1, maxY - minY);
+  const availableWidth = Math.max(1, width - padding * 2);
+  const availableHeight = Math.max(1, height - padding * 2);
+  const scale = Math.min(availableWidth / contentWidth, availableHeight / contentHeight);
+  const clampedScale = Math.min(2.5, Math.max(0.4, scale));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  state.viewState.scale = clampedScale;
+  state.viewState.translateX = width / 2 / clampedScale - centerX;
+  state.viewState.translateY = height / 2 / clampedScale - centerY;
+  state.graphLayer.setAttribute(
+    "transform",
+    `scale(${state.viewState.scale}) translate(${state.viewState.translateX},${state.viewState.translateY})`
+  );
+}
+
+function buildGraphSvgStyle() {
+  const rootStyle = getComputedStyle(document.documentElement);
+  const text = rootStyle.getPropertyValue("--text").trim() || "#ecf4f1";
+  const muted = rootStyle.getPropertyValue("--muted").trim() || "#9bb2b5";
+  return `
+    .graph-node text { font-size: 10px; fill: ${text}; opacity: 0.85; font-family: "Manrope", "Segoe UI", sans-serif; }
+    .graph-node circle { stroke: rgba(255, 255, 255, 0.4); stroke-width: 1; }
+    .graph-node.user circle { fill: rgba(71, 244, 197, 0.9); }
+    .graph-node.device circle { fill: rgba(88, 158, 255, 0.9); }
+    .graph-node.ip circle { fill: rgba(255, 209, 102, 0.9); }
+    .graph-node.printer circle { fill: rgba(255, 146, 97, 0.9); }
+    .graph-node.gpo circle { fill: rgba(255, 122, 180, 0.9); }
+    .graph-node.server circle { fill: rgba(180, 120, 255, 0.9); }
+    .graph-node.adapter circle { fill: rgba(102, 204, 255, 0.9); }
+    .graph-node.history circle { fill: rgba(255, 255, 255, 0.55); }
+    .graph-edge { stroke: rgba(255, 255, 255, 0.22); stroke-width: 1; }
+    .graph-edge.history { stroke-dasharray: 4 4; stroke: rgba(255, 255, 255, 0.35); }
+    .graph-node.highlight circle { stroke: ${text}; stroke-width: 2; }
+    .graph-node.dimmed { opacity: 0.35; }
+    .graph-node.hidden, .graph-edge.hidden { opacity: 0; }
+    .graph-edge.dimmed { opacity: 0.25; }
+    .graph-label-muted { fill: ${muted}; font-size: 9px; }
+  `;
+}
+
+function buildGraphSvgString(state, includeBackground) {
+  if (!state?.svg) return null;
+  const svg = state.svg;
+  const clone = svg.cloneNode(true);
+  const viewBox = svg.getAttribute("viewBox") || "0 0 800 500";
+  const viewParts = viewBox.split(/\s+/).map((value) => Number(value));
+  const width = Number.isFinite(viewParts[2]) ? viewParts[2] : 800;
+  const height = Number.isFinite(viewParts[3]) ? viewParts[3] : 500;
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", width);
+  clone.setAttribute("height", height);
+
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  style.textContent = buildGraphSvgStyle();
+
+  if (includeBackground) {
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "0");
+    rect.setAttribute("y", "0");
+    rect.setAttribute("width", width);
+    rect.setAttribute("height", height);
+    rect.setAttribute("fill", "#0b0f14");
+    clone.insertBefore(rect, clone.firstChild);
+  }
+  clone.insertBefore(style, clone.firstChild);
+
+  const serializer = new XMLSerializer();
+  const source = serializer.serializeToString(clone);
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${source}`;
+}
+
+function exportGraphSvg(state) {
+  const svgString = buildGraphSvgString(state, true);
+  if (!svgString) {
+    showToast("Graph export unavailable");
+    return;
+  }
+  const name = getGraphExportName(state, "svg");
+  downloadTextFile(svgString, name, "image/svg+xml");
+}
+
+async function exportGraphPng(state) {
+  const svgString = buildGraphSvgString(state, true);
+  if (!svgString) {
+    showToast("Graph export unavailable");
+    return;
+  }
+  const viewBox = state.svg.getAttribute("viewBox") || "0 0 800 500";
+  const viewParts = viewBox.split(/\s+/).map((value) => Number(value));
+  const width = Number.isFinite(viewParts[2]) ? viewParts[2] : 800;
+  const height = Number.isFinite(viewParts[3]) ? viewParts[3] : 500;
+  const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = url;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#0b0f14";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+  }
+  URL.revokeObjectURL(url);
+  const pngBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!pngBlob) {
+    showToast("PNG export failed");
+    return;
+  }
+  const pngUrl = URL.createObjectURL(pngBlob);
+  const link = document.createElement("a");
+  link.href = pngUrl;
+  link.download = getGraphExportName(state, "png");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(pngUrl);
+}
+
+function getGraphExportName(state, ext) {
+  const base = sanitizeFilename(state?.reportId || "topology-graph");
+  return `${base}.${ext}`;
+}
+
 function renderTopologyGraph(container, graphData) {
   if (!container) return;
   container.innerHTML = "";
@@ -1907,6 +3395,47 @@ function renderTopologyGraph(container, graphData) {
     container.appendChild(empty);
     return;
   }
+
+  const controls = document.createElement("div");
+  controls.classList.add("graph-controls");
+  controls.innerHTML = `
+    <div class="graph-controls-left">
+      <button class="ghost small" data-graph-action="reset-view">Reset view</button>
+      <button class="ghost small" data-graph-action="auto-fit">Auto-fit</button>
+      <button class="ghost small" data-graph-action="reset-layout">Reset layout</button>
+      <button class="ghost small" data-graph-action="save-layout">Save layout</button>
+    </div>
+    <div class="graph-controls-right">
+      <input class="graph-search" type="search" placeholder="Search nodes" />
+      <button class="ghost small" data-graph-action="toggle-legend">Legend</button>
+      <button class="ghost small" data-graph-action="export-svg">Export SVG</button>
+      <button class="ghost small" data-graph-action="export-png">Export PNG</button>
+    </div>
+  `;
+
+  const filterBar = document.createElement("div");
+  filterBar.classList.add("graph-filters");
+  const filterTypes = [
+    { type: "user", label: "Users" },
+    { type: "device", label: "Devices" },
+    { type: "ip", label: "IPs" },
+    { type: "printer", label: "Printers" },
+    { type: "gpo", label: "GPOs" },
+    { type: "server", label: "Servers" },
+    { type: "adapter", label: "Adapters" },
+    { type: "history", label: "History" },
+  ];
+  filterTypes.forEach((item) => {
+    const label = document.createElement("label");
+    label.classList.add("graph-filter");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = true;
+    input.dataset.filterType = item.type;
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(item.label));
+    filterBar.appendChild(label);
+  });
 
   const canvas = document.createElement("div");
   canvas.classList.add("graph-canvas");
@@ -1921,7 +3450,9 @@ function renderTopologyGraph(container, graphData) {
     { type: "device", label: "Device" },
     { type: "ip", label: "IP" },
     { type: "printer", label: "Printer" },
+    { type: "gpo", label: "GPO" },
     { type: "server", label: "Server" },
+    { type: "adapter", label: "Adapter" },
     { type: "history", label: "History" },
   ];
   legendItems.forEach((item) => {
@@ -1932,6 +3463,8 @@ function renderTopologyGraph(container, graphData) {
     legend.appendChild(row);
   });
 
+  container.appendChild(controls);
+  container.appendChild(filterBar);
   container.appendChild(canvas);
   container.appendChild(legend);
 
@@ -2117,6 +3650,132 @@ function renderTopologyGraph(container, graphData) {
     viewState.scale = newScale;
     applyTransform();
   });
+
+  const state = {
+    graphData,
+    nodeIndex,
+    nodeElements,
+    edgeElements,
+    viewState,
+    svg,
+    graphLayer,
+    filters: new Set(filterTypes.map((item) => item.type)),
+    searchQuery: "",
+    reportId: graphData.reportId || null,
+    legendVisible: true,
+  };
+  graphStates["topology-report"] = state;
+
+  const applyStoredLayout = (layout) => {
+    if (!layout) return;
+    const nodePositions = layout.nodes || {};
+    state.graphData.nodes.forEach((node) => {
+      const saved = nodePositions[node.id];
+      if (!saved) return;
+      if (Number.isFinite(saved.x)) node.x = saved.x;
+      if (Number.isFinite(saved.y)) node.y = saved.y;
+    });
+    state.graphData.nodes.forEach((node) => updateNodeElement(node));
+    updateEdges();
+    if (layout.view) {
+      const scale = Number(layout.view.scale);
+      const tx = Number(layout.view.translateX);
+      const ty = Number(layout.view.translateY);
+      if (Number.isFinite(scale)) state.viewState.scale = Math.min(3, Math.max(0.4, scale));
+      if (Number.isFinite(tx)) state.viewState.translateX = tx;
+      if (Number.isFinite(ty)) state.viewState.translateY = ty;
+      applyTransform();
+    }
+  };
+
+  const applyFilters = () => {
+    const query = state.searchQuery;
+    const allowed = state.filters;
+    const visibleMap = new Map();
+    state.graphData.nodes.forEach((node) => {
+      const matchesType = allowed.has(node.type);
+      const matchesQuery = !query || node.label.toLowerCase().includes(query);
+      visibleMap.set(node.id, matchesType);
+      const elements = state.nodeElements.get(node.id);
+      if (!elements) return;
+      elements.group.classList.toggle("hidden", !matchesType);
+      elements.group.classList.toggle("dimmed", matchesType && query && !matchesQuery);
+      elements.group.classList.toggle("highlight", matchesType && query && matchesQuery);
+    });
+    state.edgeElements.forEach(({ edge, line }) => {
+      const sourceVisible = visibleMap.get(edge.source);
+      const targetVisible = visibleMap.get(edge.target);
+      const show = sourceVisible && targetVisible;
+      line.classList.toggle("hidden", !show);
+    });
+  };
+
+  const savedLayout = loadGraphLayout(state.reportId);
+  if (savedLayout) {
+    applyStoredLayout(savedLayout);
+    if (!savedLayout.view) {
+      autoFitGraph(state, w, h);
+    }
+  } else {
+    autoFitGraph(state, w, h);
+  }
+
+  const searchInput = controls.querySelector(".graph-search");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      state.searchQuery = searchInput.value.trim().toLowerCase();
+      applyFilters();
+    });
+  }
+
+  filterBar.querySelectorAll("input[type=\"checkbox\"]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const type = input.dataset.filterType;
+      if (!type) return;
+      if (input.checked) {
+        state.filters.add(type);
+      } else {
+        state.filters.delete(type);
+      }
+      applyFilters();
+    });
+  });
+
+  controls.querySelectorAll("[data-graph-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const action = button.dataset.graphAction;
+      if (action === "reset-view") {
+        state.viewState.scale = 1;
+        state.viewState.translateX = 0;
+        state.viewState.translateY = 0;
+        applyTransform();
+      }
+      if (action === "auto-fit") {
+        autoFitGraph(state, w, h);
+      }
+      if (action === "reset-layout") {
+        layoutGraph(state.graphData.nodes, state.graphData.edges, w, h);
+        state.graphData.nodes.forEach((node) => updateNodeElement(node));
+        updateEdges();
+      }
+      if (action === "save-layout") {
+        saveGraphLayout(state);
+        showToast("Layout saved");
+      }
+      if (action === "toggle-legend") {
+        state.legendVisible = !state.legendVisible;
+        legend.classList.toggle("hidden", !state.legendVisible);
+      }
+      if (action === "export-svg") {
+        exportGraphSvg(state);
+      }
+      if (action === "export-png") {
+        await exportGraphPng(state);
+      }
+    });
+  });
+
+  applyFilters();
 }
 
 function renderGraph(service, parsed) {
@@ -2308,6 +3967,18 @@ function slugify(value) {
 
 function normalizePackStep(step) {
   if (!step || typeof step !== "object") return null;
+  if (step.type === "note") {
+    const label = String(step.label || "Note").trim();
+    if (!label) return null;
+    return {
+      type: "note",
+      label,
+      note: step.note || "",
+      optional: Boolean(step.optional),
+      defaultInclude: step.defaultInclude,
+      phase: step.phase || "",
+    };
+  }
   const service = step.service;
   const action = step.action;
   if (!ACTIONS_UI?.[service]?.[action]) return null;
@@ -2316,7 +3987,11 @@ function normalizePackStep(step) {
     action,
     label: step.label || "",
     optional: Boolean(step.optional),
+    defaultInclude: step.defaultInclude,
     params: step.params || undefined,
+    safe: Boolean(step.safe),
+    rollback: Boolean(step.rollback),
+    phase: step.phase || "",
   };
 }
 
@@ -2409,7 +4084,7 @@ function saveActionPackParams(data) {
 
 function getPackParams(packId) {
   const data = loadActionPackParams();
-  return data[packId] || { stepParams: {}, includeSteps: {} };
+  return data[packId] || { stepParams: {}, includeSteps: {}, dryRun: false };
 }
 
 function setPackParams(packId, payload) {
@@ -2512,6 +4187,103 @@ function addReportHistory(entry) {
   renderReportHistory();
 }
 
+function loadSnapshotPrefs() {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_PREFS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function getSnapshotPreference(service) {
+  const prefs = loadSnapshotPrefs();
+  if (prefs[service] === undefined) return true;
+  return Boolean(prefs[service]);
+}
+
+function setSnapshotPreference(service, enabled) {
+  const prefs = loadSnapshotPrefs();
+  prefs[service] = Boolean(enabled);
+  localStorage.setItem(SNAPSHOT_PREFS_KEY, JSON.stringify(prefs));
+}
+
+function getActionKind(service, action) {
+  if (!action) return "event";
+  if (service === "reports") return "read";
+  if (action.startsWith("list_") || action.startsWith("get_") || action.endsWith("_report")) return "read";
+  if (
+    action.startsWith("create_") ||
+    action.startsWith("update_") ||
+    action.startsWith("delete_") ||
+    action.startsWith("add_") ||
+    action.startsWith("remove_") ||
+    action.startsWith("set_") ||
+    action.startsWith("enable_") ||
+    action.startsWith("disable_") ||
+    action.startsWith("assign_") ||
+    action.startsWith("link_") ||
+    action.startsWith("unlink_") ||
+    action.startsWith("reset_") ||
+    action.startsWith("restore_")
+  ) {
+    return "write";
+  }
+  return "event";
+}
+
+function shouldDisableSnapshots(service, action) {
+  const kind = getActionKind(service, action);
+  if (kind !== "read") return false;
+  return !getSnapshotPreference(service);
+}
+
+async function fetchSnapshots({ type, target, prefix, limit } = {}) {
+  const params = new URLSearchParams();
+  if (type) params.set("type", type);
+  if (target) params.set("target", target);
+  if (prefix) params.set("prefix", prefix);
+  if (limit) params.set("limit", String(limit));
+  try {
+    const res = await fetch(`/api/snapshots?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || [];
+  } catch (err) {
+    return null;
+  }
+}
+
+function mapReportSnapshot(entry) {
+  const type = entry?.type || "";
+  const action = type.startsWith("reports.") ? type.replace("reports.", "") : entry?.meta?.action || "report";
+  const label = ACTIONS_UI?.reports?.[action]?.label || action;
+  const timestamp = entry?.collected_at ? Date.parse(entry.collected_at) : Date.now();
+  return {
+    id: entry?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    action,
+    label,
+    timestamp,
+    data: entry?.payload || null,
+    snapshot: entry || null,
+  };
+}
+
+function getReportHistoryItems() {
+  return reportHistoryItems.length ? reportHistoryItems : loadReportHistory();
+}
+
+async function refreshReportHistory() {
+  const snapshots = await fetchSnapshots({ prefix: "reports.", limit: 50 });
+  if (!snapshots) {
+    renderReportHistory();
+    return;
+  }
+  reportHistoryItems = snapshots.map(mapReportSnapshot);
+  renderReportHistory();
+}
+
 function getAllActionPacks() {
   return [...ACTION_PACKS, ...loadActionPacks()];
 }
@@ -2570,6 +4342,15 @@ let configLocked = false;
 let keychainAvailable = false;
 let tenantInfoLoading = false;
 let selectedPackId = null;
+const BULK_CONCURRENCY_DEFAULT = 3;
+const BULK_CONCURRENCY_KEY = "bulkConcurrency";
+const bulkRetryButtons = {};
+const bulkFailureCache = {};
+const lastStructuredLists = {};
+const auditState = { items: [], query: {} };
+let incidentFixPackId = null;
+let incidentFixPackParams = null;
+let lastIncidentContext = null;
 
 function renderPackSteps() {
   if (!packStepList) return;
@@ -2587,9 +4368,9 @@ function renderPackSteps() {
     const meta = document.createElement("div");
     meta.classList.add("pack-step-meta");
     const label = document.createElement("span");
-    label.textContent = step.label || activityLabel(step.service, step.action);
+    label.textContent = step.label || (step.type === "note" ? "Note" : activityLabel(step.service, step.action));
     const key = document.createElement("span");
-    key.textContent = `${step.service}.${step.action}`;
+    key.textContent = step.type === "note" ? "note" : `${step.service}.${step.action}`;
     const optional = document.createElement("span");
     optional.textContent = step.optional ? "Optional" : "Required";
     meta.appendChild(label);
@@ -3585,8 +5366,19 @@ function renderActionPacks() {
       const row = document.createElement("span");
       const badge = document.createElement("span");
       badge.classList.add("badge");
-      badge.classList.add(step.optional ? "ps" : "graph");
-      badge.textContent = step.optional ? "Optional" : "Step";
+      if (step.type === "note") {
+        badge.classList.add("note");
+        badge.textContent = "Note";
+      } else if (step.rollback) {
+        badge.classList.add("rollback");
+        badge.textContent = "Rollback";
+      } else if (step.optional) {
+        badge.classList.add("ps");
+        badge.textContent = "Optional";
+      } else {
+        badge.classList.add("graph");
+        badge.textContent = "Step";
+      }
       const label = document.createElement("span");
       label.textContent = `${index + 1}. ${step.label || activityLabel(step.service, step.action)}`;
       row.appendChild(badge);
@@ -3661,7 +5453,9 @@ function renderActionPackHistory() {
     title.textContent = entry.pack_name || entry.packId;
     const meta = document.createElement("div");
     meta.classList.add("history-meta");
-    meta.textContent = `${new Date(entry.timestamp).toLocaleString()} · ${entry.status}`;
+    meta.textContent = `${new Date(entry.timestamp).toLocaleString()} · ${entry.status}${
+      entry.dryRun ? " · dry-run" : ""
+    }`;
     const actions = document.createElement("div");
     actions.classList.add("history-actions");
     const rerun = document.createElement("button");
@@ -3678,11 +5472,13 @@ function renderActionPackHistory() {
       setPackParams(pack.id, {
         stepParams: entry.stepParams || {},
         includeSteps: entry.includeSteps || {},
+        dryRun: Boolean(entry.dryRun),
       });
       renderActionPackRunner(pack);
       runActionPack(pack, {
         stepParams: entry.stepParams || {},
         includeSteps: entry.includeSteps || {},
+        dryRun: Boolean(entry.dryRun),
       });
     });
     actions.appendChild(rerun);
@@ -3709,18 +5505,59 @@ function renderActionPackRunner(pack) {
     }
     if (actionPackRunButton) actionPackRunButton.disabled = true;
     if (actionPackRunCancelButton) actionPackRunCancelButton.disabled = true;
+    if (actionPackDryRunToggle) actionPackDryRunToggle.checked = false;
+    if (actionPackDryRunToggle) actionPackDryRunToggle.disabled = true;
     return;
   }
   if (actionPackRunnerTitle) {
     actionPackRunnerTitle.textContent = `${pack.name} · ${pack.tenant_id ? "Tenant" : "Global"}`;
   }
   const saved = getPackParams(pack.id);
+  if (actionPackDryRunToggle) {
+    actionPackDryRunToggle.checked = Boolean(saved.dryRun);
+    actionPackDryRunToggle.disabled = false;
+  }
   pack.steps.forEach((step) => {
+    if (step.type === "note") {
+      const noteWrap = document.createElement("div");
+      noteWrap.classList.add("pack-step", "pack-step-note");
+      const header = document.createElement("div");
+      header.classList.add("pack-step-header");
+      const title = document.createElement("div");
+      title.classList.add("pack-step-title");
+      title.textContent = step.label || "Note";
+      const metaWrap = document.createElement("div");
+      metaWrap.classList.add("pack-step-meta");
+      if (step.phase) {
+        const phase = document.createElement("span");
+        phase.classList.add("pack-step-phase");
+        phase.textContent = step.phase;
+        metaWrap.appendChild(phase);
+      }
+      const badge = document.createElement("span");
+      badge.classList.add("badge", "note");
+      badge.textContent = "Note";
+      metaWrap.appendChild(badge);
+      header.appendChild(title);
+      header.appendChild(metaWrap);
+      noteWrap.appendChild(header);
+      if (step.note) {
+        const body = document.createElement("div");
+        body.classList.add("note");
+        body.textContent = step.note;
+        noteWrap.appendChild(body);
+      }
+      actionPackRunnerSteps.appendChild(noteWrap);
+      return;
+    }
     const meta = ACTIONS_UI?.[step.service]?.[step.action];
     const stepKey = `${step.service}.${step.action}`;
     const defaults = getActionPackStepDefaults(pack, step) || {};
     const baseParams = { ...defaults, ...(step.params || {}), ...(saved.stepParams?.[stepKey] || {}) };
-    const includeDefault = saved.includeSteps?.[stepKey];
+    const includeDefault =
+      saved.includeSteps?.[stepKey] !== undefined
+        ? saved.includeSteps?.[stepKey]
+        : step.defaultInclude !== false;
     const stepWrap = document.createElement("div");
     stepWrap.classList.add("pack-step");
     stepWrap.dataset.stepKey = stepKey;
@@ -3737,13 +5574,31 @@ function renderActionPackRunner(pack) {
     const modeLabel = document.createElement("span");
     modeLabel.textContent = meta?.mode === "powershell" ? "PowerShell" : "Graph";
     metaWrap.appendChild(modeLabel);
+    if (step.phase) {
+      const phase = document.createElement("span");
+      phase.classList.add("pack-step-phase");
+      phase.textContent = step.phase;
+      metaWrap.appendChild(phase);
+    }
+    if (step.safe) {
+      const safeBadge = document.createElement("span");
+      safeBadge.classList.add("badge", "graph");
+      safeBadge.textContent = "Read-only";
+      metaWrap.appendChild(safeBadge);
+    }
+    if (step.rollback) {
+      const rollbackBadge = document.createElement("span");
+      rollbackBadge.classList.add("badge", "rollback");
+      rollbackBadge.textContent = "Rollback";
+      metaWrap.appendChild(rollbackBadge);
+    }
     if (step.optional) {
       const includeLabel = document.createElement("label");
       includeLabel.classList.add("field", "checkbox");
       const includeInput = document.createElement("input");
       includeInput.type = "checkbox";
       includeInput.classList.add("pack-step-include");
-      includeInput.checked = includeDefault !== undefined ? includeDefault : true;
+      includeInput.checked = includeDefault !== false;
       includeLabel.appendChild(includeInput);
       includeLabel.appendChild(document.createTextNode("Include"));
       metaWrap.appendChild(includeLabel);
@@ -3807,9 +5662,11 @@ function selectActionPack(pack, options = {}) {
 function collectActionPackRunnerParams(pack) {
   const stepParams = {};
   const includeSteps = {};
-  if (!actionPackRunnerSteps) return { stepParams, includeSteps };
+  const dryRun = actionPackDryRunToggle ? actionPackDryRunToggle.checked : false;
+  if (!actionPackRunnerSteps) return { stepParams, includeSteps, dryRun };
   actionPackRunnerSteps.querySelectorAll(".pack-step").forEach((stepEl) => {
     const stepKey = stepEl.dataset.stepKey;
+    if (!stepKey) return;
     const params = {};
     stepEl.querySelectorAll(".field").forEach((fieldEl) => {
       const key = fieldEl.dataset.field;
@@ -3835,7 +5692,7 @@ function collectActionPackRunnerParams(pack) {
       includeSteps[stepKey] = includeInput.checked;
     }
   });
-  return { stepParams, includeSteps };
+  return { stepParams, includeSteps, dryRun };
 }
 
 function runSelectedActionPack() {
@@ -3876,7 +5733,7 @@ function renderReportPresets() {
 
 function renderReportHistory() {
   if (!reportHistoryList) return;
-  const items = loadReportHistory();
+  const items = getReportHistoryItems();
   reportHistoryList.innerHTML = "";
   if (!items.length) {
     const empty = document.createElement("li");
@@ -3893,7 +5750,9 @@ function renderReportHistory() {
     title.textContent = entry.label || entry.action;
     const meta = document.createElement("div");
     meta.classList.add("history-meta");
-    meta.textContent = `${new Date(entry.timestamp).toLocaleString()}`;
+    const target = entry?.snapshot?.target || entry?.snapshot?.meta?.target;
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "Unknown time";
+    meta.textContent = target ? `${timestamp} · ${target}` : `${timestamp}`;
     const actions = document.createElement("div");
     actions.classList.add("history-actions");
     const useA = document.createElement("button");
@@ -3956,7 +5815,421 @@ function formatDiffSummary(summary) {
 
 function getDiffKey(item) {
   if (!item || typeof item !== "object") return null;
-  return item.id || item.userPrincipalName || item.mail || item.name || item.displayName || null;
+  return (
+    item.id ||
+    item.userPrincipalName ||
+    item.mail ||
+    item.name ||
+    item.displayName ||
+    item.ipAddress ||
+    item.IPAddress ||
+    item.address ||
+    item.Address ||
+    item.hostName ||
+    item.HostName ||
+    item.deviceId ||
+    item.deviceName ||
+    null
+  );
+}
+
+function parseIncidentDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function getIncidentTimeframe() {
+  const now = new Date();
+  const lookback = Number.parseInt(incidentLookbackInput?.value || "24", 10);
+  const startInput = parseIncidentDate(incidentStartInput?.value);
+  const endInput = parseIncidentDate(incidentEndInput?.value);
+  const end = endInput || now;
+  const start = startInput || new Date(end.getTime() - Math.max(1, lookback || 24) * 60 * 60 * 1000);
+  return {
+    start,
+    end,
+    lookback_hours: lookback || 24,
+    label: `${start.toLocaleString()} → ${end.toLocaleString()}`,
+  };
+}
+
+async function runReportTask(action, params) {
+  const payload = { ...(params || {}) };
+  if (shouldDisableSnapshots("reports", action)) {
+    payload._snapshot = false;
+  }
+  const res = await fetch("/api/task", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ service: "reports", action, params: payload }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    refreshReportHistory();
+  }
+  return data;
+}
+
+function extractUserKey(report) {
+  const user = report?.user || {};
+  return user.id || user.userPrincipalName || user.mail || user.displayName || null;
+}
+
+function findPreviousUserAudit(history, userKey, beforeTs) {
+  if (!userKey) return null;
+  const before = Number.isFinite(beforeTs) ? beforeTs : Date.now();
+  return history.find((entry) => {
+    if (entry.action !== "user_audit") return false;
+    if (!entry.data) return false;
+    const key = extractUserKey(entry.data);
+    return key === userKey && entry.timestamp < before;
+  });
+}
+
+function diffByKey(current, previous, keyFn, labelFn) {
+  const currentMap = new Map();
+  const prevMap = new Map();
+  normalizeList(current).forEach((item) => {
+    const key = keyFn(item);
+    if (!key) return;
+    currentMap.set(key, { key, label: labelFn(item) || key, raw: item });
+  });
+  normalizeList(previous).forEach((item) => {
+    const key = keyFn(item);
+    if (!key) return;
+    prevMap.set(key, { key, label: labelFn(item) || key, raw: item });
+  });
+  const added = [];
+  const removed = [];
+  currentMap.forEach((item, key) => {
+    if (!prevMap.has(key)) added.push(item);
+  });
+  prevMap.forEach((item, key) => {
+    if (!currentMap.has(key)) removed.push(item);
+  });
+  return { added, removed };
+}
+
+function summarizeSignIns(signIns, start, end) {
+  const filtered = normalizeList(signIns).filter((entry) => {
+    const ts = parseIncidentDate(entry?.createdDateTime);
+    if (!ts) return false;
+    return ts >= start && ts <= end;
+  });
+  const failures = [];
+  const errorCodes = {};
+  const caStatus = {};
+  filtered.forEach((entry) => {
+    const status = entry?.status || {};
+    const errorCode = status.errorCode;
+    const ca = entry?.conditionalAccessStatus || "unknown";
+    caStatus[ca] = (caStatus[ca] || 0) + 1;
+    if (errorCode && errorCode !== 0) {
+      errorCodes[String(errorCode)] = (errorCodes[String(errorCode)] || 0) + 1;
+      failures.push(entry);
+    }
+  });
+  const latestFailure = failures[0] || null;
+  return {
+    count: filtered.length,
+    failures: failures.length,
+    conditional_access: caStatus,
+    error_codes: errorCodes,
+    latest_failure: latestFailure,
+  };
+}
+
+function summarizeTopologyDiff(start, end) {
+  const history = loadTopologyHistory();
+  if (!history.length) return null;
+  const within = history
+    .map((snap) => ({ snap, ts: parseSnapshotTime(snap?.timestamp || snap?.generated_at) }))
+    .filter((entry) => entry.ts && entry.ts >= start && entry.ts <= end)
+    .sort((a, b) => a.ts - b.ts);
+  if (within.length < 2) return null;
+  const earliest = within[0].snap;
+  const latest = within[within.length - 1].snap;
+  const report = buildTopologyDiffReport(earliest, latest, null);
+  return report;
+}
+
+function chooseIncidentFixPack(signals) {
+  const errorCodes = signals?.signins?.error_codes || {};
+  const caStatus = signals?.signins?.conditional_access || {};
+  const hasCaFailure = (caStatus.failure || 0) > 0 || Object.keys(errorCodes).some((code) => code.startsWith("53"));
+  const licenseRemoved = (signals?.licenses?.removed || []).length > 0;
+  if (hasCaFailure) return "conditional-access-triage";
+  if (licenseRemoved) return "license-reconciliation";
+  if ((signals?.groups?.removed || []).length > 0) return "onboard-user";
+  return "flagship-user-lifecycle";
+}
+
+function buildIncidentAnalysis(signals, context) {
+  const errorCodes = signals?.signins?.error_codes || {};
+  const caStatus = signals?.signins?.conditional_access || {};
+  const latestFailure = signals?.signins?.latest_failure;
+  const likelyCa = (caStatus.failure || 0) > 0 || Object.keys(errorCodes).some((code) => code.startsWith("53"));
+  const disabled = Object.keys(errorCodes).includes("50057");
+  const badPassword = Object.keys(errorCodes).includes("50126");
+  const licenseRemoved = (signals?.licenses?.removed || []).length > 0;
+  const groupRemoved = (signals?.groups?.removed || []).length > 0;
+  const mostLikely = disabled
+    ? "User account disabled"
+    : likelyCa
+      ? "Conditional Access policy blocked sign-ins"
+      : badPassword
+        ? "Invalid credentials"
+        : licenseRemoved
+          ? "License removed or expired"
+          : groupRemoved
+            ? "Group membership change"
+            : signals?.graph?.summary?.state === "warn"
+              ? "Microsoft Graph service degradation"
+              : "No obvious blocker detected";
+
+  const changed = [];
+  if (licenseRemoved) {
+    changed.push(`Licenses removed: ${signals.licenses.removed.map((l) => l.label).join(", ")}`);
+  }
+  if ((signals?.licenses?.added || []).length) {
+    changed.push(`Licenses added: ${signals.licenses.added.map((l) => l.label).join(", ")}`);
+  }
+  if (groupRemoved) {
+    changed.push(`Groups removed: ${signals.groups.removed.map((g) => g.label).join(", ")}`);
+  }
+  if ((signals?.groups?.added || []).length) {
+    changed.push(`Groups added: ${signals.groups.added.map((g) => g.label).join(", ")}`);
+  }
+  if (signals?.topology?.summary) {
+    const topo = signals.topology.summary;
+    changed.push(`Topology changes: DHCP +${topo.dhcp_added} / DNS +${topo.dns_added}`);
+  }
+  if (latestFailure?.createdDateTime) {
+    changed.push(`Latest failure: ${latestFailure.createdDateTime}`);
+  }
+
+  const nextChecks = [];
+  if (likelyCa) {
+    nextChecks.push("Review Conditional Access policy results for the user and device.");
+    nextChecks.push("Confirm device compliance state and MFA requirements.");
+  }
+  if (licenseRemoved) {
+    nextChecks.push("Reassign required license SKU and re-test sign-in.");
+  }
+  if (groupRemoved) {
+    nextChecks.push("Validate group membership required for app access.");
+  }
+  if (badPassword) {
+    nextChecks.push("Reset password or verify credential cache on device.");
+  }
+  if (!nextChecks.length) {
+    nextChecks.push("Review sign-in errors and confirm directory properties.");
+    nextChecks.push("Check service health dashboard for tenant incidents.");
+  }
+
+  const recommendedPackId = chooseIncidentFixPack(signals);
+  const pack = getActionPackById(recommendedPackId);
+  return {
+    most_likely_cause: mostLikely,
+    what_changed_right_before_failure: changed,
+    suggested_next_checks: nextChecks,
+    recommended_fix_pack: pack ? { id: pack.id, name: pack.name } : null,
+  };
+}
+
+function buildIncidentReport(context, reportData, signals, analysis) {
+  return {
+    generated_at: new Date().toISOString(),
+    inputs: context,
+    report: reportData || null,
+    signals,
+    analysis,
+  };
+}
+
+function setIncidentFixPack(packId, params) {
+  incidentFixPackId = packId || null;
+  incidentFixPackParams = params || null;
+  if (incidentRunFixButton) {
+    if (incidentFixPackId) {
+      const pack = getActionPackById(incidentFixPackId);
+      incidentRunFixButton.disabled = !pack;
+      incidentRunFixButton.textContent = pack ? `Run fix pack: ${pack.name}` : "Run fix pack";
+    } else {
+      incidentRunFixButton.disabled = true;
+      incidentRunFixButton.textContent = "Run fix pack";
+    }
+  }
+}
+
+function buildIncidentPackParams(pack, context) {
+  if (!pack) return null;
+  const saved = getPackParams(pack.id);
+  const stepParams = { ...(saved.stepParams || {}) };
+  pack.steps.forEach((step) => {
+    if (!step.service || !step.action) return;
+    const key = `${step.service}.${step.action}`;
+    const meta = ACTIONS_UI?.[step.service]?.[step.action];
+    if (!meta) return;
+    stepParams[key] = stepParams[key] || {};
+    meta.fields?.forEach((field) => {
+      if (stepParams[key]?.[field.key] !== undefined) return;
+      const fieldKey = field.key.toLowerCase();
+      if (context.user && (fieldKey.includes("user") || fieldKey.includes("upn"))) {
+        stepParams[key][field.key] = context.user;
+      }
+      if (context.device && fieldKey.includes("device")) {
+        stepParams[key][field.key] = context.device;
+      }
+    });
+  });
+  return {
+    stepParams,
+    includeSteps: saved.includeSteps || {},
+    dryRun: saved.dryRun || false,
+  };
+}
+
+async function runIncidentWorkspace() {
+  const user = incidentUserInput?.value.trim() || "";
+  const device = incidentDeviceInput?.value.trim() || "";
+  const symptom = incidentSymptomInput?.value.trim() || "";
+  if (!user && !device) {
+    showToast("Enter a user or device");
+    return;
+  }
+  const timeframe = getIncidentTimeframe();
+  const context = {
+    user,
+    device,
+    symptom,
+    timeframe: {
+      start: timeframe.start.toISOString(),
+      end: timeframe.end.toISOString(),
+      lookback_hours: timeframe.lookback_hours,
+      label: timeframe.label,
+    },
+  };
+  lastIncidentContext = context;
+  setOutput("incident", "Running incident workspace...");
+  setOutputStatus("incident", {
+    state: "running",
+    text: "Incident workspace running",
+    meta: "Collecting signals",
+    running: true,
+  });
+  try {
+    let reportData = null;
+    if (user) {
+      const reportResponse = await runReportTask("user_audit", {
+        user_id: user,
+        include_groups: true,
+        include_licenses: true,
+        include_signins: true,
+        include_devices: true,
+      });
+      if (!reportResponse.ok) {
+        throw new Error(reportResponse.error || "User audit failed");
+      }
+      reportData = reportResponse.data;
+      addReportHistory({
+        id: `report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        action: "user_audit",
+        label: "User audit (incident)",
+        timestamp: Date.now(),
+        params: { user_id: user },
+        data: reportData,
+      });
+      await refreshReportHistory();
+    }
+
+    const history = getReportHistoryItems();
+    const userKey = extractUserKey(reportData);
+    const previous = findPreviousUserAudit(history, userKey, Date.now());
+    const groupDiff = diffByKey(
+      reportData?.memberOf,
+      previous?.data?.memberOf,
+      (item) => item?.id || item?.displayName,
+      (item) => item?.displayName || item?.id
+    );
+    const licenseDiff = diffByKey(
+      reportData?.licenses,
+      previous?.data?.licenses,
+      (item) => item?.skuId || item?.skuPartNumber,
+      (item) => item?.skuPartNumber || item?.skuId
+    );
+
+    const signInSummary = summarizeSignIns(reportData?.signIns, timeframe.start, timeframe.end);
+    const deviceSummary = {
+      count: normalizeList(reportData?.devices).length,
+      devices: normalizeList(reportData?.devices).slice(0, 5),
+    };
+
+    const graphCheck = await runSystemTask("graph_check", {});
+    const graphChecks = graphCheck?.data?.checks || {};
+    const graphSummary = summarizeGraphCheck({ ok: graphCheck?.data?.ok, checks: graphChecks });
+    const graphExplain = explainGraphHealth({ graph: { checks: graphChecks } });
+
+    const topologyDiff = summarizeTopologyDiff(timeframe.start, timeframe.end);
+    const topologySummary = topologyDiff
+      ? {
+          dhcp_added: topologyDiff?.dhcp?.added?.length || 0,
+          dhcp_removed: topologyDiff?.dhcp?.removed?.length || 0,
+          dns_added: topologyDiff?.dns?.added?.length || 0,
+          dns_removed: topologyDiff?.dns?.removed?.length || 0,
+        }
+      : null;
+
+    const issues = loadIssues();
+    const matchingIssues = issues.filter(
+      (issue) =>
+        (user && issue.user && issue.user.toLowerCase() === user.toLowerCase()) ||
+        (device && issue.device && issue.device.toLowerCase() === device.toLowerCase())
+    );
+
+    const signals = {
+      signins: signInSummary,
+      groups: groupDiff,
+      licenses: licenseDiff,
+      devices: deviceSummary,
+      graph: {
+        summary: graphSummary,
+        checks: graphChecks,
+        explanation: graphExplain,
+      },
+      topology: topologyDiff
+        ? {
+            summary: topologySummary,
+            diff: topologyDiff,
+          }
+        : null,
+      endpoint_narrative: matchingIssues.length ? matchingIssues : null,
+    };
+
+    const analysis = buildIncidentAnalysis(signals, context);
+    const report = buildIncidentReport(context, reportData, signals, analysis);
+    setOutput("incident", report);
+    setOutputStatus("incident", {
+      state: "ok",
+      text: "Incident workspace ready",
+      meta: "Signals collected",
+      running: false,
+    });
+    setIncidentFixPack(analysis?.recommended_fix_pack?.id, context);
+    return report;
+  } catch (err) {
+    setOutput("incident", `Error: ${err.message}`);
+    setOutputStatus("incident", {
+      state: "fail",
+      text: "Incident workspace failed",
+      meta: err.message || "Error",
+      running: false,
+    });
+    setIncidentFixPack(null, null);
+  }
+  return null;
 }
 
 function diffArrays(a, b) {
@@ -3992,60 +6265,110 @@ function diffArrays(a, b) {
 }
 
 function diffObjects(a, b) {
-  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+  const objA = a || {};
+  const objB = b || {};
+  const keys = new Set([...Object.keys(objA), ...Object.keys(objB)]);
   const added = [];
   const removed = [];
   const changed = [];
   keys.forEach((key) => {
-    if (!(key in (a || {}))) {
-      added.push(key);
-    } else if (!(key in (b || {}))) {
-      removed.push(key);
-    } else if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) {
-      changed.push(key);
+    if (!(key in objA)) {
+      added.push({ path: key, value: objB[key] });
+    } else if (!(key in objB)) {
+      removed.push({ path: key, value: objA[key] });
+    } else if (JSON.stringify(objA[key]) !== JSON.stringify(objB[key])) {
+      changed.push({ path: key, before: objA[key], after: objB[key] });
     }
   });
   return { added, removed, changed };
 }
 
-function buildReportDiff(a, b) {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    const diff = diffArrays(a, b);
-    return {
-      type: "array",
-      summary: {
-        added: diff.added.length,
-        removed: diff.removed.length,
-        changed: diff.changed.length,
-      },
-      details: {
-        added: diff.added.slice(0, 5),
-        removed: diff.removed.slice(0, 5),
-        changed: diff.changed.slice(0, 5),
-      },
-    };
+function diffJson(a, b, path = "", depth = 0, maxDepth = 4) {
+  const diff = { added: [], removed: [], changed: [] };
+  if (depth > maxDepth) {
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      diff.changed.push({ path, before: a, after: b });
+    }
+    return diff;
+  }
+  const aIsArray = Array.isArray(a);
+  const bIsArray = Array.isArray(b);
+  if (aIsArray || bIsArray) {
+    const arrA = Array.isArray(a) ? a : [];
+    const arrB = Array.isArray(b) ? b : [];
+    const mapA = new Map();
+    const mapB = new Map();
+    let hasStableKey = false;
+    arrA.forEach((item, idx) => {
+      const key = getDiffKey(item);
+      if (key) hasStableKey = true;
+      mapA.set(key || `idx-${idx}`, item);
+    });
+    arrB.forEach((item, idx) => {
+      const key = getDiffKey(item);
+      if (key) hasStableKey = true;
+      mapB.set(key || `idx-${idx}`, item);
+    });
+    mapB.forEach((value, key) => {
+      if (!mapA.has(key)) {
+        diff.added.push({ path, key, value });
+      } else {
+        const before = mapA.get(key);
+        if (JSON.stringify(before) !== JSON.stringify(value)) {
+          diff.changed.push({ path, key, before, after: value });
+        }
+      }
+    });
+    mapA.forEach((value, key) => {
+      if (!mapB.has(key)) {
+        diff.removed.push({ path, key, value });
+      }
+    });
+    if (!hasStableKey && arrA.length !== arrB.length) {
+      diff.changed.push({ path, before: arrA.length, after: arrB.length });
+    }
+    return diff;
   }
   if (a && b && typeof a === "object" && typeof b === "object") {
-    const diff = diffObjects(a, b);
-    return {
-      type: "object",
-      summary: {
-        added: diff.added.length,
-        removed: diff.removed.length,
-        changed: diff.changed.length,
-      },
-      details: {
-        added: diff.added.slice(0, 10),
-        removed: diff.removed.slice(0, 10),
-        changed: diff.changed.slice(0, 10),
-      },
-    };
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    keys.forEach((key) => {
+      const nextPath = path ? `${path}.${key}` : key;
+      if (!(key in a)) {
+        diff.added.push({ path: nextPath, value: b[key] });
+      } else if (!(key in b)) {
+        diff.removed.push({ path: nextPath, value: a[key] });
+      } else if (typeof a[key] === "object" && typeof b[key] === "object") {
+        const inner = diffJson(a[key], b[key], nextPath, depth + 1, maxDepth);
+        diff.added.push(...inner.added);
+        diff.removed.push(...inner.removed);
+        diff.changed.push(...inner.changed);
+      } else if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) {
+        diff.changed.push({ path: nextPath, before: a[key], after: b[key] });
+      }
+    });
+    return diff;
   }
-  const changed = JSON.stringify(a) !== JSON.stringify(b);
+  if (JSON.stringify(a) !== JSON.stringify(b)) {
+    diff.changed.push({ path, before: a, after: b });
+  }
+  return diff;
+}
+
+function buildReportDiff(a, b) {
+  const diff = diffJson(a, b);
+  const summary = {
+    added: diff.added.length,
+    removed: diff.removed.length,
+    changed: diff.changed.length,
+  };
   return {
-    type: "scalar",
-    summary: { changed },
-    details: { before: a, after: b },
+    type: "json",
+    summary,
+    details: {
+      added: diff.added.slice(0, 10),
+      removed: diff.removed.slice(0, 10),
+      changed: diff.changed.slice(0, 10),
+    },
   };
 }
 
@@ -4058,7 +6381,7 @@ function runReportDiff() {
     if (reportDiffOutput) reportDiffOutput.textContent = "";
     return;
   }
-  const items = loadReportHistory();
+  const items = getReportHistoryItems();
   const entryA = items.find((entry) => entry.id === idA);
   const entryB = items.find((entry) => entry.id === idB);
   if (!entryA || !entryB) return;
@@ -4282,6 +6605,7 @@ function setConfigLocked(locked) {
     profileDeleteButton,
     profileExportButton,
     profileImportButton,
+    configImportButton,
   ];
   fields.forEach((field) => {
     if (!field) return;
@@ -4475,6 +6799,68 @@ function applyConfigToForm(config) {
   }
 }
 
+async function exportEncryptedConfig() {
+  const passphrase = configPassphraseInput?.value.trim() || "";
+  if (!passphrase && !keychainAvailable) {
+    showToast("Passphrase required (keychain unavailable)");
+    return;
+  }
+  try {
+    const res = await fetch("/api/config/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        passphrase: passphrase || null,
+        use_keychain: !passphrase,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Export failed");
+      return;
+    }
+    const filename = `graph-admin-config-${sanitizeFilename(currentTenantId || "export")}.json`;
+    downloadJson(data.data, filename);
+    showToast("Encrypted config exported");
+  } catch (err) {
+    showToast("Export failed");
+  }
+}
+
+function importEncryptedConfigFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const parsed = JSON.parse(reader.result);
+      const passphrase = configPassphraseInput?.value.trim() || "";
+      if (!passphrase && !keychainAvailable) {
+        showToast("Passphrase required (keychain unavailable)");
+        return;
+      }
+      const res = await fetch("/api/config/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload: parsed,
+          passphrase: passphrase || null,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || "Import failed");
+        return;
+      }
+      await fetchConfig();
+      await fetchStatus();
+      showToast("Config imported");
+    } catch (err) {
+      showToast("Import failed");
+    }
+  };
+  reader.readAsText(file);
+}
+
 function normalizeProfileConfig(config) {
   const normalized = {};
   Object.values(PROFILE_ENV_MAP).forEach((key) => {
@@ -4516,6 +6902,120 @@ function renderProfileSelect() {
     option.textContent = profile.name;
     profileSelect.appendChild(option);
   });
+}
+
+function renderAuditServiceOptions() {
+  if (!auditServiceSelect) return;
+  const services = Object.keys(ACTIONS_UI || {}).sort();
+  auditServiceSelect.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Any";
+  auditServiceSelect.appendChild(placeholder);
+  services.forEach((service) => {
+    const option = document.createElement("option");
+    option.value = service;
+    option.textContent = formatServiceLabel(service);
+    auditServiceSelect.appendChild(option);
+  });
+}
+
+function buildAuditQuery() {
+  return {
+    service: auditServiceSelect?.value || "",
+    action: auditActionInput?.value.trim() || "",
+    ok: auditStatusSelect?.value || "",
+    user: auditUserInput?.value.trim() || "",
+    query: auditQueryInput?.value.trim() || "",
+    since: auditSinceInput?.value || "",
+    until: auditUntilInput?.value || "",
+    limit: auditLimitSelect?.value || "200",
+  };
+}
+
+function renderAuditTable(items) {
+  if (!auditTableBody) return;
+  auditTableBody.innerHTML = "";
+  if (!items || !items.length) {
+    if (auditEmptyNote) auditEmptyNote.style.display = "block";
+    return;
+  }
+  if (auditEmptyNote) auditEmptyNote.style.display = "none";
+  items.forEach((entry) => {
+    const row = document.createElement("tr");
+    const timestamp = document.createElement("td");
+    timestamp.textContent = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "";
+    const user = document.createElement("td");
+    user.textContent = entry.user || "";
+    const service = document.createElement("td");
+    service.textContent = entry.service || "";
+    const action = document.createElement("td");
+    action.textContent = entry.action || "";
+    const itemId = document.createElement("td");
+    itemId.textContent = entry.item_id || "";
+    const status = document.createElement("td");
+    status.textContent = entry.ok ? "OK" : "Failed";
+    status.classList.add(entry.ok ? "ok" : "warn");
+    const detailTd = document.createElement("td");
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.classList.add("ghost", "small");
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", () => showModal("Audit entry", entry, "audit"));
+    detailTd.appendChild(viewBtn);
+
+    row.appendChild(timestamp);
+    row.appendChild(user);
+    row.appendChild(service);
+    row.appendChild(action);
+    row.appendChild(itemId);
+    row.appendChild(status);
+    row.appendChild(detailTd);
+    auditTableBody.appendChild(row);
+  });
+}
+
+async function fetchAuditLogs() {
+  const query = buildAuditQuery();
+  auditState.query = query;
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  try {
+    const res = await fetch(`/api/audit?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Audit log load failed");
+      return;
+    }
+    const items = data.data?.items || [];
+    auditState.items = items;
+    renderAuditTable(items);
+  } catch (err) {
+    showToast("Audit log load failed");
+  }
+}
+
+function exportAuditJson() {
+  const items = auditState.items || [];
+  downloadJson(items, "audit-log.json");
+}
+
+function exportAuditCsv() {
+  const items = auditState.items || [];
+  const headers = ["timestamp", "user", "host", "service", "action", "item_id", "ok", "error"];
+  const rows = [headers.join(",")];
+  items.forEach((item) => {
+    const row = headers.map((key) => {
+      const value = item?.[key];
+      if (value === undefined || value === null) return "";
+      const text = String(value).replace(/"/g, '""');
+      return `"${text}"`;
+    });
+    rows.push(row.join(","));
+  });
+  downloadTextFile(rows.join("\n"), "audit-log.csv", "text/csv");
 }
 
 function getProfileByName(name) {
@@ -4899,6 +7399,194 @@ async function runHealthCheck() {
   }
 }
 
+async function runSecurityPosture() {
+  setOutput("security", "Running...");
+  setOutputStatus("security", {
+    state: "running",
+    text: "Security posture running",
+    meta: "Collecting permissions and boundaries",
+    running: true,
+  });
+  try {
+    const response = await runSystemTask("security_posture", {});
+    if (!response.ok) {
+      setOutput("security", response);
+      setOutputStatus("security", {
+        state: "fail",
+        text: "Security posture failed",
+        meta: response.error || "Error",
+        running: false,
+      });
+      return;
+    }
+    setOutput("security", response.data);
+    setOutputStatus("security", {
+      state: "ok",
+      text: "Security posture ready",
+      meta: "Report generated",
+      running: false,
+    });
+  } catch (err) {
+    setOutput("security", `Error: ${err.message}`);
+    setOutputStatus("security", {
+      state: "fail",
+      text: "Security posture error",
+      meta: err.message || "Error",
+      running: false,
+    });
+  }
+}
+
+async function runSmokeTest() {
+  if (smokeTestButton) {
+    smokeTestButton.disabled = true;
+    smokeTestButton.textContent = "Running...";
+  }
+  const healthCard = document.getElementById("health-card");
+  if (healthCard) healthCard.classList.add("loading");
+  if (healthSpinner) healthSpinner.classList.add("active");
+  if (healthStatusText) {
+    healthStatusText.textContent = `Smoke test started ${new Date().toLocaleTimeString()}`;
+  }
+  if (healthBreakdown) {
+    healthBreakdown.open = true;
+  }
+  resetHealthBreakdown();
+  setOutputStatus("health", {
+    state: "running",
+    text: "Smoke test running",
+    meta: "",
+    running: true,
+  });
+  startOutputTimer("health", "Smoke test");
+  setHealthProgress([
+    { label: "Graph", text: "Running smoke test", state: "warn" },
+    { label: "PowerShell", text: "Pending", state: "warn" },
+  ]);
+  setOutput("health", "Running smoke test... Please wait.");
+  try {
+    const response = await runSystemTask("smoke_test", { services: GRAPH_HEALTH_SERVICES });
+    if (!response.ok) {
+      throw new Error(response.error || "Smoke test failed");
+    }
+    const report = response.data || {};
+    const graphChecks = report.graph?.checks || {};
+    const psData = report.powershell || { ok: false, modules: {} };
+
+    Object.entries(graphChecks).forEach(([service, check]) => {
+      const label = formatServiceLabel(service);
+      const status = Number(check?.status || 0);
+      const latencyMs = Number(check?.latency_ms ?? check?.latencyMs);
+      const sla = getLatencySla(Number.isFinite(latencyMs) ? latencyMs : undefined, check?.ok);
+      let statusLabel = "Failed";
+      let statusState = "fail";
+      let statusMeta = "";
+      if (check?.ok) {
+        statusLabel = "OK";
+        statusState = "ok";
+        if (sla.state && sla.state !== "ok") {
+          statusLabel = sla.label;
+          statusState = sla.state;
+        }
+        statusMeta = buildHealthMeta({ status: status || 200, latencyMs, slaLabel: sla.label });
+      } else if (status >= 500) {
+        statusLabel = "Transient";
+        statusState = "warn";
+        statusMeta = buildHealthMeta({
+          status,
+          latencyMs,
+          slaLabel: sla.label,
+          message: check?.message || "",
+        });
+      } else {
+        statusMeta = buildHealthMeta({
+          status: status || undefined,
+          latencyMs,
+          slaLabel: sla.label,
+          message: check?.message || check?.error || "",
+        });
+      }
+      upsertHealthListItem(healthGraphList, service, label, statusLabel, statusState, statusMeta);
+    });
+
+    Object.entries(psData.modules || {}).forEach(([module, info]) => {
+      if (info?.installed) {
+        upsertHealthListItem(
+          healthPowerShellList,
+          module,
+          module,
+          "OK",
+          "ok",
+          info?.version ? `v${info.version}` : ""
+        );
+      } else {
+        upsertHealthListItem(
+          healthPowerShellList,
+          module,
+          module,
+          "Missing",
+          "fail",
+          info?.error || ""
+        );
+      }
+    });
+
+    const graphSummary = summarizeGraphCheck({ ok: report.graph?.ok, checks: graphChecks });
+    const psSummary = summarizePowerShellCheck(psData);
+    setHealthProgress([
+      { label: "Graph", text: graphSummary.text, state: graphSummary.state },
+      { label: "PowerShell", text: psSummary.text, state: psSummary.state },
+    ]);
+
+    setOutput("health", report);
+    addActivity("Ran: Smoke test");
+    const finalState =
+      graphSummary.state === "fail" || psSummary.state === "fail"
+        ? "fail"
+        : graphSummary.state === "warn" || psSummary.state === "warn"
+          ? "warn"
+          : "ok";
+    const elapsed = outputStartTimes.has("health")
+      ? formatElapsed(performance.now() - outputStartTimes.get("health"))
+      : "";
+    setOutputStatus("health", {
+      state: finalState,
+      text: "Smoke test complete",
+      meta: elapsed ? `Duration ${elapsed}` : "",
+      running: false,
+    });
+    if (healthStatusText) {
+      healthStatusText.textContent = finalState === "ok" ? "Smoke test complete" : "Smoke test completed with issues";
+    }
+    showToast("Smoke test complete");
+  } catch (err) {
+    setOutput("health", `Error: ${err.message}`);
+    addActivity("Smoke test error");
+    if (healthStatusText) healthStatusText.textContent = "Smoke test error";
+    setHealthProgress([
+      { label: "Graph", text: "Error", state: "fail" },
+      { label: "PowerShell", text: "Error", state: "fail" },
+    ]);
+    upsertHealthListItem(healthGraphList, "graph-error", "Graph", "Error", "fail", err.message);
+    upsertHealthListItem(healthPowerShellList, "ps-error", "PowerShell", "Error", "fail", err.message);
+    setOutputStatus("health", {
+      state: "fail",
+      text: "Smoke test error",
+      meta: err.message || "Error",
+      running: false,
+    });
+  } finally {
+    stopOutputTimer("health");
+    if (smokeTestButton) {
+      smokeTestButton.disabled = false;
+      smokeTestButton.textContent = "Run smoke test";
+    }
+    const healthCard = document.getElementById("health-card");
+    if (healthCard) healthCard.classList.remove("loading");
+    if (healthSpinner) healthSpinner.classList.remove("active");
+  }
+}
+
 async function preflightPowerShell(service) {
   if (powershellPreflightCache[service]) {
     return { ok: true, cached: true };
@@ -4982,6 +7670,16 @@ function handlePreflightWarning(service, action, warning) {
   addActivity(`Preflight warning: ${label}`);
 }
 
+function shouldIncludePackStep(step, includeSteps) {
+  if (!step.optional) return true;
+  const stepKey = `${step.service}.${step.action}`;
+  if (includeSteps?.[stepKey] !== undefined) {
+    return includeSteps[stepKey] !== false;
+  }
+  if (step.defaultInclude === false) return false;
+  return true;
+}
+
 async function runActionPack(pack, options = {}) {
   if (actionPackState.has(pack.id)) {
     showToast("Action pack already running");
@@ -4989,25 +7687,31 @@ async function runActionPack(pack, options = {}) {
   }
   const stepParams = options.stepParams || getPackParams(pack.id).stepParams || {};
   const includeSteps = options.includeSteps || getPackParams(pack.id).includeSteps || {};
+  const dryRun = options.dryRun ?? getPackParams(pack.id).dryRun ?? false;
   const state = { cancelled: false, controller: null };
   actionPackState.set(pack.id, state);
   setActionPackRunning(pack.id, true);
   let hadFailures = false;
   let stoppedEarly = false;
-  const runParamsSnapshot = { stepParams, includeSteps };
+  const runParamsSnapshot = { stepParams, includeSteps, dryRun };
   for (const step of pack.steps) {
     if (state.cancelled) {
       addActivity(`Cancelled pack: ${pack.name}`);
       showToast("Action pack cancelled");
       break;
     }
+    if (step.type === "note") {
+      addActivity(`Note: ${step.label || pack.name}`);
+      continue;
+    }
     const label = step.label || activityLabel(step.service, step.action);
-    if (step.optional) {
-      const stepKey = `${step.service}.${step.action}`;
-      if (includeSteps[stepKey] === false) {
-        addActivity(`Skipped: ${label}`);
-        continue;
-      }
+    if (!shouldIncludePackStep(step, includeSteps)) {
+      addActivity(`Skipped: ${label}`);
+      continue;
+    }
+    if (dryRun && !step.safe) {
+      addActivity(`Dry-run: skipped ${label}`);
+      continue;
     }
     const stepKey = `${step.service}.${step.action}`;
     const override = stepParams[stepKey] || {};
@@ -5038,11 +7742,13 @@ async function runActionPack(pack, options = {}) {
   setActionPackRunning(pack.id, false);
   const status = state.cancelled
     ? "cancelled"
-    : stoppedEarly
-      ? "stopped"
-      : hadFailures
-        ? "completed-with-errors"
-        : "completed";
+    : dryRun
+      ? "dry-run"
+      : stoppedEarly
+        ? "stopped"
+        : hadFailures
+          ? "completed-with-errors"
+          : "completed";
   addActionPackHistory({
     packId: pack.id,
     pack_name: pack.name,
@@ -5050,9 +7756,10 @@ async function runActionPack(pack, options = {}) {
     status,
     stepParams: runParamsSnapshot.stepParams,
     includeSteps: runParamsSnapshot.includeSteps,
+    dryRun: runParamsSnapshot.dryRun,
   });
   if (!state.cancelled) {
-    showToast("Action pack completed");
+    showToast(dryRun ? "Action pack dry-run completed" : "Action pack completed");
   }
 }
 
@@ -5442,6 +8149,10 @@ function getTablePanel(service) {
   return document.querySelector(`.output-table[data-output="${service}"]`);
 }
 
+function getExplainPanel(service) {
+  return document.querySelector(`.output-explain[data-output="${service}"]`);
+}
+
 function tryParseJson(text) {
   if (typeof text !== "string") return null;
   const trimmed = text.trim();
@@ -5529,7 +8240,7 @@ function getExportPayload(service) {
 function extractErrorMeta(data) {
   if (!data || typeof data !== "object") return null;
   const status = data.status_code || data.status || data.statusCode;
-  const requestId = data.request_id || data.requestId;
+  let requestId = data.request_id || data.requestId;
   let code = data.code || data.error_code;
   let message = data.error || data.message;
   let hint = data.hint;
@@ -5540,6 +8251,9 @@ function extractErrorMeta(data) {
     const err = detail.error;
     code = code || err.code;
     message = message || err.message;
+    if (!requestId && err.innerError) {
+      requestId = err.innerError["request-id"] || err.innerError["client-request-id"] || requestId;
+    }
   }
   if (data.details && typeof data.details === "object") {
     const d = data.details;
@@ -5614,6 +8328,1104 @@ function buildTriage(meta) {
     requestId: meta.requestId,
     recommendations,
   };
+}
+
+function isSensitiveKey(key) {
+  const normalized = String(key || "").toLowerCase();
+  if (!normalized) return false;
+  if (SENSITIVE_PARAM_KEYS.has(normalized)) return true;
+  if (normalized.includes("password") || normalized.includes("passphrase")) return true;
+  if (normalized.includes("secret") || normalized.includes("token")) return true;
+  if (normalized.includes("credential")) return true;
+  if (normalized.includes("private") && normalized.includes("key")) return true;
+  if (normalized.endsWith("_key") || normalized.endsWith("apikey")) return true;
+  return false;
+}
+
+function sanitizeParams(value, depth = 0) {
+  if (value === null || value === undefined) return value;
+  if (depth > 6) return "[truncated]";
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeParams(entry, depth + 1));
+  }
+  if (typeof value === "object") {
+    const result = {};
+    Object.entries(value).forEach(([key, val]) => {
+      if (isSensitiveKey(key)) {
+        result[key] = "[redacted]";
+      } else {
+        result[key] = sanitizeParams(val, depth + 1);
+      }
+    });
+    return result;
+  }
+  return value;
+}
+
+function buildIncidentContext(params) {
+  const safeParams = sanitizeParams(params || {});
+  const highlights = {};
+  const keywords = [
+    "user",
+    "mailbox",
+    "group",
+    "team",
+    "site",
+    "list",
+    "drive",
+    "device",
+    "host",
+    "server",
+    "printer",
+    "queue",
+    "ou",
+    "gpo",
+    "domain",
+    "tenant",
+    "subscription",
+    "ip",
+    "dns",
+    "share",
+    "unc",
+  ];
+  Object.entries(safeParams).forEach(([key, value]) => {
+    const normalized = String(key || "").toLowerCase();
+    if (keywords.some((needle) => normalized.includes(needle))) {
+      highlights[key] = value;
+    }
+  });
+  return { params: safeParams, highlights };
+}
+
+function initRunMeta(service, action, params) {
+  const meta = {
+    service,
+    action,
+    label: action ? resolveActionLabel(service, action) : null,
+    mode: ACTIONS_UI?.[service]?.[action]?.mode || "graph",
+    params: sanitizeParams(params || {}),
+    started_at: new Date().toISOString(),
+  };
+  lastRunMeta[service] = meta;
+  return meta;
+}
+
+function updateRunMeta(service, updates) {
+  const current = lastRunMeta[service] || { service };
+  lastRunMeta[service] = { ...current, ...updates };
+  return lastRunMeta[service];
+}
+
+function finalizeRunMeta(service, updates) {
+  return updateRunMeta(service, { ...updates, ended_at: new Date().toISOString() });
+}
+
+function estimateItemCount(payload) {
+  if (!payload) return null;
+  if (Array.isArray(payload)) return payload.length;
+  if (payload && typeof payload === "object") {
+    if (Array.isArray(payload.items)) return payload.items.length;
+    if (Array.isArray(payload.value)) return payload.value.length;
+    if (Number.isFinite(payload["@odata.count"])) return payload["@odata.count"];
+  }
+  return null;
+}
+
+function resolveIncidentRows(payload) {
+  if (!payload || typeof payload === "string") return null;
+  const preferredKeys = ["items", "value", "results", "devices", "users", "members"];
+  for (const key of preferredKeys) {
+    const rows = selectExportArray(payload, { preferredKey: key, allowPrompt: false });
+    if (rows) return rows;
+  }
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === "object") return [payload];
+  return null;
+}
+
+async function fetchIncidentAuditEntries(service, meta) {
+  const since = meta?.started_at
+    ? meta.started_at
+    : new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const params = new URLSearchParams();
+  params.set("service", service);
+  if (meta?.action) params.set("action", meta.action);
+  params.set("since", since);
+  if (meta?.ended_at) params.set("until", meta.ended_at);
+  params.set("limit", "200");
+  try {
+    const res = await fetch(`/api/audit?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, error: data.error || "Audit fetch failed", items: [] };
+    }
+    const items = data.data?.items || [];
+    return { ok: true, items, total: data.data?.total || items.length };
+  } catch (err) {
+    return { ok: false, error: err.message || "Audit fetch failed", items: [] };
+  }
+}
+
+function buildIncidentSummary({ service, meta, status, context, payload, audit, activity, rawOutput, generatedAt }) {
+  const lines = [];
+  const now = generatedAt || new Date().toISOString();
+  const serviceLabel = formatServiceLabel(service) || service;
+  const action = meta?.action;
+  const actionLabel = action ? resolveActionLabel(service, action) : "Unknown action";
+  const mode = meta?.mode ? modeLabel(meta.mode) : "Graph";
+  const elapsed = meta?.elapsed_ms != null ? formatElapsed(meta.elapsed_ms) : null;
+  const errorMeta = extractErrorMeta(payload);
+  const itemCount = estimateItemCount(payload);
+
+  lines.push("Incident bundle");
+  lines.push(`Generated: ${now}`);
+  lines.push(`Service: ${serviceLabel} (${service})`);
+  lines.push(`Command: ${actionLabel}${action ? ` (${action})` : ""}`);
+  lines.push(`Mode: ${mode}`);
+  if (meta?.started_at) lines.push(`Started: ${meta.started_at}`);
+  if (meta?.ended_at) lines.push(`Ended: ${meta.ended_at}`);
+  if (elapsed) lines.push(`Elapsed: ${elapsed}`);
+  if (status?.text) lines.push(`Status: ${status.text}`);
+  if (status?.meta) lines.push(`Status meta: ${status.meta}`);
+  if (meta?.http_status) lines.push(`HTTP status: ${meta.http_status}`);
+  if (meta?.status_code) lines.push(`Graph status: ${meta.status_code}`);
+  if (meta?.request_id) lines.push(`Request ID: ${meta.request_id}`);
+  if (meta?.ok === true) lines.push("Result: OK");
+  if (meta?.ok === false && meta?.cancelled) lines.push("Result: Cancelled");
+  if (meta?.ok === false && !meta?.cancelled) lines.push("Result: Failed");
+  if (errorMeta?.message) lines.push(`Error: ${errorMeta.message}`);
+  if (errorMeta?.code) lines.push(`Error code: ${errorMeta.code}`);
+  if (errorMeta?.hint) lines.push(`Hint: ${errorMeta.hint}`);
+  if (meta?.rate_limit && typeof meta.rate_limit === "object") {
+    const entries = Object.entries(meta.rate_limit)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .map(([key, value]) => `${key}: ${value}`);
+    if (entries.length) lines.push(`Rate-limit headers: ${entries.join(", ")}`);
+  }
+  if (meta?.suggested_wait_seconds) {
+    lines.push(`Suggested wait: ${meta.suggested_wait_seconds}s`);
+  }
+  if (itemCount !== null) lines.push(`Result count: ${itemCount}`);
+  if (audit?.items) lines.push(`Audit entries: ${audit.items.length}`);
+  if (rawOutput && rawOutput.trim()) lines.push(`Raw output length: ${rawOutput.length} chars`);
+
+  if (context?.highlights && Object.keys(context.highlights).length) {
+    lines.push("");
+    lines.push("Context highlights:");
+    Object.entries(context.highlights)
+      .slice(0, 12)
+      .forEach(([key, value]) => {
+        lines.push(`- ${key}: ${formatValue(value)}`);
+      });
+  }
+
+  if (meta?.preflight) {
+    lines.push("");
+    lines.push(`Preflight: ${meta.preflight.ok ? "OK" : "Failed"}`);
+    if (meta.preflight.warning) {
+      const warnStatus = meta.preflight.warning?.status ? `HTTP ${meta.preflight.warning.status}` : "HTTP 5xx";
+      lines.push(`Preflight warning: ${warnStatus}`);
+    }
+  }
+
+  if (activity && activity.length) {
+    lines.push("");
+    lines.push("Recent activity:");
+    activity.slice(0, 5).forEach((entry) => {
+      lines.push(`- ${entry.time} ${entry.text}`);
+    });
+  }
+
+  return lines.join("\n");
+}
+
+function buildIncidentTicketData({
+  service,
+  meta,
+  status,
+  context,
+  payload,
+  audit,
+  activity,
+  rawOutput,
+  generatedAt,
+  bundleName,
+}) {
+  const serviceLabel = formatServiceLabel(service) || service;
+  const action = meta?.action || null;
+  const actionLabel = action ? resolveActionLabel(service, action) : "Unknown action";
+  const mode = meta?.mode ? modeLabel(meta.mode) : "Graph";
+  const errorMeta = extractErrorMeta(payload) || extractErrorMeta(meta) || null;
+  const itemCount = estimateItemCount(payload);
+  const resultLabel = meta?.ok === true ? "OK" : meta?.cancelled ? "Cancelled" : "Failed";
+  const statusText = status?.text || meta?.error || errorMeta?.message || null;
+  const requestId = meta?.request_id || errorMeta?.requestId || null;
+
+  return {
+    generatedAt: generatedAt || new Date().toISOString(),
+    service,
+    serviceLabel,
+    action,
+    actionLabel,
+    mode,
+    resultLabel,
+    statusText,
+    itemCount,
+    auditCount: audit?.items ? audit.items.length : 0,
+    requestId,
+    errorMeta,
+    rawOutput,
+    payload,
+    context: context?.highlights || {},
+    preflight: meta?.preflight || null,
+    rateLimit: meta?.rate_limit || null,
+    suggestedWaitSeconds: meta?.suggested_wait_seconds || null,
+    startedAt: meta?.started_at || null,
+    endedAt: meta?.ended_at || null,
+    elapsedMs: meta?.elapsed_ms ?? null,
+    statusMeta: status?.meta || null,
+    activity: activity || [],
+    bundleName: bundleName || null,
+  };
+}
+
+function truncateLines(value, maxLines, maxChars) {
+  if (!value) return { text: "", truncated: false };
+  const lines = String(value).split(/\r?\n/);
+  const limited = lines.slice(0, maxLines);
+  let text = limited.join("\n");
+  let truncated = lines.length > maxLines;
+  if (text.length > maxChars) {
+    text = text.slice(0, maxChars);
+    truncated = true;
+  }
+  return { text, truncated };
+}
+
+function buildIncidentMarkdownSummary(data, attachments) {
+  const lines = [];
+  const title = `${data.serviceLabel}: ${data.actionLabel} (${data.resultLabel})`;
+
+  lines.push("# Incident summary");
+  lines.push("");
+  lines.push(`**Title:** ${title}`);
+  lines.push(`**Generated:** ${data.generatedAt}`);
+  lines.push(`**Service:** ${data.serviceLabel}`);
+  if (data.action) lines.push(`**Command:** ${data.actionLabel} (${data.action})`);
+  lines.push(`**Mode:** ${data.mode}`);
+  lines.push(`**Result:** ${data.resultLabel}`);
+  if (data.statusText) lines.push(`**Status:** ${data.statusText}`);
+  if (data.requestId) lines.push(`**Request ID:** ${data.requestId}`);
+  if (data.itemCount !== null) lines.push(`**Result count:** ${data.itemCount}`);
+  if (data.auditCount) lines.push(`**Audit entries:** ${data.auditCount}`);
+
+  lines.push("");
+  lines.push("## Timing");
+  if (data.startedAt) lines.push(`- Started: ${data.startedAt}`);
+  if (data.endedAt) lines.push(`- Ended: ${data.endedAt}`);
+  if (data.elapsedMs != null) lines.push(`- Elapsed: ${formatElapsed(data.elapsedMs)}`);
+
+  if (data.errorMeta?.message || data.errorMeta?.code || data.errorMeta?.hint) {
+    lines.push("");
+    lines.push("## Error");
+    if (data.errorMeta.message) lines.push(`- Message: ${data.errorMeta.message}`);
+    if (data.errorMeta.code) lines.push(`- Code: ${data.errorMeta.code}`);
+    if (data.errorMeta.hint) lines.push(`- Hint: ${data.errorMeta.hint}`);
+  }
+
+  if (data.preflight) {
+    lines.push("");
+    lines.push("## Preflight");
+    lines.push(`- Result: ${data.preflight.ok ? "OK" : "Failed"}`);
+    if (data.preflight.warning?.status) {
+      lines.push(`- Warning: HTTP ${data.preflight.warning.status}`);
+    }
+  }
+
+  if (data.rateLimit && typeof data.rateLimit === "object") {
+    const entries = Object.entries(data.rateLimit)
+      .filter(([, value]) => value !== undefined && value !== null && value !== "")
+      .map(([key, value]) => `${key}: ${value}`);
+    if (entries.length) {
+      lines.push("");
+      lines.push("## Rate limits");
+      entries.forEach((entry) => lines.push(`- ${entry}`));
+    }
+  }
+  if (data.suggestedWaitSeconds) {
+    lines.push("");
+    lines.push("## Suggested wait");
+    lines.push(`- ${data.suggestedWaitSeconds}s`);
+  }
+
+  lines.push("");
+  lines.push("## Context highlights");
+  const contextEntries = Object.entries(data.context || {});
+  if (!contextEntries.length) {
+    lines.push("- None captured");
+  } else {
+    contextEntries.slice(0, 12).forEach(([key, value]) => {
+      lines.push(`- ${key}: ${formatValue(value)}`);
+    });
+  }
+
+  if (data.activity && data.activity.length) {
+    lines.push("");
+    lines.push("## Recent activity");
+    data.activity.slice(0, 5).forEach((entry) => {
+      lines.push(`- ${entry.time} ${entry.text}`);
+    });
+  }
+
+  if (data.rawOutput && data.rawOutput.trim()) {
+    const snippet = truncateLines(data.rawOutput, 20, 1200);
+    lines.push("");
+    lines.push("## Output snippet");
+    lines.push("```text");
+    lines.push(snippet.text);
+    if (snippet.truncated) lines.push("... (truncated)");
+    lines.push("```");
+  }
+
+  if (attachments && attachments.length) {
+    lines.push("");
+    lines.push("## Attachments");
+    attachments.forEach((name) => lines.push(`- ${name}`));
+    if (data.bundleName) lines.push(`- ${data.bundleName}`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildTicketTemplates({ title, summaryText, summaryMarkdown, attachments, bundleName }) {
+  const attachmentLines = (attachments || []).map((name) => `- ${name}`);
+  if (bundleName) attachmentLines.push(`- ${bundleName}`);
+
+  const serviceNowLines = [];
+  serviceNowLines.push(`Short description: ${title}`);
+  serviceNowLines.push("");
+  serviceNowLines.push("Description:");
+  serviceNowLines.push(summaryText);
+  serviceNowLines.push("");
+  serviceNowLines.push("Work notes:");
+  if (bundleName) serviceNowLines.push(`- Evidence bundle: ${bundleName}`);
+  if (attachmentLines.length) {
+    serviceNowLines.push("");
+    serviceNowLines.push("Attachments:");
+    serviceNowLines.push(...attachmentLines);
+  }
+
+  const freshdeskLines = [];
+  freshdeskLines.push(`Subject: ${title}`);
+  freshdeskLines.push("");
+  freshdeskLines.push("Description:");
+  freshdeskLines.push(summaryText);
+  if (attachmentLines.length) {
+    freshdeskLines.push("");
+    freshdeskLines.push("Attachments:");
+    freshdeskLines.push(...attachmentLines);
+  }
+
+  const jiraLines = [];
+  jiraLines.push(`## ${title}`);
+  jiraLines.push("");
+  jiraLines.push("### Summary");
+  jiraLines.push("```text");
+  jiraLines.push(summaryMarkdown || summaryText);
+  jiraLines.push("```");
+  if (attachmentLines.length) {
+    jiraLines.push("");
+    jiraLines.push("### Attachments");
+    jiraLines.push(...attachmentLines.map((line) => line.replace("- ", "- ")));
+  }
+
+  return {
+    servicenow: serviceNowLines.join("\n"),
+    freshdesk: freshdeskLines.join("\n"),
+    jira: jiraLines.join("\n"),
+  };
+}
+
+function buildIncidentRequestPayload({ service, meta, status, context }) {
+  return {
+    generated_at: new Date().toISOString(),
+    service,
+    action: meta?.action || null,
+    label: meta?.label || null,
+    mode: meta?.mode || null,
+    params: context?.params || sanitizeParams(meta?.params || {}),
+    context: context?.highlights || {},
+    status: {
+      ok: meta?.ok ?? null,
+      cancelled: Boolean(meta?.cancelled),
+      http_status: meta?.http_status ?? null,
+      graph_status: meta?.status_code ?? null,
+      request_id: meta?.request_id ?? null,
+      error: meta?.error ?? null,
+      hint: meta?.hint ?? null,
+      rate_limit: meta?.rate_limit ?? null,
+      suggested_wait_seconds: meta?.suggested_wait_seconds ?? null,
+      output_state: status?.state || null,
+      output_text: status?.text || null,
+      output_meta: status?.meta || null,
+    },
+    timing: {
+      started_at: meta?.started_at || null,
+      ended_at: meta?.ended_at || null,
+      elapsed_ms: meta?.elapsed_ms ?? null,
+    },
+    preflight: meta?.preflight || null,
+  };
+}
+
+function getCachedGlobalAdmin(key) {
+  if (!key) return null;
+  const entry = GLOBAL_ADMIN_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) {
+    GLOBAL_ADMIN_CACHE.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedGlobalAdmin(key, data) {
+  if (!key) return;
+  GLOBAL_ADMIN_CACHE.set(key, { data, expires: Date.now() + GLOBAL_ADMIN_CACHE_TTL_MS });
+}
+
+function extractTargetUser(params) {
+  if (!params || typeof params !== "object") return null;
+  const candidates = [
+    "user_principal_name",
+    "user_upn",
+    "upn",
+    "user_id",
+    "member_id",
+    "member_upn",
+    "sam_account_name",
+  ];
+  for (const key of candidates) {
+    const value = params[key];
+    if (value) return { key, value };
+  }
+  return null;
+}
+
+function extractUpnFromParams(params) {
+  const target = extractTargetUser(params);
+  if (!target) return null;
+  const value = String(target.value || "");
+  if (value.includes("@")) return value;
+  return null;
+}
+
+function parseListCount(value) {
+  if (!value) return 0;
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "string") {
+    const parts = value.split(",").map((item) => item.trim()).filter(Boolean);
+    return parts.length;
+  }
+  return 0;
+}
+
+function estimateImpactCount(params) {
+  if (!params || typeof params !== "object") return null;
+  const counts = [];
+  const listKeys = [
+    "items",
+    "targets",
+    "target_ids",
+    "user_ids",
+    "group_ids",
+    "member_ids",
+    "role_ids",
+    "ids",
+    "add_sku_ids",
+    "remove_sku_ids",
+    "roles",
+  ];
+  listKeys.forEach((key) => {
+    const value = params[key];
+    if (value) counts.push(parseListCount(value));
+  });
+  ["top", "limit", "count"].forEach((key) => {
+    const value = params[key];
+    if (value === undefined || value === null) return;
+    const num = Number(value);
+    if (Number.isFinite(num)) counts.push(num);
+  });
+  if (!counts.length) return null;
+  return Math.max(...counts);
+}
+
+async function fetchGlobalAdminStatus(userValue) {
+  if (!userValue) return null;
+  const key = String(userValue || "").toLowerCase();
+  const cached = getCachedGlobalAdmin(key);
+  if (cached) return cached;
+  try {
+    const response = await runSystemTask("global_admin_check", { user_id: userValue });
+    if (response.ok && response.data) {
+      setCachedGlobalAdmin(key, response.data);
+      const upn = response.data.user_principal_name;
+      if (upn) setCachedGlobalAdmin(upn.toLowerCase(), response.data);
+      const uid = response.data.user_id;
+      if (uid) setCachedGlobalAdmin(uid.toLowerCase(), response.data);
+      return response.data;
+    }
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+async function applyGuardrails(service, action, params) {
+  const risk = getActionRisk(service, action);
+  const impact = estimateImpactCount(params);
+  updateRunMeta(service, { guardrails: { risk, impact } });
+
+  if (impact !== null && impact > IMPACT_WARN_THRESHOLD && risk !== "safe") {
+    const confirmImpact = window.confirm(
+      `This action may affect about ${impact} objects. Continue?`
+    );
+    if (!confirmImpact) {
+      return false;
+    }
+  }
+
+  let globalAdminInfo = null;
+  const target = extractTargetUser(params);
+  if (target && GLOBAL_ADMIN_CHECK_SERVICES.has(service) && risk !== "safe") {
+    globalAdminInfo = await fetchGlobalAdminStatus(target.value);
+    if (globalAdminInfo?.user_principal_name) {
+      updateRunMeta(service, { target_upn: globalAdminInfo.user_principal_name });
+    }
+    if (globalAdminInfo) {
+      updateRunMeta(service, {
+        global_admin_check: {
+          is_global_admin: globalAdminInfo.is_global_admin,
+          user_id: globalAdminInfo.user_id,
+          user_principal_name: globalAdminInfo.user_principal_name,
+        },
+      });
+    }
+    if (globalAdminInfo?.is_global_admin) {
+      const upnLabel = globalAdminInfo.user_principal_name || target.value;
+      const confirmAdmin = window.confirm(
+        `Warning: ${upnLabel} is a Global Administrator. Continue?`
+      );
+      if (!confirmAdmin) {
+        return false;
+      }
+    }
+  }
+
+  if (risk === "danger") {
+    const upn = globalAdminInfo?.user_principal_name || extractUpnFromParams(params);
+    const label = upn || target?.value || "the target user";
+    const promptText = upn
+      ? `Type the UPN to confirm this action:\n${upn}`
+      : `Type the target identifier to confirm:\n${label}`;
+    const typed = window.prompt(promptText, "");
+    if (!typed) return false;
+    if (upn) {
+      if (typed.trim().toLowerCase() !== upn.trim().toLowerCase()) {
+        showToast("UPN did not match. Action cancelled.");
+        return false;
+      }
+    } else if (typed.trim() !== String(label).trim()) {
+      showToast("Confirmation did not match. Action cancelled.");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function exportIncidentBundle(service) {
+  const meta = lastRunMeta[service] || {};
+  const status = lastOutputStatus[service] || {};
+  const rawPanel = getOutputPanel(service);
+  const rawOutput = rawPanel?.textContent || "";
+  const payload = getExportPayload(service);
+  if (!payload && !rawOutput.trim() && !meta.action) {
+    showToast("No output to bundle yet");
+    return;
+  }
+  showToast("Preparing incident bundle...");
+  const generatedAt = new Date().toISOString();
+  const context = buildIncidentContext(meta.params || {});
+  const audit = await fetchIncidentAuditEntries(service, meta);
+  const activity = loadActivity();
+  const summaryPlain = buildIncidentSummary({
+    service,
+    meta,
+    status,
+    context,
+    payload,
+    audit,
+    activity,
+    rawOutput,
+    generatedAt,
+  });
+  const entries = [];
+  entries.push({ name: "summary.txt", data: summaryPlain });
+  entries.push({
+    name: "request.json",
+    data: JSON.stringify(buildIncidentRequestPayload({ service, meta, status, context }), null, 2),
+  });
+  if (rawOutput.trim()) {
+    entries.push({ name: "output.txt", data: rawOutput });
+  }
+  if (payload !== null && payload !== undefined) {
+    entries.push({ name: "output.json", data: JSON.stringify(payload, null, 2) });
+    const rows = resolveIncidentRows(payload);
+    if (rows && rows.length) {
+      entries.push({ name: "output.csv", data: toCsv(rows) });
+    }
+  }
+  if (audit?.items && audit.items.length) {
+    entries.push({ name: "audit-log.json", data: JSON.stringify(audit.items, null, 2) });
+    entries.push({ name: "audit-log.csv", data: toCsv(audit.items) });
+  } else if (audit?.error) {
+    entries.push({ name: "audit-log.txt", data: `Audit fetch failed: ${audit.error}` });
+  }
+  if (activity && activity.length) {
+    entries.push({ name: "activity.json", data: JSON.stringify(activity.slice(0, 25), null, 2) });
+  }
+  const stamp = generatedAt.replace(/[:.]/g, "-");
+  const base = sanitizeFilename(`${service}-${meta?.action || "output"}-${stamp}`);
+  const bundleName = `${base}.zip`;
+  const ticketData = buildIncidentTicketData({
+    service,
+    meta,
+    status,
+    context,
+    payload,
+    audit,
+    activity,
+    rawOutput,
+    generatedAt,
+    bundleName,
+  });
+  const attachmentNames = entries.map((entry) => entry.name);
+  const markdownSummary = buildIncidentMarkdownSummary(ticketData, attachmentNames);
+  const templates = buildTicketTemplates({
+    title: `${ticketData.serviceLabel}: ${ticketData.actionLabel} (${ticketData.resultLabel})`,
+    summaryText: summaryPlain,
+    summaryMarkdown: markdownSummary,
+    attachments: attachmentNames,
+    bundleName,
+  });
+  entries.push({ name: "summary.md", data: markdownSummary });
+  entries.push({ name: "ticket-servicenow.txt", data: templates.servicenow });
+  entries.push({ name: "ticket-freshdesk.txt", data: templates.freshdesk });
+  entries.push({ name: "ticket-jira.md", data: templates.jira });
+  downloadZip(bundleName, entries);
+  showToast("Incident bundle exported");
+}
+
+function hasPowerShellFallback(service) {
+  const actions = ACTIONS_UI?.[service] || {};
+  return Object.values(actions).some((meta) => meta?.mode === "powershell");
+}
+
+function classifyError(meta) {
+  if (!meta) return null;
+  const status = Number(meta.status || 0);
+  const code = String(meta.code || "").toLowerCase();
+  const message = String(meta.message || "").toLowerCase();
+  const detailText = typeof meta.detail === "string" ? meta.detail.toLowerCase() : "";
+
+  if (
+    status === 401 ||
+    code.includes("invalidauthenticationtoken") ||
+    message.includes("invalid authentication") ||
+    message.includes("token expired")
+  ) {
+    return { type: "auth", label: "Token expired or invalid", summary: "Authentication token is missing or expired." };
+  }
+  if (status === 403 || code.includes("insufficientprivileges") || code.includes("authorization_requestdenied")) {
+    return { type: "permission", label: "Missing permission", summary: "App lacks required Graph permissions." };
+  }
+  if (status === 429 || message.includes("throttle") || message.includes("too many")) {
+    return { type: "throttle", label: "Throttled", summary: "Graph rate limits were hit." };
+  }
+  if (status >= 500 || code.includes("serviceunavailable") || message.includes("service unavailable")) {
+    return { type: "incident", label: "Service incident", summary: "Graph returned a 5xx transient error." };
+  }
+  if (
+    code.includes("unsupported") ||
+    message.includes("not supported") ||
+    message.includes("unsupported") ||
+    detailText.includes("not supported")
+  ) {
+    return { type: "unsupported", label: "Graph limitation", summary: "Graph does not support this operation." };
+  }
+  if (status === 404 || code.includes("request_resourcenotfound")) {
+    return { type: "notfound", label: "Not found", summary: "Target resource could not be found." };
+  }
+  if (status === 400) {
+    return { type: "badrequest", label: "Bad request", summary: "Inputs are invalid or incomplete." };
+  }
+  return { type: "unknown", label: "Unknown error", summary: "An unexpected error occurred." };
+}
+
+function summarizeGraphIssues(checks) {
+  const buckets = {
+    auth: [],
+    permission: [],
+    throttle: [],
+    incident: [],
+    latency: [],
+    unknown: [],
+  };
+  Object.entries(checks || {}).forEach(([service, check]) => {
+    if (!check) return;
+    const status = Number(check.status || 0);
+    const latencyMs = Number(check?.latency_ms ?? check?.latencyMs);
+    const sla = getLatencySla(Number.isFinite(latencyMs) ? latencyMs : undefined, check?.ok);
+    if (check.ok === false) {
+      if (status === 401) buckets.auth.push(service);
+      else if (status === 403) buckets.permission.push(service);
+      else if (status === 429) buckets.throttle.push(service);
+      else if (status >= 500) buckets.incident.push(service);
+      else buckets.unknown.push(service);
+    } else if (sla.state && sla.state !== "ok") {
+      buckets.latency.push(service);
+    }
+  });
+  return buckets;
+}
+
+function explainPrinterIssues(payload) {
+  const list = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.printers)
+      ? payload.printers
+      : Array.isArray(payload?.value)
+        ? payload.value
+        : [];
+  const conflicts = Array.isArray(payload?.conflicts) ? payload.conflicts : [];
+  const issues = [];
+  const offline = [];
+  const error = [];
+  const paused = [];
+  list.forEach((printer) => {
+    const status = String(printer?.PrinterStatus || printer?.Status || "").toLowerCase();
+    const name = printer?.Name || printer?.ShareName || "Printer";
+    if (!status) return;
+    if (status.includes("offline")) offline.push(name);
+    if (status.includes("error") || status.includes("failed")) error.push(name);
+    if (status.includes("paused")) paused.push(name);
+  });
+  if (offline.length || error.length || paused.length || conflicts.length) {
+    if (offline.length) issues.push(`Offline printers: ${offline.slice(0, 3).join(", ")}`);
+    if (error.length) issues.push(`Error states: ${error.slice(0, 3).join(", ")}`);
+    if (paused.length) issues.push(`Paused queues: ${paused.slice(0, 3).join(", ")}`);
+    if (conflicts.length) issues.push(`${conflicts.length} GPO/printer mapping conflicts detected.`);
+  }
+  if (!issues.length) return null;
+  return {
+    title: "Printer queue errors detected",
+    severity: "warn",
+    summary: "Printer queues reported errors or deployment conflicts.",
+    causes: [
+      "Print spooler service may be stopped or unhealthy.",
+      "Network connectivity or printer offline states.",
+      "GPO deployment conflicts or missing print shares.",
+    ],
+    actions: [
+      "Check printer online status and spooler service.",
+      "Review GPO mappings for conflicts or missing shares.",
+      "Verify driver availability on the print server.",
+    ],
+    details: issues,
+  };
+}
+
+function explainGraphHealth(payload) {
+  if (!payload?.graph?.checks) return null;
+  const checks = payload.graph.checks;
+  const buckets = summarizeGraphIssues(checks);
+  const issues = []
+    .concat(buckets.auth.length ? [`Auth failures: ${buckets.auth.map(formatServiceLabel).join(", ")}`] : [])
+    .concat(
+      buckets.permission.length
+        ? [`Missing permissions: ${buckets.permission.map(formatServiceLabel).join(", ")}`]
+        : []
+    )
+    .concat(
+      buckets.throttle.length ? [`Throttling: ${buckets.throttle.map(formatServiceLabel).join(", ")}`] : []
+    )
+    .concat(
+      buckets.incident.length ? [`Service incidents: ${buckets.incident.map(formatServiceLabel).join(", ")}`] : []
+    )
+    .concat(
+      buckets.latency.length ? [`High latency: ${buckets.latency.map(formatServiceLabel).join(", ")}`] : []
+    )
+    .concat(buckets.unknown.length ? [`Other failures: ${buckets.unknown.map(formatServiceLabel).join(", ")}`] : []);
+  if (!issues.length) {
+    return {
+      title: "Graph status healthy",
+      severity: "ok",
+      summary: "All Graph checks passed within SLA.",
+      causes: [],
+      actions: [],
+    };
+  }
+  return {
+    title: "Graph status degraded",
+    severity: "warn",
+    summary: "One or more Graph services reported degraded health.",
+    causes: [
+      "Missing permissions or invalid credentials.",
+      "Rate limiting or transient service incidents.",
+      "High latency impacting SLA thresholds.",
+    ],
+    actions: [
+      "Verify app permissions and admin consent.",
+      "Retry throttled calls after suggested wait.",
+      "Check Microsoft 365 service health dashboard.",
+    ],
+    details: issues,
+  };
+}
+
+function explainPowerShellHealth(payload) {
+  if (!payload?.powershell?.modules) return null;
+  const modules = payload.powershell.modules || {};
+  const missing = Object.entries(modules)
+    .filter(([, info]) => info?.installed === false)
+    .map(([name]) => name);
+  if (!missing.length) {
+    return {
+      title: "PowerShell modules ready",
+      severity: "ok",
+      summary: "Required PowerShell modules are installed.",
+      causes: [],
+      actions: [],
+    };
+  }
+  return {
+    title: "PowerShell modules missing",
+    severity: "warn",
+    summary: "Some required PowerShell modules are not installed.",
+    causes: ["Required admin modules are missing from this host."],
+    actions: [
+      "Install the missing modules and restart the session.",
+      "Confirm PowerShell 7 is available on this host.",
+    ],
+    details: [`Missing: ${missing.slice(0, 5).join(", ")}`],
+  };
+}
+
+function explainSecurityPosture(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const explanations = [];
+  const permissions = payload.permissions?.graph_app_permissions;
+  if (permissions?.ok === false) {
+    explanations.push({
+      title: "Graph permissions inventory unavailable",
+      severity: "warn",
+      summary: permissions.error || "Unable to read Graph app role assignments.",
+      causes: ["Missing Directory.Read.All or Application.Read.All permissions."],
+      actions: ["Grant permissions and admin consent, then refresh the report."],
+    });
+  } else if (permissions) {
+    const count = Number(permissions.assigned_count || 0);
+    explanations.push({
+      title: "Graph app permissions",
+      severity: count > 0 ? "ok" : "warn",
+      summary: count > 0 ? `${count} app permissions granted.` : "No Graph app permissions detected.",
+      details: permissions.assigned?.length ? [permissions.assigned.slice(0, 6).join(", ")] : [],
+      actions: count > 0 ? [] : ["Assign required app permissions and grant admin consent."],
+    });
+  }
+
+  const secrets = payload.secrets || {};
+  const storage = secrets.storage || "Unknown storage";
+  if (!secrets.client_secret_set) {
+    explanations.push({
+      title: "Client secret missing",
+      severity: "fail",
+      summary: "Client secret is not configured, so app-only Graph cannot authenticate.",
+      actions: ["Set the client secret in Settings and refresh the report."],
+    });
+  } else {
+    const severity = secrets.use_keychain ? "ok" : secrets.keychain_available ? "warn" : "info";
+    const actions = [];
+    if (!secrets.use_keychain && secrets.keychain_available) {
+      actions.push("Enable keychain storage to protect the client secret.");
+    }
+    if (!secrets.config_lock) {
+      actions.push("Enable environment lock to prevent accidental edits.");
+    }
+    explanations.push({
+      title: "Secret storage",
+      severity,
+      summary: `Secrets stored in ${storage}.`,
+      actions,
+    });
+  }
+
+  const boundaries = payload.boundaries || {};
+  const boundaryItems = [];
+  if (Array.isArray(boundaries.local_only) && boundaries.local_only.length) {
+    boundaryItems.push(`Local-only: ${boundaries.local_only.map(formatServiceLabel).join(", ")}`);
+  }
+  if (Array.isArray(boundaries.cloud_services) && boundaries.cloud_services.length) {
+    boundaryItems.push(`Cloud services: ${boundaries.cloud_services.map(formatServiceLabel).join(", ")}`);
+  }
+  if (Array.isArray(boundaries.cannot) && boundaries.cannot.length) {
+    boundaryItems.push(`Cannot: ${boundaries.cannot.slice(0, 2).join(" · ")}`);
+  }
+  if (boundaryItems.length) {
+    explanations.push({
+      title: "Operational boundaries",
+      severity: "info",
+      summary: "Clarifies what runs locally vs in Microsoft 365 cloud.",
+      causes: boundaryItems,
+    });
+  }
+
+  return explanations;
+}
+
+function buildExplanations(service, payload) {
+  const explanations = [];
+  const meta = extractErrorMeta(payload);
+  const context = lastActionContext[service] || {};
+  const actionMeta = ACTIONS_UI?.[service]?.[context.action] || {};
+  const actionLabel = actionMeta?.label || context.action || service;
+
+  if (service === "health" && payload?.graph) {
+    const graphExplain = explainGraphHealth(payload);
+    if (graphExplain) explanations.push(graphExplain);
+    const psExplain = explainPowerShellHealth(payload);
+    if (psExplain) explanations.push(psExplain);
+  }
+
+  if (service === "printers") {
+    const printerExplain = explainPrinterIssues(payload);
+    if (printerExplain) explanations.push(printerExplain);
+  }
+
+  if (service === "security") {
+    const securityExplain = explainSecurityPosture(payload) || [];
+    securityExplain.forEach((item) => explanations.push(item));
+  }
+
+  if (meta && (payload?.ok === false || meta.status || meta.code || meta.message)) {
+    const classification = classifyError(meta);
+    const causes = [];
+    const actions = [];
+    if (classification?.type === "permission") {
+      causes.push("App permission missing or admin consent not granted.");
+      actions.push("Grant required permissions in Entra and grant admin consent.");
+    }
+    if (classification?.type === "auth") {
+      causes.push("Token expired or invalid client credentials.");
+      actions.push("Re-save client secret and retry.");
+    }
+    if (classification?.type === "throttle") {
+      causes.push("Too many requests within a short window.");
+      actions.push("Reduce request volume and retry after a delay.");
+    }
+    if (classification?.type === "incident") {
+      causes.push("Service incident or transient failure.");
+      actions.push("Retry and monitor Microsoft 365 service health.");
+    }
+    if (classification?.type === "unsupported") {
+      causes.push("Graph API does not support this operation.");
+      if (hasPowerShellFallback(service)) {
+        actions.push("Use the PowerShell fallback for this workflow.");
+      }
+    }
+    if (service === "exchange" && classification?.type === "unsupported") {
+      causes.push("Exchange mailbox permissions are not fully supported in Graph.");
+      if (hasPowerShellFallback(service)) {
+        actions.push("Use the Exchange PowerShell fallback for this mailbox task.");
+      }
+    }
+    if (service === "exchange" && meta.status && classification?.type !== "permission") {
+      causes.push("Mailbox settings can be restricted by tenant configuration.");
+      actions.push("Verify Exchange settings and mailbox licensing.");
+    }
+    const triage = buildTriage(meta);
+    if (triage?.recommendations?.length) {
+      triage.recommendations.slice(0, 3).forEach((item) => actions.push(item));
+    }
+    explanations.push({
+      title: `${actionLabel ? `${actionLabel} failed` : "Action failed"}`,
+      severity: classification?.type === "incident" || classification?.type === "throttle" ? "warn" : "fail",
+      summary: classification?.summary || "The action failed with an error.",
+      causes: causes.length ? causes : ["Unexpected error; see details for context."],
+      actions: actions.length ? actions : ["Review the error and retry."],
+      details: meta.message ? [meta.message] : [],
+    });
+  }
+
+  return explanations;
+}
+
+function renderExplanation(service, payload) {
+  const container = getExplainPanel(service);
+  if (!container) return;
+  container.innerHTML = "";
+  const explanations = buildExplanations(service, payload) || [];
+  if (!explanations.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("explain-empty");
+    empty.textContent = "No issues detected. Outputs look healthy.";
+    container.appendChild(empty);
+    return;
+  }
+  explanations.forEach((exp) => {
+    const card = document.createElement("div");
+    card.classList.add("explain-card", exp.severity || "info");
+    const title = document.createElement("div");
+    title.classList.add("explain-title");
+    title.textContent = exp.title || "Explanation";
+    const summary = document.createElement("div");
+    summary.classList.add("explain-summary");
+    summary.textContent = exp.summary || "";
+    card.appendChild(title);
+    card.appendChild(summary);
+
+    if (exp.details?.length) {
+      const detail = document.createElement("div");
+      detail.classList.add("explain-detail");
+      detail.textContent = exp.details[0];
+      card.appendChild(detail);
+    }
+
+    if (exp.causes?.length) {
+      const list = document.createElement("ul");
+      list.classList.add("explain-list");
+      exp.causes.forEach((cause) => {
+        const li = document.createElement("li");
+        li.textContent = cause;
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    }
+
+    if (exp.actions?.length) {
+      const list = document.createElement("ul");
+      list.classList.add("explain-list", "actions");
+      exp.actions.forEach((action) => {
+        const li = document.createElement("li");
+        li.textContent = action;
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    }
+
+    container.appendChild(card);
+  });
 }
 
 function isEditableUserRecord(service, data) {
@@ -5692,12 +9504,23 @@ function isPrimitive(value) {
 }
 
 function isEditableValue(value) {
-  return isPrimitive(value);
+  if (isPrimitive(value)) return true;
+  if (Array.isArray(value)) {
+    return value.every(isPrimitive);
+  }
+  return false;
 }
 
 function coerceValue(inputValue, originalValue) {
   if (originalValue === null || originalValue === undefined) {
     return inputValue === "" ? null : inputValue;
+  }
+  if (Array.isArray(originalValue)) {
+    if (inputValue === "") return [];
+    return inputValue
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   }
   if (typeof originalValue === "number") {
     if (inputValue === "") return null;
@@ -5708,6 +9531,14 @@ function coerceValue(inputValue, originalValue) {
     return inputValue === "true";
   }
   return inputValue === "" ? null : inputValue;
+}
+
+function valuesEqual(a, b) {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((value, idx) => String(value) === String(b[idx]));
+  }
+  return a === b;
 }
 
 function getUpdateCapability(service) {
@@ -5751,6 +9582,345 @@ function applyUpdatePayload(current, updates, updateConfig) {
   return next;
 }
 
+function normalizeFieldKey(key) {
+  return String(key || "").toLowerCase();
+}
+
+function isFieldAllowed(updateConfig, fieldKey) {
+  if (!updateConfig) return false;
+  const key = normalizeFieldKey(fieldKey);
+  if (updateConfig.payloadKey === "fields") {
+    if (READ_ONLY_SHAREPOINT_FIELDS.has(key)) {
+      return false;
+    }
+  }
+  const allow = updateConfig.allowedFields;
+  if (Array.isArray(allow) && allow.length) {
+    return allow.map(normalizeFieldKey).includes(key);
+  }
+  return true;
+}
+
+function getFieldValidator(updateConfig, fieldKey) {
+  const validators = updateConfig?.validators || {};
+  const key = normalizeFieldKey(fieldKey);
+  const direct = validators[fieldKey] || validators[key];
+  if (direct) return direct;
+  if (updateConfig?.autoValidators) {
+    if (key.includes("email") || key.includes("mail")) return "email";
+    if (key.endsWith("guid") || key.includes("guid")) return "guid";
+    if (key.endsWith("date") || key.endsWith("datetime") || key.includes("date")) return "date";
+  }
+  return null;
+}
+
+function validateValue(kind, value) {
+  if (value === null || value === undefined || value === "") return true;
+  const raw = String(value).trim();
+  if (!raw) return true;
+  if (kind === "email") {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
+  }
+  if (kind === "guid") {
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(raw);
+  }
+  if (kind === "date") {
+    const iso = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?)?$/;
+    if (!iso.test(raw)) return false;
+    return !Number.isNaN(Date.parse(raw));
+  }
+  return true;
+}
+
+function validateUpdates(updateConfig, updates) {
+  const errors = [];
+  Object.entries(updates || {}).forEach(([key, value]) => {
+    if (!isFieldAllowed(updateConfig, key)) {
+      errors.push({ field: key, reason: "Read-only or not allowed" });
+      return;
+    }
+    const validator = getFieldValidator(updateConfig, key);
+    if (validator && !validateValue(validator, value)) {
+      errors.push({ field: key, reason: `Invalid ${validator}` });
+    }
+  });
+  return errors;
+}
+
+function buildDiffEntries(updateConfig, current, updates) {
+  const diffs = [];
+  Object.entries(updates || {}).forEach(([key, value]) => {
+    let before;
+    if (updateConfig?.payloadKey === "fields") {
+      before = current?.fields?.[key];
+    } else {
+      before = current?.[key];
+    }
+    diffs.push({ field: key, from: before, to: value });
+  });
+  return diffs;
+}
+
+function buildDiffPreviewItem(updateConfig, current, updates) {
+  const before = cloneRecord(current || {});
+  const after = applyUpdatePayload(current, updates, updateConfig);
+  const id = current?.[updateConfig?.idField || "id"];
+  return {
+    id,
+    label: getPrimaryLabel(current || {}),
+    changes: buildDiffEntries(updateConfig, current || {}, updates || {}),
+    before,
+    after,
+  };
+}
+
+function buildDiffExportPayload(items, title) {
+  return {
+    generated_at: new Date().toISOString(),
+    title: title || "Diff preview",
+    items: items || [],
+  };
+}
+
+function ensureDiffModal() {
+  let modal = document.getElementById("diff-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "diff-modal";
+  modal.classList.add("modal");
+  modal.innerHTML = `
+    <div class="modal-card diff-modal-card">
+      <div class="modal-header">
+        <div class="modal-title" id="diff-modal-title">Confirm changes</div>
+        <div class="modal-actions">
+          <button class="ghost small" id="diff-export">Export diff</button>
+          <button class="ghost small" id="diff-cancel">Cancel</button>
+          <button class="primary small" id="diff-confirm">Apply</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="diff-toolbar">
+          <label class="diff-toggle">
+            <input type="checkbox" id="diff-dry-run" />
+            <span>Dry run only (do not apply changes)</span>
+          </label>
+        </div>
+        <div class="diff-list" id="diff-list"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) {
+      modal.classList.remove("open");
+    }
+  });
+  return modal;
+}
+
+function showDiffPreview(items, title) {
+  const modal = ensureDiffModal();
+  const titleEl = modal.querySelector("#diff-modal-title");
+  const listEl = modal.querySelector("#diff-list");
+  const cancelBtn = modal.querySelector("#diff-cancel");
+  const confirmBtn = modal.querySelector("#diff-confirm");
+  const exportBtn = modal.querySelector("#diff-export");
+  const dryRunToggle = modal.querySelector("#diff-dry-run");
+  if (titleEl) titleEl.textContent = title || "Confirm changes";
+  if (listEl) listEl.innerHTML = "";
+  if (dryRunToggle) dryRunToggle.checked = false;
+
+  (items || []).forEach((item) => {
+    const card = document.createElement("div");
+    card.classList.add("diff-item");
+    const header = document.createElement("div");
+    header.classList.add("diff-item-title");
+    header.textContent = `${item.label || "Item"}${item.id ? ` · ${item.id}` : ""}`;
+    card.appendChild(header);
+    const changes = item.changes || [];
+    changes.forEach((change) => {
+      const row = document.createElement("div");
+      row.classList.add("diff-row");
+      const field = document.createElement("span");
+      field.classList.add("diff-field");
+      field.textContent = change.field;
+      const from = document.createElement("span");
+      from.classList.add("diff-from");
+      from.textContent = formatValue(change.from);
+      const arrow = document.createElement("span");
+      arrow.classList.add("diff-arrow");
+      arrow.textContent = "→";
+      const to = document.createElement("span");
+      to.classList.add("diff-to");
+      to.textContent = formatValue(change.to);
+      row.appendChild(field);
+      row.appendChild(from);
+      row.appendChild(arrow);
+      row.appendChild(to);
+      card.appendChild(row);
+    });
+    if (item.before || item.after) {
+      const details = document.createElement("details");
+      details.classList.add("diff-details");
+      const summary = document.createElement("summary");
+      summary.textContent = "Current vs Proposed";
+      details.appendChild(summary);
+      const beforeWrap = document.createElement("div");
+      beforeWrap.classList.add("diff-section");
+      const beforeTitle = document.createElement("div");
+      beforeTitle.classList.add("diff-section-title");
+      beforeTitle.textContent = "Current state";
+      beforeWrap.appendChild(beforeTitle);
+      beforeWrap.appendChild(renderValueTree(item.before));
+      const afterWrap = document.createElement("div");
+      afterWrap.classList.add("diff-section");
+      const afterTitle = document.createElement("div");
+      afterTitle.classList.add("diff-section-title");
+      afterTitle.textContent = "Proposed state";
+      afterWrap.appendChild(afterTitle);
+      afterWrap.appendChild(renderValueTree(item.after));
+      details.appendChild(beforeWrap);
+      details.appendChild(afterWrap);
+      card.appendChild(details);
+    }
+    listEl?.appendChild(card);
+  });
+
+  modal.classList.add("open");
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      modal.classList.remove("open");
+      confirmBtn.onclick = null;
+      cancelBtn.onclick = null;
+      if (exportBtn) exportBtn.onclick = null;
+    };
+    if (exportBtn) {
+      exportBtn.onclick = () => {
+        const payload = buildDiffExportPayload(items, title);
+        downloadJson(payload, `diff-${sanitizeFilename(title || "preview")}.json`);
+      };
+    }
+    if (confirmBtn) {
+      confirmBtn.onclick = () => {
+        cleanup();
+        resolve({ confirmed: true, dryRun: Boolean(dryRunToggle?.checked) });
+      };
+    }
+    if (cancelBtn) {
+      cancelBtn.onclick = () => {
+        cleanup();
+        resolve({ confirmed: false, dryRun: false });
+      };
+    }
+  });
+}
+
+function getOutputCard(service) {
+  const panel = getOutputPanel(service);
+  if (!panel) return null;
+  return panel.closest(".output-card");
+}
+
+function getBulkConcurrency(service) {
+  const raw = localStorage.getItem(`${BULK_CONCURRENCY_KEY}:${service}`);
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return BULK_CONCURRENCY_DEFAULT;
+}
+
+function setBulkConcurrency(service, value) {
+  const parsed = Math.max(1, Math.min(10, Number.parseInt(value, 10) || BULK_CONCURRENCY_DEFAULT));
+  localStorage.setItem(`${BULK_CONCURRENCY_KEY}:${service}`, String(parsed));
+  return parsed;
+}
+
+function registerBulkRetryButton(service, button) {
+  if (!button) return;
+  if (!bulkRetryButtons[service]) bulkRetryButtons[service] = [];
+  bulkRetryButtons[service].push(button);
+  updateBulkRetryButtons(service);
+}
+
+function updateBulkRetryButtons(service) {
+  let buttons = bulkRetryButtons[service] || [];
+  buttons = buttons.filter((button) => document.body.contains(button));
+  bulkRetryButtons[service] = buttons;
+  const failed = bulkFailureCache[service]?.items || [];
+  const count = failed.length;
+  buttons.forEach((button) => {
+    button.disabled = count === 0;
+    button.textContent = count ? `Retry failed (${count})` : "Retry failed";
+  });
+}
+
+function setBulkFailures(service, data) {
+  if (!data || !Array.isArray(data.items)) {
+    delete bulkFailureCache[service];
+  } else {
+    bulkFailureCache[service] = data;
+  }
+  updateBulkRetryButtons(service);
+}
+
+function findRowById(service, id, mode) {
+  if (!id) return null;
+  const container = mode === "pretty" ? getPrettyPanel(service) : getTablePanel(service);
+  if (!container) return null;
+  const safe = CSS?.escape ? CSS.escape(String(id)) : String(id).replace(/"/g, '\\"');
+  return container.querySelector(`[data-row-id="${safe}"]`);
+}
+
+function ensureBulkProgress(service) {
+  const card = getOutputCard(service);
+  if (!card) return null;
+  let container = card.querySelector(`.bulk-progress[data-service="${service}"]`);
+  if (container) return container;
+  container = document.createElement("div");
+  container.classList.add("bulk-progress");
+  container.dataset.service = service;
+  const title = document.createElement("div");
+  title.classList.add("bulk-progress-title");
+  title.textContent = "Bulk update progress";
+  const list = document.createElement("div");
+  list.classList.add("bulk-progress-list");
+  container.appendChild(title);
+  container.appendChild(list);
+  card.insertBefore(container, card.querySelector(".output-status"));
+  return container;
+}
+
+function updateBulkProgress(service, entries, summaryText) {
+  const container = ensureBulkProgress(service);
+  if (!container) return;
+  const title = container.querySelector(".bulk-progress-title");
+  if (title) {
+    title.textContent = summaryText || "Bulk update progress";
+  }
+  const list = container.querySelector(".bulk-progress-list");
+  if (!list) return;
+  list.innerHTML = "";
+  (entries || []).forEach((entry) => {
+    const row = document.createElement("div");
+    row.classList.add("bulk-progress-item", entry.status || "pending");
+    const label = document.createElement("span");
+    label.textContent = entry.label || entry.id || "Item";
+    const status = document.createElement("span");
+    status.textContent = entry.message || entry.status || "";
+    row.appendChild(label);
+    row.appendChild(status);
+    list.appendChild(row);
+  });
+}
+
+function clearBulkProgress(service) {
+  const card = getOutputCard(service);
+  if (!card) return;
+  const container = card.querySelector(`.bulk-progress[data-service="${service}"]`);
+  if (container) {
+    container.remove();
+  }
+}
+
 async function executeUpdate(service, updateConfig, itemId, updates) {
   const params = buildUpdateParams(updateConfig, itemId, updates);
   try {
@@ -5761,7 +9931,12 @@ async function executeUpdate(service, updateConfig, itemId, updates) {
     });
     const data = await res.json();
     if (!data.ok) {
-      return { ok: false, error: data.error || "Update failed", data };
+      return {
+        ok: false,
+        error: data.error || "Update failed",
+        status_code: data.status_code,
+        data,
+      };
     }
     return { ok: true, data: data.data };
   } catch (err) {
@@ -5793,6 +9968,199 @@ async function executeBulkUpdate(service, updateConfig, items) {
   } catch (err) {
     return { ok: false, error: err.message || "Bulk update failed" };
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientStatus(status) {
+  const code = Number(status || 0);
+  if (!code) return false;
+  return code === 429 || code >= 500;
+}
+
+async function executeUpdateWithRetry(service, updateConfig, itemId, updates, options = {}) {
+  const maxAttempts = options.maxAttempts || 3;
+  const baseDelay = options.baseDelay || 600;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await executeUpdate(service, updateConfig, itemId, updates);
+    if (result.ok) return result;
+    const status = result.status_code || result.data?.status_code;
+    if (!isTransientStatus(status) || attempt === maxAttempts) {
+      return result;
+    }
+    const suggested = result.data?.suggested_wait_seconds;
+    const waitMs = suggested ? suggested * 1000 : Math.min(baseDelay * 2 ** (attempt - 1), 8000);
+    const jitter = Math.floor(Math.random() * 250);
+    if (options.onRetry) {
+      options.onRetry({ attempt, waitMs: waitMs + jitter, status });
+    }
+    await sleep(waitMs + jitter);
+  }
+  return { ok: false, error: "Update failed" };
+}
+
+async function runBulkUpdateTasks(service, updateConfig, tasks, options = {}) {
+  if (!tasks.length) {
+    return { summary: { service, action: updateConfig.updateAction, total: 0, success: 0, failed: 0, results: [] }, failed: [] };
+  }
+  const concurrency = Math.min(
+    Math.max(1, Number(options.concurrency || getBulkConcurrency(service)) || BULK_CONCURRENCY_DEFAULT),
+    tasks.length
+  );
+  const progressEntries = tasks.map((task) => ({
+    id: task.id,
+    label: task.label || task.id || "Item",
+    status: "pending",
+    message: "Queued",
+  }));
+  updateBulkProgress(service, progressEntries, "Bulk update in progress");
+
+  const summary = {
+    service,
+    action: updateConfig.updateAction,
+    total: tasks.length,
+    success: 0,
+    failed: 0,
+    results: [],
+  };
+  let completed = 0;
+  let cursor = 0;
+  const failedItems = [];
+
+  const worker = async () => {
+    while (cursor < tasks.length) {
+      const index = cursor;
+      cursor += 1;
+      const task = tasks[index];
+      const progress = progressEntries[index];
+      progress.status = "running";
+      progress.message = "Updating...";
+      updateBulkProgress(service, progressEntries, `Updating ${completed + 1} of ${tasks.length}`);
+
+      const response = await executeUpdateWithRetry(service, updateConfig, task.id, task.updates, {
+        onRetry: ({ attempt, waitMs }) => {
+          progress.message = `Retry ${attempt} in ${(waitMs / 1000).toFixed(1)}s`;
+          updateBulkProgress(service, progressEntries, `Retrying ${completed + 1} of ${tasks.length}`);
+        },
+      });
+
+      if (response.ok) {
+        progress.status = "ok";
+        progress.message = "Updated";
+        summary.success += 1;
+        summary.results.push({ id: task.id, ok: true });
+        if (task.onSuccess) task.onSuccess();
+      } else {
+        progress.status = "fail";
+        progress.message = response.error || "Failed";
+        summary.failed += 1;
+        summary.results.push({ id: task.id, ok: false, error: response.error });
+        failedItems.push({ id: task.id, updates: task.updates, label: task.label });
+        if (task.onFailure) task.onFailure();
+      }
+      completed += 1;
+      updateBulkProgress(service, progressEntries, `Processed ${completed} of ${tasks.length}`);
+    }
+  };
+
+  const workers = Array.from({ length: concurrency }, worker);
+  await Promise.all(workers);
+  return { summary, failed: failedItems };
+}
+
+function finalizeBulkSummary(service, summary, label) {
+  const bulkSummary = { ...summary, __bulk_summary__: true };
+  setOutput(service, bulkSummary);
+  setOutputStatus(service, {
+    state: summary.failed ? "warn" : "ok",
+    text: label || "Bulk update complete",
+    meta: `${summary.success} ok · ${summary.failed} failed`,
+    running: false,
+  });
+}
+
+function reportDryRun(service, diffs, updateConfig) {
+  const payload = {
+    ok: true,
+    dry_run: true,
+    action: updateConfig?.updateAction,
+    count: diffs.length,
+    context: updateConfig?.context?.params || {},
+    items: diffs,
+  };
+  setOutput(service, payload);
+  setOutputStatus(service, {
+    state: "ok",
+    text: "Dry run complete",
+    meta: `${diffs.length} change${diffs.length === 1 ? "" : "s"} (not applied)`,
+    running: false,
+  });
+  showToast("Dry run complete");
+}
+
+async function retryFailedBulkUpdates(service, mode, columns) {
+  const cache = bulkFailureCache[service];
+  if (!cache || !cache.items?.length) {
+    showToast("No failed updates to retry");
+    return;
+  }
+  const updateConfig = cache.updateConfig;
+  if (!updateConfig) {
+    showToast("Missing update configuration");
+    return;
+  }
+  const tasks = cache.items.map((item) => {
+    const row = findRowById(service, item.id, mode);
+    let original = null;
+    if (row) {
+      const current = mode === "pretty" ? prettyRowCurrent.get(row) || {} : tableRowCurrent.get(row) || {};
+      original = cloneRecord(current);
+      const optimistic = applyUpdatePayload(current, item.updates, updateConfig);
+      if (mode === "pretty") {
+        applyPrettyRowUpdates(row, optimistic);
+      } else if (columns) {
+        applyRowUpdates(row, columns, optimistic);
+      }
+    }
+    return {
+      id: item.id,
+      updates: item.updates,
+      label: item.label || item.id,
+      onSuccess: () => {
+        if (row) {
+          if (mode === "pretty") {
+            prettyRowOriginal.set(row, cloneRecord(prettyRowCurrent.get(row)));
+          } else {
+            tableRowOriginal.set(row, cloneRecord(tableRowCurrent.get(row)));
+          }
+        }
+      },
+      onFailure: () => {
+        if (row && original) {
+          if (mode === "pretty") {
+            applyPrettyRowUpdates(row, original);
+          } else if (columns) {
+            applyRowUpdates(row, columns, original);
+          }
+        }
+      },
+    };
+  });
+
+  const { summary, failed } = await runBulkUpdateTasks(service, updateConfig, tasks, {
+    concurrency: getBulkConcurrency(service),
+  });
+  setBulkFailures(service, {
+    updateConfig,
+    context: cache.context || {},
+    items: failed,
+    source: mode,
+    columns,
+  });
+  finalizeBulkSummary(service, summary, "Retry complete");
+  showToast("Retry completed");
 }
 
 function renderValueTree(value) {
@@ -5938,10 +10306,19 @@ function applyOutputSearch(service) {
   }
 }
 
-function getTableRows(parsed) {
+function getStructuredList(service, parsed) {
   if (!parsed) return null;
+  if (parsed?.__bulk_summary__ && lastStructuredLists[service]) {
+    return lastStructuredLists[service];
+  }
   if (Array.isArray(parsed)) return parsed;
   if (Array.isArray(parsed?.value)) return parsed.value;
+  return null;
+}
+
+function getTableRows(service, parsed) {
+  const list = getStructuredList(service, parsed);
+  if (list) return list;
   if (typeof parsed === "object") return [parsed];
   return null;
 }
@@ -6159,6 +10536,9 @@ function showModal(title, data, service) {
         input.type = "checkbox";
         input.checked = Boolean(data[field.key]);
         wrapper.classList.add("checkbox");
+        input.addEventListener("change", () => {
+          input.dataset.touched = "true";
+        });
       } else {
         input = document.createElement("input");
         input.type = "text";
@@ -6208,6 +10588,7 @@ function showModal(title, data, service) {
       EDITABLE_USER_FIELDS.forEach((field) => {
         const input = editInputs[field.key];
         if (!input) return;
+        const wasTouched = input.dataset.touched === "true";
         let nextValue;
         if (field.type === "checkbox") {
           nextValue = input.checked;
@@ -6224,6 +10605,9 @@ function showModal(title, data, service) {
 
         const originalValue = original[field.key];
         if (field.type === "checkbox") {
+          if (field.key === "accountEnabled" && !wasTouched) {
+            return;
+          }
           if (Boolean(originalValue) !== Boolean(nextValue)) {
             updates[field.key] = nextValue;
           }
@@ -6289,7 +10673,10 @@ function renderPretty(service, parsed) {
     return;
   }
 
-  const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.value) ? parsed.value : null;
+  const list = getStructuredList(service, parsed);
+  if (list) {
+    lastStructuredLists[service] = list;
+  }
   if (list) {
     const listEl = document.createElement("div");
     listEl.classList.add("pretty-list");
@@ -6313,11 +10700,33 @@ function renderPretty(service, parsed) {
       cancelSelected.type = "button";
       cancelSelected.classList.add("ghost", "small");
       cancelSelected.textContent = "Cancel";
+      const retryFailed = document.createElement("button");
+      retryFailed.type = "button";
+      retryFailed.classList.add("ghost", "small");
+      retryFailed.textContent = "Retry failed";
+      registerBulkRetryButton(service, retryFailed);
+      const concurrencyWrap = document.createElement("label");
+      concurrencyWrap.classList.add("bulk-concurrency");
+      const concurrencyLabel = document.createElement("span");
+      concurrencyLabel.textContent = "Concurrency";
+      const concurrencyInput = document.createElement("input");
+      concurrencyInput.type = "number";
+      concurrencyInput.min = "1";
+      concurrencyInput.max = "10";
+      concurrencyInput.value = String(getBulkConcurrency(service));
+      concurrencyInput.addEventListener("change", () => {
+        const next = setBulkConcurrency(service, concurrencyInput.value);
+        concurrencyInput.value = String(next);
+      });
+      concurrencyWrap.appendChild(concurrencyLabel);
+      concurrencyWrap.appendChild(concurrencyInput);
       toolbar.appendChild(selectAll);
       toolbar.appendChild(selectLabel);
       toolbar.appendChild(editSelected);
       toolbar.appendChild(saveSelected);
       toolbar.appendChild(cancelSelected);
+      toolbar.appendChild(retryFailed);
+      toolbar.appendChild(concurrencyWrap);
       listEl.appendChild(toolbar);
 
       selectAll.addEventListener("change", () => {
@@ -6353,46 +10762,109 @@ function renderPretty(service, parsed) {
           showToast("No rows selected");
           return;
         }
+        if (selected.length > IMPACT_WARN_THRESHOLD) {
+          const proceed = window.confirm(
+            `This bulk update will affect ${selected.length} items. Continue?`
+          );
+          if (!proceed) {
+            showToast("Bulk update cancelled");
+            return;
+          }
+        }
+        if (selected.length > IMPACT_WARN_THRESHOLD) {
+          const proceed = window.confirm(
+            `This bulk update will affect ${selected.length} items. Continue?`
+          );
+          if (!proceed) {
+            showToast("Bulk update cancelled");
+            return;
+          }
+        }
         const payloads = [];
         const optimistic = [];
+        const diffs = [];
+        const validationFailures = [];
         selected.forEach((row) => {
           const result = collectPrettyRowUpdates(row);
           if (!result) return;
           const { updates, original, current } = result;
           if (!Object.keys(updates).length) return;
+          const errors = validateUpdates(updateConfig, updates);
+          if (errors.length) {
+            validationFailures.push({
+              label: getPrimaryLabel(current),
+              errors,
+            });
+            return;
+          }
           optimistic.push({ row, original, current });
           payloads.push({
             id: current?.[updateConfig.idField || "id"],
             updates,
           });
-          const optimisticData = applyUpdatePayload(current, updates, updateConfig);
-          applyPrettyRowUpdates(row, optimisticData);
+          diffs.push(buildDiffPreviewItem(updateConfig, current, updates));
         });
+        if (validationFailures.length) {
+          const fields = validationFailures
+            .map((entry) => `${entry.label}: ${entry.errors.map((err) => err.field).join(", ")}`)
+            .slice(0, 3)
+            .join(" | ");
+          showToast(`Validation failed: ${fields}`);
+          return;
+        }
         if (!payloads.length) {
           showToast("No changes to save");
           return;
         }
-        const response = await executeBulkUpdate(service, updateConfig, payloads);
-        if (!response.ok) {
-          optimistic.forEach(({ row, original }) => applyPrettyRowUpdates(row, original));
-          showToast(response.error || "Bulk update failed");
+        const preview = await showDiffPreview(diffs, "Confirm bulk updates");
+        if (!preview.confirmed) {
+          showToast("Bulk update cancelled");
           return;
         }
-        const results = response.data?.results || [];
-        results.forEach((entry) => {
-          if (entry.ok) return;
-          const failed = optimistic.find((item) => item.current?.[updateConfig.idField] === entry.id);
-          if (failed) {
-            applyPrettyRowUpdates(failed.row, failed.original);
-          }
+        if (preview.dryRun) {
+          reportDryRun(service, diffs, updateConfig);
+          return;
+        }
+        optimistic.forEach(({ row, current }) => {
+          const updates = payloads.find((entry) => entry.id === current?.[updateConfig.idField || "id"])?.updates;
+          const nextData = applyUpdatePayload(current, updates || {}, updateConfig);
+          applyPrettyRowUpdates(row, nextData);
         });
+        const tasks = optimistic.map((item, index) => ({
+          id: item.current?.[updateConfig.idField || "id"],
+          updates: payloads[index].updates,
+          label: getPrimaryLabel(item.current),
+          onSuccess: () => {
+            prettyRowOriginal.set(item.row, cloneRecord(prettyRowCurrent.get(item.row)));
+          },
+          onFailure: () => {
+            applyPrettyRowUpdates(item.row, item.original);
+          },
+        }));
+        const { summary, failed } = await runBulkUpdateTasks(service, updateConfig, tasks, {
+          concurrency: getBulkConcurrency(service),
+        });
+        setBulkFailures(service, {
+          updateConfig,
+          context: updateConfig.context?.params || {},
+          items: failed,
+          source: "pretty",
+        });
+        finalizeBulkSummary(service, summary, "Bulk update complete");
         showToast("Bulk update completed");
+      });
+
+      retryFailed.addEventListener("click", async () => {
+        await retryFailedBulkUpdates(service, "pretty");
       });
     }
     list.forEach((item) => {
       const row = document.createElement("div");
       row.classList.add("pretty-row");
       row.dataset.search = buildSearchIndex(item);
+      if (updateConfig?.idField && item?.[updateConfig.idField]) {
+        row.dataset.rowId = item[updateConfig.idField];
+      }
       prettyRowCurrent.set(row, cloneRecord(item));
       prettyRowOriginal.set(row, cloneRecord(item));
 
@@ -6470,13 +10942,34 @@ function renderPretty(service, parsed) {
             cancelBtn.style.display = "none";
             return;
           }
+          const errors = validateUpdates(updateConfig, updates);
+          if (errors.length) {
+            showToast(`Validation failed: ${errors.map((err) => err.field).join(", ")}`);
+            return;
+          }
+        const diffItem = buildDiffPreviewItem(updateConfig, current, updates);
+        const preview = await showDiffPreview([diffItem], "Confirm update");
+        if (!preview.confirmed) {
+          showToast("Update cancelled");
+          return;
+        }
+        if (preview.dryRun) {
+          reportDryRun(service, [diffItem], updateConfig);
+          return;
+        }
           const optimisticData = applyUpdatePayload(current, updates, updateConfig);
           applyPrettyRowUpdates(row, optimisticData);
-          const response = await executeUpdate(service, updateConfig, current?.[updateConfig.idField], updates);
+          const response = await executeUpdateWithRetry(
+            service,
+            updateConfig,
+            current?.[updateConfig.idField],
+            updates
+          );
           if (!response.ok) {
             applyPrettyRowUpdates(row, original);
             showToast(response.error || "Update failed");
           } else {
+            prettyRowOriginal.set(row, cloneRecord(prettyRowCurrent.get(row)));
             showToast("Row updated");
           }
           exitPrettyEdit(row, false);
@@ -6511,9 +11004,13 @@ function renderPretty(service, parsed) {
         editPanel.style.display = "none";
         const editFields = document.createElement("div");
         editFields.classList.add("pretty-edit-fields");
-        let editableKeys = Object.keys(item || {}).filter((key) => isEditableValue(item[key]));
+        let editableKeys = Object.keys(item || {}).filter(
+          (key) => isEditableValue(item[key]) && isFieldAllowed(updateConfig, key)
+        );
         if (updateConfig?.payloadKey === "fields" && item?.fields && typeof item.fields === "object") {
-          editableKeys = Object.keys(item.fields).map((key) => `fields.${key}`);
+          editableKeys = Object.keys(item.fields)
+            .filter((key) => isFieldAllowed(updateConfig, key))
+            .map((key) => `fields.${key}`);
         }
         editableKeys.forEach((key) => {
           const field = document.createElement("label");
@@ -6562,19 +11059,30 @@ function buildCellEditor(value) {
     select.value = value ? "true" : "false";
     return select;
   }
+  if (Array.isArray(value)) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = value.map((entry) => String(entry)).join(", ");
+    return input;
+  }
   const input = document.createElement("input");
   input.type = typeof value === "number" ? "number" : "text";
   input.value = value === null || value === undefined ? "" : String(value);
   return input;
 }
 
-function enterTableEdit(tr, columns) {
+function enterTableEdit(tr, columns, updateConfig) {
   if (tr.dataset.editing === "true") return;
   const current = tableRowCurrent.get(tr) || {};
   columns.forEach((col) => {
     const td = tr.querySelector(`td[data-key="${col}"]`);
     if (!td) return;
+    if (updateConfig?.payloadKey === "fields" && !col.startsWith("fields.")) {
+      return;
+    }
     const value = getColumnValue(current, col);
+    const fieldName = col.startsWith("fields.") ? col.slice(7) : col;
+    if (!isFieldAllowed(updateConfig, fieldName)) return;
     if (!isEditableValue(value)) return;
     td.innerHTML = "";
     const editor = buildCellEditor(value);
@@ -6602,6 +11110,10 @@ function collectTableRowUpdates(tr, columns, updateConfig) {
     if (updateConfig?.payloadKey === "fields" && !col.startsWith("fields.")) {
       return;
     }
+    const fieldName = col.startsWith("fields.") ? col.slice(7) : col;
+    if (!isFieldAllowed(updateConfig, fieldName)) {
+      return;
+    }
     const td = tr.querySelector(`td[data-key="${col}"]`);
     if (!td) return;
     const input = td.querySelector("input, select");
@@ -6609,7 +11121,7 @@ function collectTableRowUpdates(tr, columns, updateConfig) {
     const originalValue = getColumnValue(current, col);
     if (!isEditableValue(originalValue)) return;
     const nextValue = coerceValue(input.value, originalValue);
-    if (nextValue !== originalValue) {
+    if (!valuesEqual(nextValue, originalValue)) {
       if (col.startsWith("fields.")) {
         updates[col.slice(7)] = nextValue;
       } else {
@@ -6728,7 +11240,7 @@ function collectPrettyRowUpdates(row) {
     const originalValue = key.startsWith("fields.") ? current?.fields?.[key.slice(7)] : current?.[key];
     if (!isEditableValue(originalValue)) return;
     const nextValue = coerceValue(input.value, originalValue);
-    if (nextValue !== originalValue) {
+    if (!valuesEqual(nextValue, originalValue)) {
       if (key.startsWith("fields.")) {
         updates[key.slice(7)] = nextValue;
       } else {
@@ -6748,7 +11260,10 @@ function renderTable(service, parsed) {
   const container = getTablePanel(service);
   if (!container) return;
   container.innerHTML = "";
-  const rows = getTableRows(parsed);
+  const rows = getTableRows(service, parsed);
+  if (rows) {
+    lastStructuredLists[service] = rows;
+  }
   if (!rows || !rows.length) {
     const empty = document.createElement("div");
     empty.classList.add("table-empty");
@@ -6798,11 +11313,33 @@ function renderTable(service, parsed) {
     cancelSelected.type = "button";
     cancelSelected.classList.add("ghost", "small");
     cancelSelected.textContent = "Cancel";
+    const retryFailed = document.createElement("button");
+    retryFailed.type = "button";
+    retryFailed.classList.add("ghost", "small");
+    retryFailed.textContent = "Retry failed";
+    registerBulkRetryButton(service, retryFailed);
+    const concurrencyWrap = document.createElement("label");
+    concurrencyWrap.classList.add("bulk-concurrency");
+    const concurrencyLabel = document.createElement("span");
+    concurrencyLabel.textContent = "Concurrency";
+    const concurrencyInput = document.createElement("input");
+    concurrencyInput.type = "number";
+    concurrencyInput.min = "1";
+    concurrencyInput.max = "10";
+    concurrencyInput.value = String(getBulkConcurrency(service));
+    concurrencyInput.addEventListener("change", () => {
+      const next = setBulkConcurrency(service, concurrencyInput.value);
+      concurrencyInput.value = String(next);
+    });
+    concurrencyWrap.appendChild(concurrencyLabel);
+    concurrencyWrap.appendChild(concurrencyInput);
     toolbar.appendChild(selectAll);
     toolbar.appendChild(selectLabel);
     toolbar.appendChild(editSelected);
     toolbar.appendChild(saveSelected);
     toolbar.appendChild(cancelSelected);
+    toolbar.appendChild(retryFailed);
+    toolbar.appendChild(concurrencyWrap);
     wrap.appendChild(toolbar);
 
     selectAll.addEventListener("change", () => {
@@ -6816,7 +11353,7 @@ function renderTable(service, parsed) {
       wrap.querySelectorAll("tbody tr").forEach((tr) => {
         const checkbox = tr.querySelector(".row-select");
         if (checkbox?.checked) {
-          enterTableEdit(tr, columns);
+          enterTableEdit(tr, columns, updateConfig);
         }
       });
     });
@@ -6830,50 +11367,90 @@ function renderTable(service, parsed) {
       });
     });
 
-    saveSelected.addEventListener("click", async () => {
-      const selected = Array.from(wrap.querySelectorAll("tbody tr")).filter((tr) =>
-        tr.querySelector(".row-select")?.checked
-      );
-      if (!selected.length) {
-        showToast("No rows selected");
-        return;
-      }
-      const payloads = [];
-      const optimistic = [];
-      selected.forEach((tr) => {
-        const result = collectTableRowUpdates(tr, columns, updateConfig);
-        if (!result) return;
-        const { updates, original, current } = result;
-        if (!Object.keys(updates).length) return;
-        optimistic.push({ tr, original, current });
-        payloads.push({
-          id: current?.[updateConfig.idField || "id"],
-          updates,
-        });
-        const optimisticData = applyUpdatePayload(current, updates, updateConfig);
-        applyRowUpdates(tr, columns, optimisticData);
-      });
-      if (!payloads.length) {
-        showToast("No changes to save");
-        return;
-      }
-      const response = await executeBulkUpdate(service, updateConfig, payloads);
-      if (!response.ok) {
-        optimistic.forEach(({ tr, original }) => applyRowUpdates(tr, columns, original));
-        showToast(response.error || "Bulk update failed");
-        return;
-      }
-      const results = response.data?.results || [];
-      results.forEach((entry) => {
-        if (entry.ok) return;
-        const failed = optimistic.find((item) => item.current?.[updateConfig.idField] === entry.id);
-        if (failed) {
-          applyRowUpdates(failed.tr, columns, failed.original);
+      saveSelected.addEventListener("click", async () => {
+        const selected = Array.from(wrap.querySelectorAll("tbody tr")).filter((tr) =>
+          tr.querySelector(".row-select")?.checked
+        );
+        if (!selected.length) {
+          showToast("No rows selected");
+          return;
         }
+        const validationFailures = [];
+        const payloads = [];
+        const optimistic = [];
+        const diffs = [];
+        selected.forEach((tr) => {
+          const result = collectTableRowUpdates(tr, columns, updateConfig);
+          if (!result) return;
+          const { updates, original, current } = result;
+          if (!Object.keys(updates).length) return;
+          const errors = validateUpdates(updateConfig, updates);
+          if (errors.length) {
+            validationFailures.push({
+              label: getPrimaryLabel(current),
+              errors,
+            });
+            return;
+          }
+          const nextData = applyUpdatePayload(current, updates, updateConfig);
+          optimistic.push({ tr, original, current, nextData });
+          payloads.push({
+            id: current?.[updateConfig.idField || "id"],
+            updates,
+          });
+          diffs.push(buildDiffPreviewItem(updateConfig, current, updates));
+        });
+        if (validationFailures.length) {
+          const fields = validationFailures
+            .map((entry) => `${entry.label}: ${entry.errors.map((err) => err.field).join(", ")}`)
+            .slice(0, 3)
+            .join(" | ");
+          showToast(`Validation failed: ${fields}`);
+          return;
+        }
+        if (!payloads.length) {
+          showToast("No changes to save");
+          return;
+        }
+        const preview = await showDiffPreview(diffs, "Confirm bulk updates");
+        if (!preview.confirmed) {
+          showToast("Bulk update cancelled");
+          return;
+        }
+        if (preview.dryRun) {
+          reportDryRun(service, diffs, updateConfig);
+          return;
+        }
+        optimistic.forEach(({ tr, nextData }) => applyRowUpdates(tr, columns, nextData));
+        const tasks = optimistic.map((item, index) => ({
+          id: item.current?.[updateConfig.idField || "id"],
+          updates: payloads[index].updates,
+          label: getPrimaryLabel(item.current),
+          onSuccess: () => {
+            tableRowOriginal.set(item.tr, cloneRecord(tableRowCurrent.get(item.tr)));
+          },
+          onFailure: () => {
+            applyRowUpdates(item.tr, columns, item.original);
+          },
+        }));
+        const { summary, failed } = await runBulkUpdateTasks(service, updateConfig, tasks, {
+          concurrency: getBulkConcurrency(service),
+        });
+        setBulkFailures(service, {
+          updateConfig,
+          context: updateConfig.context?.params || {},
+          items: failed,
+          source: "table",
+          columns,
+        });
+        finalizeBulkSummary(service, summary, "Bulk update complete");
+        showToast("Bulk update completed");
       });
-      showToast("Bulk update completed");
+
+    retryFailed.addEventListener("click", async () => {
+      await retryFailedBulkUpdates(service, "table", columns);
     });
-  }
+    }
 
   const table = document.createElement("table");
   table.classList.add("data-table");
@@ -6899,6 +11476,9 @@ function renderTable(service, parsed) {
   normalized.forEach((row) => {
     const tr = document.createElement("tr");
     tr.dataset.search = buildSearchIndex(row);
+    if (updateConfig?.idField && row?.[updateConfig.idField]) {
+      tr.dataset.rowId = row[updateConfig.idField];
+    }
     tableRowCurrent.set(tr, cloneRecord(row));
     tableRowOriginal.set(tr, cloneRecord(row));
     if (canEdit) {
@@ -6944,7 +11524,7 @@ function renderTable(service, parsed) {
       cancelBtn.textContent = "Cancel";
       cancelBtn.style.display = "none";
       editBtn.addEventListener("click", () => {
-        enterTableEdit(tr, columns);
+        enterTableEdit(tr, columns, updateConfig);
         editBtn.style.display = "none";
         saveBtn.style.display = "inline-flex";
         cancelBtn.style.display = "inline-flex";
@@ -6967,13 +11547,34 @@ function renderTable(service, parsed) {
           cancelBtn.style.display = "none";
           return;
         }
+        const errors = validateUpdates(updateConfig, updates);
+        if (errors.length) {
+          showToast(`Validation failed: ${errors.map((err) => err.field).join(", ")}`);
+          return;
+        }
+        const diffItem = buildDiffPreviewItem(updateConfig, current, updates);
+        const preview = await showDiffPreview([diffItem], "Confirm update");
+        if (!preview.confirmed) {
+          showToast("Update cancelled");
+          return;
+        }
+        if (preview.dryRun) {
+          reportDryRun(service, [diffItem], updateConfig);
+          return;
+        }
         const optimisticData = applyUpdatePayload(current, updates, updateConfig);
         applyRowUpdates(tr, columns, optimisticData);
-        const response = await executeUpdate(service, updateConfig, current?.[updateConfig.idField], updates);
+          const response = await executeUpdateWithRetry(
+            service,
+            updateConfig,
+            current?.[updateConfig.idField],
+            updates
+          );
         if (!response.ok) {
           applyRowUpdates(tr, columns, original);
           showToast(response.error || "Update failed");
         } else {
+          tableRowOriginal.set(tr, cloneRecord(tableRowCurrent.get(tr)));
           showToast("Row updated");
         }
         exitTableEdit(tr, columns, false);
@@ -6999,6 +11600,7 @@ function setOutput(service, content) {
   const dashboard = getOutputPanel("dashboard");
   let rawText = "";
   let parsed = null;
+  const isBulkSummary = typeof content === "object" && content?.__bulk_summary__;
 
   if (typeof content === "string") {
     rawText = content;
@@ -7015,8 +11617,12 @@ function setOutput(service, content) {
     dashboard.textContent = rawText;
   }
   lastOutputs[service] = parsed ?? rawText;
+  if (!isBulkSummary) {
+    setBulkFailures(service, null);
+  }
   renderPretty(service, parsed);
   renderTable(service, parsed);
+  renderExplanation(service, parsed);
   renderGraph(service, parsed);
   if (service === "reports") {
     updateReportExportOptions(parsed);
@@ -7027,6 +11633,7 @@ function confirmAction(service, action, params = {}) {
   const meta = ACTIONS_UI?.[service]?.[action];
   if (!meta?.confirm) return true;
   const label = meta.label || `${service}.${action}`;
+  const risk = formatRiskLabel(getActionRisk(service, action));
   const detailKeys = [
     "user_dn",
     "group_dn",
@@ -7045,25 +11652,48 @@ function confirmAction(service, action, params = {}) {
       return `${key}: ${value}`;
     })
     .filter(Boolean);
-  const message = details.length
-    ? `Confirm ${label}?\n\n${details.join("\n")}`
-    : `Confirm ${label}?`;
+  const detailBlock = details.length ? `\n\n${details.join("\n")}` : "";
+  const message = `Risk: ${risk}\nConfirm ${label}?${detailBlock}`;
   return window.confirm(message);
 }
 
 async function runAction(service, action, params = {}, options = {}) {
+  initRunMeta(service, action, params);
   const preflight = await preflightAction(service, action);
+  updateRunMeta(service, { preflight: sanitizeParams(preflight || {}) });
   if (!preflight.ok) {
+    finalizeRunMeta(service, {
+      ok: false,
+      stage: "preflight_failed",
+      error: "Preflight failed",
+      details: preflight.data || preflight.error,
+    });
     handlePreflightFailure(service, action, preflight.data || preflight.error);
     return { ok: false, preflight };
   }
   if (preflight.warning) {
+    updateRunMeta(service, { preflight_warning: sanitizeParams(preflight.warning) });
     handlePreflightWarning(service, action, preflight.warning);
   }
   const track = options.track !== false;
   if (track && activeRequests.has(service)) {
+    finalizeRunMeta(service, { ok: false, busy: true, error: "Action already running" });
     showToast("Action already running");
     return { ok: false, busy: true };
+  }
+  const guardrailsOk = await applyGuardrails(service, action, params);
+  if (!guardrailsOk) {
+    finalizeRunMeta(service, { ok: false, cancelled: true, stage: "guardrails" });
+    showToast("Action cancelled by guardrails");
+    addActivity(`Guardrails cancelled: ${activityLabel(service, action)}`);
+    setOutput(service, "Cancelled.");
+    setOutputStatus(service, {
+      state: "warn",
+      text: `${activityLabel(service, action)} cancelled`,
+      meta: "Guardrails stopped the action",
+      running: false,
+    });
+    return { ok: false, cancelled: true };
   }
   const controller = options.controller || new AbortController();
   if (track) {
@@ -7071,6 +11701,7 @@ async function runAction(service, action, params = {}, options = {}) {
     setRunnerRunning(service, true);
   }
   if (!confirmAction(service, action, params)) {
+    finalizeRunMeta(service, { ok: false, cancelled: true, stage: "cancelled" });
     showToast("Action cancelled");
     addActivity(`Cancelled: ${activityLabel(service, action)}`);
     setOutputStatus(service, {
@@ -7088,7 +11719,12 @@ async function runAction(service, action, params = {}, options = {}) {
   const label = activityLabel(service, action);
   const mode = ACTIONS_UI?.[service]?.[action]?.mode || "graph";
   const modeText = modeLabel(mode);
+  updateRunMeta(service, { label, mode, params: sanitizeParams(params || {}) });
+  if (shouldStoreContext(service, action)) {
+    lastActionContext[service] = { action, params };
+  }
   showToast("Dispatching action...");
+  updateRunMeta(service, { dispatched_at: new Date().toISOString() });
   setOutput(service, "Running...");
   setOutputStatus(service, {
     state: "running",
@@ -7104,15 +11740,32 @@ async function runAction(service, action, params = {}, options = {}) {
 
   try {
     const startedAt = performance.now();
+    updateRunMeta(service, { request_started_at: new Date().toISOString() });
+    const finalParams = { ...(params || {}) };
+    if (shouldDisableSnapshots(service, action)) {
+      finalParams._snapshot = false;
+    }
     const res = await fetch("/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service, action, params }),
+      body: JSON.stringify({ service, action, params: finalParams }),
       signal: controller.signal,
     });
     const data = await res.json();
     const elapsedMs = performance.now() - startedAt;
     if (!data.ok) {
+      const errorMeta = extractErrorMeta(data) || {};
+      finalizeRunMeta(service, {
+        ok: false,
+        http_status: res.status,
+        status_code: errorMeta.status || data.status_code || data.status || null,
+        request_id: errorMeta.requestId || data.request_id || null,
+        error: errorMeta.message || data.error || null,
+        hint: errorMeta.hint || data.hint || null,
+        rate_limit: errorMeta.rateLimit || data.rate_limit || null,
+        suggested_wait_seconds: errorMeta.suggestedWait || data.suggested_wait_seconds || null,
+        elapsed_ms: elapsedMs,
+      });
       setOutput(service, data);
       const status = data.status_code || data.status || "";
       const statusLabel = status ? `HTTP ${status}` : "Failed";
@@ -7130,11 +11783,20 @@ async function runAction(service, action, params = {}, options = {}) {
       lastActionContext[service] = { action, params };
     }
     setOutput(service, data.data);
+    if (service === "reports") {
+      refreshReportHistory();
+    }
     setOutputStatus(service, {
       state: "ok",
       text: `${label} complete`,
       meta: `${modeText} · ${formatElapsed(elapsedMs)}`,
       running: false,
+    });
+    finalizeRunMeta(service, {
+      ok: true,
+      http_status: res.status,
+      request_id: data.request_id || data.data?.request_id || data.data?.requestId || null,
+      elapsed_ms: elapsedMs,
     });
     if (service === "topology") {
       if (action === "collect_topology") {
@@ -7164,6 +11826,7 @@ async function runAction(service, action, params = {}, options = {}) {
     return { ok: true, data: data.data };
   } catch (err) {
     if (err.name === "AbortError") {
+      finalizeRunMeta(service, { ok: false, cancelled: true, error: "Aborted" });
       setOutput(service, "Cancelled.");
       addActivity(`Cancelled: ${activityLabel(service, action)}`);
       setOutputStatus(service, {
@@ -7175,6 +11838,7 @@ async function runAction(service, action, params = {}, options = {}) {
       showToast("Action cancelled");
       return { ok: false, cancelled: true };
     }
+    finalizeRunMeta(service, { ok: false, error: err.message || "Error" });
     setOutput(service, `Error: ${err.message}`);
     addActivity(`Error: ${activityLabel(service, action)}`);
     setOutputStatus(service, {
@@ -7534,13 +12198,83 @@ function modeLabel(mode) {
   return "Graph";
 }
 
+function formatRiskLabel(risk) {
+  if (risk === "danger") return "Dangerous";
+  if (risk === "caution") return "Caution";
+  return "Safe";
+}
+
+function getActionRisk(service, action) {
+  const meta = ACTIONS_UI?.[service]?.[action] || {};
+  if (meta.risk) return meta.risk;
+  const name = String(action || "").toLowerCase();
+  if (
+    name.includes("delete") ||
+    name.includes("remove") ||
+    name.includes("disable") ||
+    name.includes("unlink") ||
+    name.includes("reset") ||
+    name.includes("restore") ||
+    name.includes("set_user_license") ||
+    name.includes("set_static_ip") ||
+    name.includes("set_dns_servers") ||
+    name.includes("set_interface_metric") ||
+    name.includes("set_mtu")
+  ) {
+    return "danger";
+  }
+  if (
+    name.startsWith("set") ||
+    name.includes("set_") ||
+    name.includes("update") ||
+    name.includes("assign") ||
+    name.includes("grant") ||
+    name.includes("create") ||
+    name.includes("enable") ||
+    name.includes("link") ||
+    name.includes("move") ||
+    name.includes("rename")
+  ) {
+    return "caution";
+  }
+  if (meta.confirm) return "caution";
+  return "safe";
+}
+
+function addRiskBadge(container, risk) {
+  const badge = document.createElement("span");
+  badge.classList.add("badge", "risk", `risk-${risk}`);
+  badge.textContent = formatRiskLabel(risk);
+  container.appendChild(badge);
+}
+
 function addChipBadge(chip, mode) {
-  if (chip.querySelector(".badge")) return;
   const badge = document.createElement("span");
   badge.classList.add("badge");
   badge.classList.add(mode === "powershell" ? "ps" : "graph");
   badge.textContent = modeLabel(mode);
   chip.appendChild(badge);
+}
+
+const SNAPSHOT_TOGGLE_EXCLUDE = new Set(["dashboard", "health", "security", "ssh"]);
+
+function ensureSnapshotToggle(actions, service) {
+  if (!actions || SNAPSHOT_TOGGLE_EXCLUDE.has(service)) return;
+  if (actions.querySelector(".snapshot-toggle")) return;
+  const label = document.createElement("label");
+  label.classList.add("snapshot-toggle");
+  label.title = "Applies to read-only actions";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = getSnapshotPreference(service);
+  input.addEventListener("change", () => {
+    setSnapshotPreference(service, input.checked);
+  });
+  const text = document.createElement("span");
+  text.textContent = "Save snapshot";
+  label.appendChild(input);
+  label.appendChild(text);
+  actions.appendChild(label);
 }
 
 function decorateChips() {
@@ -7550,7 +12284,13 @@ function decorateChips() {
     if (!meta) return;
     const mode = meta.mode || "graph";
     chip.dataset.mode = mode;
-    addChipBadge(chip, mode);
+    if (!chip.querySelector(".badge.ps, .badge.graph")) {
+      addChipBadge(chip, mode);
+    }
+    if (!chip.querySelector(".badge.risk")) {
+      const risk = getActionRisk(service, action);
+      addRiskBadge(chip, risk);
+    }
   });
 }
 
@@ -7579,6 +12319,46 @@ function setupOutputViews() {
     const anchor = pre;
     card.insertBefore(status, anchor);
 
+    const clearButton = card.querySelector(`.clear-output[data-output-target="${service}"]`);
+    if (clearButton) {
+      const terminalControls = clearButton.closest(".terminal-controls");
+      if (terminalControls) {
+        if (!terminalControls.querySelector(".incident-bundle")) {
+          const bundleButton = document.createElement("button");
+          bundleButton.type = "button";
+          bundleButton.classList.add("ghost", "small", "incident-bundle");
+          bundleButton.dataset.outputTarget = service;
+          bundleButton.textContent = "Export incident bundle";
+          bundleButton.addEventListener("click", () => exportIncidentBundle(service));
+          terminalControls.appendChild(bundleButton);
+        }
+      } else {
+        let actions = card.querySelector(".output-actions");
+        if (!actions) {
+          actions = document.createElement("div");
+          actions.classList.add("output-actions");
+          if (clearButton.parentElement === card) {
+            card.insertBefore(actions, clearButton);
+          } else {
+            card.appendChild(actions);
+          }
+        }
+        if (!actions.contains(clearButton)) {
+          actions.appendChild(clearButton);
+        }
+        if (!actions.querySelector(".incident-bundle")) {
+          const bundleButton = document.createElement("button");
+          bundleButton.type = "button";
+          bundleButton.classList.add("ghost", "small", "incident-bundle");
+          bundleButton.dataset.outputTarget = service;
+          bundleButton.textContent = "Export incident bundle";
+          bundleButton.addEventListener("click", () => exportIncidentBundle(service));
+          actions.appendChild(bundleButton);
+        }
+        ensureSnapshotToggle(actions, service);
+      }
+    }
+
     if (isTerminal) {
       pre.dataset.enhanced = "true";
       return;
@@ -7596,6 +12376,11 @@ function setupOutputViews() {
     prettyButton.classList.add("tab");
     prettyButton.dataset.view = "pretty";
     prettyButton.textContent = "Pretty";
+    const explainButton = document.createElement("button");
+    explainButton.type = "button";
+    explainButton.classList.add("tab");
+    explainButton.dataset.view = "explain";
+    explainButton.textContent = "Explain";
     const wantsGraph = service === "topology-report";
     const includeTable = !wantsGraph;
     let tableButton = null;
@@ -7616,6 +12401,7 @@ function setupOutputViews() {
     }
     tabs.appendChild(rawButton);
     tabs.appendChild(prettyButton);
+    tabs.appendChild(explainButton);
     if (tableButton) tabs.appendChild(tableButton);
     if (graphButton) tabs.appendChild(graphButton);
 
@@ -7637,6 +12423,9 @@ function setupOutputViews() {
     const pretty = document.createElement("div");
     pretty.classList.add("output-pretty");
     pretty.dataset.output = pre.dataset.output;
+    const explain = document.createElement("div");
+    explain.classList.add("output-explain");
+    explain.dataset.output = pre.dataset.output;
     const table = document.createElement("div");
     table.classList.add("output-table");
     table.dataset.output = pre.dataset.output;
@@ -7650,6 +12439,7 @@ function setupOutputViews() {
     card.insertBefore(wrapper, anchor);
     wrapper.appendChild(pre);
     wrapper.appendChild(pretty);
+    wrapper.appendChild(explain);
     if (includeTable) {
       wrapper.appendChild(table);
     }
@@ -7660,10 +12450,12 @@ function setupOutputViews() {
     const switchView = (view) => {
       rawButton.classList.toggle("active", view === "raw");
       prettyButton.classList.toggle("active", view === "pretty");
+      explainButton.classList.toggle("active", view === "explain");
       if (tableButton) tableButton.classList.toggle("active", view === "table");
       if (graphButton) graphButton.classList.toggle("active", view === "graph");
       pre.style.display = view === "raw" ? "block" : "none";
       pretty.style.display = view === "pretty" ? "block" : "none";
+      explain.style.display = view === "explain" ? "block" : "none";
       if (includeTable) {
         table.style.display = view === "table" ? "block" : "none";
       }
@@ -7673,10 +12465,14 @@ function setupOutputViews() {
           renderGraph(service, lastOutputs[service]);
         }
       }
+      if (view === "explain") {
+        renderExplanation(service, lastOutputs[service]);
+      }
     };
 
     rawButton.addEventListener("click", () => switchView("raw"));
     prettyButton.addEventListener("click", () => switchView("pretty"));
+    explainButton.addEventListener("click", () => switchView("explain"));
     if (tableButton) {
       tableButton.addEventListener("click", () => switchView("table"));
     }
@@ -7738,7 +12534,8 @@ function populateRunner(service) {
   Object.entries(actions).forEach(([action, meta]) => {
     const option = document.createElement("option");
     option.value = action;
-    option.textContent = `${meta.label} · ${modeLabel(meta.mode)}`;
+    const risk = formatRiskLabel(getActionRisk(service, action));
+    option.textContent = `${meta.label} · ${modeLabel(meta.mode)} · ${risk}`;
     select.appendChild(option);
   });
 
@@ -7746,6 +12543,19 @@ function populateRunner(service) {
     container.innerHTML = "";
     const meta = actions[action];
     const fields = meta?.fields || [];
+    const risk = getActionRisk(service, action);
+
+    const riskLine = document.createElement("div");
+    riskLine.classList.add("runner-risk", `risk-${risk}`);
+    const riskLabel = document.createElement("span");
+    riskLabel.classList.add("risk-label");
+    riskLabel.textContent = "Risk";
+    const riskValue = document.createElement("span");
+    riskValue.classList.add("risk-value", `risk-${risk}`);
+    riskValue.textContent = formatRiskLabel(risk);
+    riskLine.appendChild(riskLabel);
+    riskLine.appendChild(riskValue);
+    container.appendChild(riskLine);
 
     const modeLine = document.createElement("div");
     modeLine.classList.add("runner-mode");
@@ -8016,6 +12826,63 @@ if (profileImportButton && profileImportFile) {
   });
 }
 
+if (auditRefreshButton) {
+  auditRefreshButton.addEventListener("click", () => {
+    fetchAuditLogs();
+  });
+}
+
+if (auditServiceSelect) {
+  auditServiceSelect.addEventListener("change", () => fetchAuditLogs());
+}
+if (auditStatusSelect) {
+  auditStatusSelect.addEventListener("change", () => fetchAuditLogs());
+}
+if (auditLimitSelect) {
+  auditLimitSelect.addEventListener("change", () => fetchAuditLogs());
+}
+const auditInputHandlers = [auditActionInput, auditUserInput, auditQueryInput, auditSinceInput, auditUntilInput];
+auditInputHandlers.forEach((input) => {
+  if (!input) return;
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchAuditLogs();
+    }
+  });
+});
+
+if (auditExportJsonButton) {
+  auditExportJsonButton.addEventListener("click", () => {
+    exportAuditJson();
+  });
+}
+
+if (auditExportCsvButton) {
+  auditExportCsvButton.addEventListener("click", () => {
+    exportAuditCsv();
+  });
+}
+
+if (configExportButton) {
+  configExportButton.addEventListener("click", () => {
+    exportEncryptedConfig();
+  });
+}
+
+if (configImportButton && configImportFile) {
+  configImportButton.addEventListener("click", () => {
+    configImportFile.value = "";
+    configImportFile.click();
+  });
+
+  configImportFile.addEventListener("change", () => {
+    const file = configImportFile.files?.[0];
+    if (!file) return;
+    importEncryptedConfigFile(file);
+  });
+}
+
 document.getElementById("save-config").addEventListener("click", (event) => {
   event.preventDefault();
   saveConfig();
@@ -8075,6 +12942,20 @@ if (healthCheckButton) {
   healthCheckButton.addEventListener("click", (event) => {
     event.preventDefault();
     runHealthCheck();
+  });
+}
+
+if (smokeTestButton) {
+  smokeTestButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    runSmokeTest();
+  });
+}
+
+if (securityRefreshButton) {
+  securityRefreshButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    runSecurityPosture();
   });
 }
 
@@ -8183,6 +13064,44 @@ if (topologyReportButton) {
   });
 }
 
+function runTopologyDiffBySelection() {
+  const history = loadTopologyHistory();
+  if (history.length < 2) {
+    showToast("Need at least two snapshots");
+    return;
+  }
+  const snapA = findSnapshotById(history, topologyDiffSelectA?.value);
+  const snapB = findSnapshotById(history, topologyDiffSelectB?.value);
+  if (!snapA || !snapB) {
+    showToast("Select two snapshots to compare");
+    return;
+  }
+  const report = buildTopologyDiffReport(snapA, snapB);
+  setOutput("topology-changes", report);
+  setOutputStatus("topology-changes", { state: "ok", text: "Diff ready", meta: "" });
+  setOutputView("topology-changes", "pretty");
+  showToast("Topology diff generated");
+}
+
+function runTopologyDiff24h() {
+  const history = loadTopologyHistory();
+  if (history.length < 2) {
+    showToast("Need at least two snapshots");
+    return;
+  }
+  const latest = history[0];
+  const older = findSnapshotBefore(history, 24);
+  if (!older || older === latest) {
+    showToast("No snapshot older than 24h found");
+    return;
+  }
+  const report = buildTopologyDiffReport(older, latest, 24);
+  setOutput("topology-changes", report);
+  setOutputStatus("topology-changes", { state: "ok", text: "Last 24h changes", meta: "" });
+  setOutputView("topology-changes", "pretty");
+  showToast("24h change report generated");
+}
+
 if (topologyHistoryDepthSelect) {
   topologyHistoryDepthSelect.value = String(getTopologyHistoryLimit());
   topologyHistoryDepthSelect.addEventListener("change", async () => {
@@ -8193,6 +13112,18 @@ if (topologyHistoryDepthSelect) {
     saveTopologyHistory(current);
     await fetchTopologyHistory();
     showToast(`History depth set to ${next}`);
+  });
+}
+
+if (topologyDiffRunButton) {
+  topologyDiffRunButton.addEventListener("click", () => {
+    runTopologyDiffBySelection();
+  });
+}
+
+if (topologyDiff24hButton) {
+  topologyDiff24hButton.addEventListener("click", () => {
+    runTopologyDiff24h();
   });
 }
 
@@ -8245,6 +13176,15 @@ if (actionPackRunButton) {
   });
 }
 
+if (actionPackDryRunToggle) {
+  actionPackDryRunToggle.addEventListener("change", () => {
+    if (!selectedPackId) return;
+    const params = getPackParams(selectedPackId);
+    params.dryRun = actionPackDryRunToggle.checked;
+    setPackParams(selectedPackId, params);
+  });
+}
+
 if (actionPackRunCancelButton) {
   actionPackRunCancelButton.addEventListener("click", () => {
     if (!selectedPackId) {
@@ -8283,6 +13223,34 @@ if (reportHistoryClear) {
     if (!confirmDelete) return;
     saveReportHistory([]);
     renderReportHistory();
+    showToast("Local report history cleared");
+    refreshReportHistory();
+  });
+}
+
+if (incidentRunButton) {
+  incidentRunButton.addEventListener("click", () => {
+    runIncidentWorkspace();
+  });
+}
+
+if (incidentRunFixButton) {
+  incidentRunFixButton.addEventListener("click", () => {
+    if (!incidentFixPackId) {
+      showToast("No fix pack available");
+      return;
+    }
+    const pack = getActionPackById(incidentFixPackId);
+    if (!pack) {
+      showToast("Fix pack not found");
+      return;
+    }
+    const params = buildIncidentPackParams(pack, lastIncidentContext || {});
+    if (params) {
+      setPackParams(pack.id, params);
+    }
+    selectActionPack(pack, { scroll: true });
+    runActionPack(pack, params || getPackParams(pack.id));
   });
 }
 
@@ -8704,11 +13672,15 @@ renderReportPresets();
 updateReportExportOptions(getExportPayload("reports"));
 renderActionPackHistory();
 renderReportHistory();
+refreshReportHistory();
 renderReportQueue();
 renderActivity(loadActivity());
 updateMetrics();
+renderAuditServiceOptions();
+fetchAuditLogs();
 if (sshTerminalOutput) {
   setSshConnectionStatus("fail", "Disconnected");
 }
 renderIssues();
 fetchTopologyHistory();
+refreshTopologyChangeViews();

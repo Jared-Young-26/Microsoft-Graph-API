@@ -45,6 +45,88 @@ class ExchangeClient(ServiceClient):
         ps = self._get_powershell(**powershell_options)
         return ps.run(command)
 
+    def list_mailbox_permissions(self, shared_mailbox, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.list_mailbox_permissions(shared_mailbox)
+
+    def add_mailbox_permission(
+        self, shared_mailbox, user_id, access_rights="FullAccess", automapping=True, **powershell_options
+    ):
+        ps = self._get_powershell(**powershell_options)
+        return ps.add_mailbox_permission(shared_mailbox, user_id, access_rights=access_rights, automapping=automapping)
+
+    def remove_mailbox_permission(self, shared_mailbox, user_id, access_rights="FullAccess", **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.remove_mailbox_permission(shared_mailbox, user_id, access_rights=access_rights)
+
+    def list_send_as_permissions(self, shared_mailbox, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.list_send_as_permissions(shared_mailbox)
+
+    def add_send_as_permission(self, shared_mailbox, user_id, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.add_send_as_permission(shared_mailbox, user_id)
+
+    def remove_send_as_permission(self, shared_mailbox, user_id, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.remove_send_as_permission(shared_mailbox, user_id)
+
+    def list_send_on_behalf(self, shared_mailbox, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.list_send_on_behalf(shared_mailbox)
+
+    def add_send_on_behalf(self, shared_mailbox, user_id, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.add_send_on_behalf(shared_mailbox, user_id)
+
+    def remove_send_on_behalf(self, shared_mailbox, user_id, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.remove_send_on_behalf(shared_mailbox, user_id)
+
+    def list_mailbox_folder_permissions(self, shared_mailbox, folder_path="Calendar", **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.list_mailbox_folder_permissions(shared_mailbox, folder_path)
+
+    def add_mailbox_folder_permission(
+        self,
+        shared_mailbox,
+        folder_path,
+        user_id,
+        access_rights="Editor",
+        delegate=False,
+        **powershell_options,
+    ):
+        ps = self._get_powershell(**powershell_options)
+        return ps.add_mailbox_folder_permission(
+            shared_mailbox,
+            folder_path,
+            user_id,
+            access_rights=access_rights,
+            delegate=delegate,
+        )
+
+    def update_mailbox_folder_permission(
+        self,
+        shared_mailbox,
+        folder_path,
+        user_id,
+        access_rights="Editor",
+        delegate=False,
+        **powershell_options,
+    ):
+        ps = self._get_powershell(**powershell_options)
+        return ps.update_mailbox_folder_permission(
+            shared_mailbox,
+            folder_path,
+            user_id,
+            access_rights=access_rights,
+            delegate=delegate,
+        )
+
+    def remove_mailbox_folder_permission(self, shared_mailbox, folder_path, user_id, **powershell_options):
+        ps = self._get_powershell(**powershell_options)
+        return ps.remove_mailbox_folder_permission(shared_mailbox, folder_path, user_id)
+
     def list_mail_folders(self, user_id="me", include_hidden=False, top=100):
         params = {"$top": top}
         if include_hidden:
@@ -337,6 +419,147 @@ class ExchangePowerShellClient(PowerShellModuleClient):
             f"-Identity '{mailbox}' "
             "| Select MessageCopyForSentAsEnabled, MessageCopyForSendOnBehalfEnabled"
         )
+
+    def list_mailbox_permissions(self, shared_mailbox):
+        mailbox = _ps_quote(shared_mailbox)
+        cmd = (
+            "Get-MailboxPermission "
+            f"-Identity '{mailbox}' "
+            "| Select User, AccessRights, Deny, IsInherited"
+        )
+        return self.run_json(cmd)
+
+    def add_mailbox_permission(self, shared_mailbox, user_id, access_rights="FullAccess", automapping=True):
+        mailbox = _ps_quote(shared_mailbox)
+        user = _ps_quote(user_id)
+        rights = access_rights or "FullAccess"
+        auto = "$true" if automapping else "$false"
+        cmd = (
+            "Add-MailboxPermission "
+            f"-Identity '{mailbox}' -User '{user}' -AccessRights {rights} "
+            f"-InheritanceType All -AutoMapping:{auto}"
+        )
+        return self.run(cmd)
+
+    def remove_mailbox_permission(self, shared_mailbox, user_id, access_rights="FullAccess"):
+        mailbox = _ps_quote(shared_mailbox)
+        user = _ps_quote(user_id)
+        rights = access_rights or "FullAccess"
+        cmd = (
+            "Remove-MailboxPermission "
+            f"-Identity '{mailbox}' -User '{user}' -AccessRights {rights} "
+            "-InheritanceType All -Confirm:$false"
+        )
+        return self.run(cmd)
+
+    def list_send_as_permissions(self, shared_mailbox):
+        mailbox = _ps_quote(shared_mailbox)
+        cmd = (
+            "Get-RecipientPermission "
+            f"-Identity '{mailbox}' "
+            "| Select Trustee, AccessRights, IsInherited"
+        )
+        return self.run_json(cmd)
+
+    def add_send_as_permission(self, shared_mailbox, user_id):
+        mailbox = _ps_quote(shared_mailbox)
+        user = _ps_quote(user_id)
+        cmd = (
+            "Add-RecipientPermission "
+            f"-Identity '{mailbox}' -Trustee '{user}' -AccessRights SendAs "
+            "-Confirm:$false"
+        )
+        return self.run(cmd)
+
+    def remove_send_as_permission(self, shared_mailbox, user_id):
+        mailbox = _ps_quote(shared_mailbox)
+        user = _ps_quote(user_id)
+        cmd = (
+            "Remove-RecipientPermission "
+            f"-Identity '{mailbox}' -Trustee '{user}' -AccessRights SendAs "
+            "-Confirm:$false"
+        )
+        return self.run(cmd)
+
+    def list_send_on_behalf(self, shared_mailbox):
+        mailbox = _ps_quote(shared_mailbox)
+        cmd = (
+            "Get-Mailbox "
+            f"-Identity '{mailbox}' "
+            "| Select GrantSendOnBehalfTo"
+        )
+        return self.run_json(cmd)
+
+    def add_send_on_behalf(self, shared_mailbox, user_id):
+        mailbox = _ps_quote(shared_mailbox)
+        user = _ps_quote(user_id)
+        cmd = (
+            "Set-Mailbox "
+            f"-Identity '{mailbox}' "
+            f"-GrantSendOnBehalfTo @{{Add='{user}'}}"
+        )
+        return self.run(cmd)
+
+    def remove_send_on_behalf(self, shared_mailbox, user_id):
+        mailbox = _ps_quote(shared_mailbox)
+        user = _ps_quote(user_id)
+        cmd = (
+            "Set-Mailbox "
+            f"-Identity '{mailbox}' "
+            f"-GrantSendOnBehalfTo @{{Remove='{user}'}}"
+        )
+        return self.run(cmd)
+
+    def _folder_identity(self, mailbox, folder_path):
+        folder = (folder_path or "Calendar").strip()
+        folder = folder.lstrip("\\/")
+        return f"{mailbox}:\\{folder}"
+
+    def list_mailbox_folder_permissions(self, shared_mailbox, folder_path="Calendar"):
+        identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
+        cmd = (
+            "Get-MailboxFolderPermission "
+            f"-Identity '{identity}' "
+            "| Select User, AccessRights, SharingPermissionFlags, IsInherited"
+        )
+        return self.run_json(cmd)
+
+    def add_mailbox_folder_permission(
+        self, shared_mailbox, folder_path, user_id, access_rights="Editor", delegate=False
+    ):
+        identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
+        user = _ps_quote(user_id)
+        rights = access_rights or "Editor"
+        cmd = (
+            "Add-MailboxFolderPermission "
+            f"-Identity '{identity}' -User '{user}' -AccessRights {rights}"
+        )
+        if delegate:
+            cmd += " -SharingPermissionFlags Delegate"
+        return self.run(cmd)
+
+    def update_mailbox_folder_permission(
+        self, shared_mailbox, folder_path, user_id, access_rights="Editor", delegate=False
+    ):
+        identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
+        user = _ps_quote(user_id)
+        rights = access_rights or "Editor"
+        cmd = (
+            "Set-MailboxFolderPermission "
+            f"-Identity '{identity}' -User '{user}' -AccessRights {rights}"
+        )
+        if delegate:
+            cmd += " -SharingPermissionFlags Delegate"
+        return self.run(cmd)
+
+    def remove_mailbox_folder_permission(self, shared_mailbox, folder_path, user_id):
+        identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
+        user = _ps_quote(user_id)
+        cmd = (
+            "Remove-MailboxFolderPermission "
+            f"-Identity '{identity}' -User '{user}' -Confirm:$false"
+        )
+        return self.run(cmd)
 
     def _connect_script(self):
         parts = ["Import-Module ExchangeOnlineManagement"]
