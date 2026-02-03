@@ -44,7 +44,8 @@ from microsoft import GraphAPIError, PowerShellCommandError
 
 ROOT = Path(__file__).resolve().parents[1]
 
-app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
+# Disable Flask's built-in static route so SPA fallbacks can handle deep links.
+app = Flask(__name__, static_folder=None)
 ensure_snapshot_scheduler()
 
 
@@ -497,6 +498,16 @@ def index():
 @app.get("/help")
 @app.get("/help/<path:_path>")
 def help_page(_path=None):
+    return send_from_directory(str(ROOT), "index.html")
+
+
+@app.get("/<path:path>")
+def spa_fallback(path):
+    if path.startswith("api/"):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    candidate = ROOT / path
+    if candidate.exists() and candidate.is_file():
+        return send_from_directory(str(ROOT), path)
     return send_from_directory(str(ROOT), "index.html")
 
 

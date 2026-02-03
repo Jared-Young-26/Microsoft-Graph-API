@@ -537,7 +537,17 @@ def help_page(path: str = ""):
     return FileResponse(ROOT / "index.html")
 
 
-app.mount("/", StaticFiles(directory=ROOT, html=True), name="static")
+@app.get("/{path:path}")
+def spa_fallback(path: str):
+    if path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    candidate = ROOT / path
+    if candidate.exists() and candidate.is_file():
+        return FileResponse(candidate)
+    return FileResponse(ROOT / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=ROOT, html=True), name="static")
 
 
 def _build_ssh_command(payload):

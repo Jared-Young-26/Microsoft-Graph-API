@@ -1,0 +1,10 @@
+{
+  "tenant_id": "00000000-0000-0000-0000-000000000000",
+  "client_id": "00000000-0000-0000-0000-000000000000",
+  "client_secret": "",
+  "graph_user_id": "user@contoso.com",
+  "ps_auth_mode": "interactive",
+  "ps_org": "contoso.onmicrosoft.com",
+  "spo_admin_url": "https://contoso-admin.sharepoint.com/",
+  "config_lock": false
+}

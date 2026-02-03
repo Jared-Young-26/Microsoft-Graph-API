@@ -1,3 +1,10 @@
 .env
 __pycache__
 .venv
+
+# Local admin GUI state (do not commit)
+admin_gui/backend/config.json
+admin_gui/backend/*.sqlite
+admin_gui/backend/*.jsonl
+admin_gui/backend/topology_history.json
+admin_gui/backend/artifacts/
