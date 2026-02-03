@@ -1,0 +1,67 @@
+{
+  "pages": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "group": "Overview",
+      "path": "docs/help/overview.md",
+      "tags": ["intro", "philosophy"]
+    },
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "group": "Getting Started",
+      "path": "docs/help/getting-started.md",
+      "tags": ["setup", "first-run"]
+    },
+    {
+      "id": "core-concepts",
+      "title": "Core Concepts",
+      "group": "Core Concepts",
+      "path": "docs/help/core-concepts.md",
+      "tags": ["task-runner", "snapshots", "output"]
+    },
+    {
+      "id": "action-packs",
+      "title": "Action Packs",
+      "group": "Action Packs",
+      "path": "docs/help/action-packs.md",
+      "tags": ["packs", "workflows"]
+    },
+    {
+      "id": "baselines",
+      "title": "Baselines",
+      "group": "Baselines",
+      "path": "docs/help/baselines.md",
+      "tags": ["baselines", "golden"]
+    },
+    {
+      "id": "settings",
+      "title": "Settings",
+      "group": "Settings",
+      "path": "docs/help/settings.md",
+      "tags": ["config", "credentials"]
+    },
+    {
+      "id": "modules",
+      "title": "Modules & Tools",
+      "group": "Modules",
+      "path": "docs/help/modules.md",
+      "tags": ["exchange", "entra", "local"]
+    },
+    {
+      "id": "troubleshooting",
+      "title": "Troubleshooting",
+      "group": "Troubleshooting",
+      "path": "docs/help/troubleshooting.md",
+      "tags": ["errors", "graph", "powershell"]
+    },
+    {
+      "id": "security",
+      "title": "Security & Safety",
+      "group": "Security",
+      "path": "docs/help/security.md",
+      "tags": ["safety", "secrets"]
+    }
+  ]
+}

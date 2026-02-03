@@ -151,3 +151,4 @@ Interactive SSH terminals require the **FastAPI** backend (WebSocket). The Flask
 - PowerShell helpers are optional and only used for features not exposed in Graph.
 - The PowerShell session is reused to avoid repeated login prompts in a single Python session.
 - The admin GUI is intended for local use only.
+- Licensed under Apache 2.0. See `LICENSE`.

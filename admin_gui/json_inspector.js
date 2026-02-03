@@ -188,7 +188,9 @@
     state.matchIndex = matches.length ? 0 : -1;
     if (matches.length) {
       matches[0].classList.add("match-active");
-      matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      if (matches[0].scrollIntoView) {
+        matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      }
       if (meta) meta.textContent = `1 / ${matches.length} matches`;
     } else {
       if (meta) meta.textContent = query ? "0 matches" : "";
@@ -204,7 +206,9 @@
     state.matchIndex = nextIndex;
     const node = state.matches[nextIndex];
     node.classList.add("match-active");
-    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (node.scrollIntoView) {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
     const meta = modal.querySelector("#modal-search-meta");
     if (meta) meta.textContent = `${nextIndex + 1} / ${state.matches.length} matches`;
   }

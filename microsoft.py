@@ -10,6 +10,7 @@ import uuid
 import threading
 import json
 import re
+import base64
 
 # Load environment variables from .env file
 load_dotenv()
@@ -475,6 +476,112 @@ class PowerShellSession:
             depth=depth,
             capture_text=False,
             working_dir=working_dir,
+        )
+
+
+class RemotePowerShellSession:
+    def __init__(self, runner, prefer_pwsh=True):
+        self.runner = runner
+        self.prefer_pwsh = prefer_pwsh
+        self._helper = PowerShellSession()
+
+    def _encode_command(self, script: str) -> str:
+        return base64.b64encode(script.encode("utf-16le")).decode("ascii")
+
+    def _extract_envelope(self, output: str, token: str):
+        begin_marker = f"{token}::BEGIN"
+        end_marker = f"{token}::END"
+        start = output.find(begin_marker)
+        if start == -1:
+            return None
+        start += len(begin_marker)
+        end = output.find(end_marker, start)
+        if end == -1:
+            return None
+        return output[start:end].strip()
+
+    def _run_encoded(self, shell: str, encoded_command: str, timeout: int):
+        command = f"{shell} -NoProfile -NonInteractive -EncodedCommand {encoded_command}"
+        return self.runner.run_command(command, timeout=timeout)
+
+    def _execute(self, script, *, parameters=None, depth=8, capture_text=False, working_dir=None, timeout=60):
+        token, wrapped = self._helper._wrap_script(
+            script,
+            parameters=parameters,
+            depth=depth,
+            capture_text=capture_text,
+            working_dir=working_dir,
+        )
+        encoded = self._encode_command(wrapped)
+        shells = ["pwsh", "powershell"] if self.prefer_pwsh else ["powershell", "pwsh"]
+        last_result = None
+        for shell in shells:
+            result = self._run_encoded(shell, encoded, timeout)
+            last_result = result
+            stderr = (result.get("stderr") or "").lower()
+            if result.get("returncode") in (127, 9009) or "not found" in stderr:
+                continue
+            payload_text = self._extract_envelope(result.get("stdout") or "", token)
+            if payload_text:
+                try:
+                    payload = json.loads(payload_text)
+                except json.JSONDecodeError as exc:
+                    payload = {
+                        "ok": False,
+                        "data": payload_text,
+                        "error": {"message": f"Failed to parse PowerShell JSON: {exc}"},
+                        "meta": {},
+                    }
+                if parameters:
+                    payload.setdefault("meta", {})
+                    payload["meta"]["parameters"] = _redact_payload(parameters)
+                payload.setdefault("meta", {})
+                payload["meta"]["ssh"] = {
+                    "host": result.get("host"),
+                    "user": result.get("user"),
+                    "port": result.get("port"),
+                    "transport": result.get("transport"),
+                    "duration_ms": result.get("duration_ms"),
+                    "shell": shell,
+                }
+                payload["data"] = _redact_payload(payload.get("data"))
+                payload["error"] = _redact_payload(payload.get("error"))
+                return payload
+        return {
+            "ok": False,
+            "data": None,
+            "error": {
+                "message": "Remote PowerShell execution failed.",
+                "details": (last_result or {}).get("stderr") or (last_result or {}).get("stdout"),
+            },
+            "meta": {
+                "ssh": {
+                    "host": (last_result or {}).get("host"),
+                    "user": (last_result or {}).get("user"),
+                    "port": (last_result or {}).get("port"),
+                    "transport": (last_result or {}).get("transport"),
+                    "duration_ms": (last_result or {}).get("duration_ms"),
+                }
+            },
+        }
+
+    def run(self, script, parameters=None, working_dir=None, timeout=60):
+        return self._execute(
+            script,
+            parameters=parameters,
+            capture_text=True,
+            working_dir=working_dir,
+            timeout=timeout,
+        )
+
+    def run_json(self, script_or_command, parameters=None, depth=8, working_dir=None, timeout=60):
+        return self._execute(
+            script_or_command,
+            parameters=parameters,
+            depth=depth,
+            capture_text=False,
+            working_dir=working_dir,
+            timeout=timeout,
         )
 
 

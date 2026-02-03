@@ -6,6 +6,7 @@ from .snapshot_models import (
     EVIDENCE_SCHEMA,
     PROBE_SCHEMA,
     INCIDENT_SCHEMA,
+    REPORT_SCHEMA,
     Alias,
     Subject,
     SubjectRef,
@@ -15,6 +16,7 @@ from .snapshot_models import (
     Evidence,
     Incident,
     IncidentSubject,
+    IncidentReport,
 )
 from .snapshot_storage import SnapshotSqlStore
 from .entity_resolution import EntityResolver
@@ -26,6 +28,7 @@ from .quality import compute_completeness
 from .snapshot_engine import SnapshotEngine
 from .snapshot_diff import diff_snapshots
 from .symptom_templates import SymptomTemplate, list_symptom_templates, get_symptom_template
+from .execution_target import ExecutionTarget
 
 __all__ = [
     "SnapshotStore",
@@ -38,6 +41,7 @@ __all__ = [
     "EVIDENCE_SCHEMA",
     "PROBE_SCHEMA",
     "INCIDENT_SCHEMA",
+    "REPORT_SCHEMA",
     "Alias",
     "Subject",
     "SubjectRef",
@@ -47,6 +51,7 @@ __all__ = [
     "Evidence",
     "Incident",
     "IncidentSubject",
+    "IncidentReport",
     "SnapshotSqlStore",
     "EntityResolver",
     "PROBE_REGISTRY",
@@ -63,4 +68,5 @@ __all__ = [
     "SymptomTemplate",
     "list_symptom_templates",
     "get_symptom_template",
+    "ExecutionTarget",
 ]

@@ -34,6 +34,7 @@ ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 from microsoft import (
     GraphSession,
     PowerShellSession,
+    RemotePowerShellSession,
     GraphAPIError,
     PowerShellCommandError,
     is_powershell_envelope,
@@ -44,6 +45,7 @@ from .capabilities import (
     SERVICE_MODULES,
     LOCAL_SERVICES,
 )
+from platform_core import ExecutionTarget
 
 try:
     import keyring
@@ -195,6 +197,10 @@ from platform_core.symptom_templates import list_symptom_templates, get_symptom_
 from platform_core.interpreter import interpret_response
 from platform_core.probe_handlers import build_probe_handlers
 from platform_core.registry_watchlists import DEFAULT_WATCHLISTS
+from platform_core.lens import assemble_lens
+from platform_core.quality import compute_completeness
+from platform_core.probe_registry import PROBE_REGISTRY
+from platform_core.snapshot_models import Snapshot
 from onedrive import OneDriveClient
 from sharepoint import SharePointClient
 from teams import TeamsClient
@@ -206,7 +212,7 @@ from local_endpoint import LocalEndpointClient
 from local_domain_controller import LocalDomainControllerClient
 from local_printers import LocalPrinterClient
 from local_network import LocalNetworkClient
-from remote_ssh import RemoteSSHClient
+from remote_ssh import RemoteSSHClient, SshRunner
 from local_fileserver import LocalFileServerClient
 from local_topology import LocalTopologyClient
 from local_time import LocalTimeClient
@@ -215,6 +221,7 @@ from local_processes import LocalProcessClient
 from local_baselines import LocalBaselineClient
 from local_event_logs import LocalEventLogsClient
 from local_registry import LocalRegistryClient
+from remote_workflows import RemoteWorkflowClient
 
 
 def _read_config_file():
@@ -263,6 +270,40 @@ def _read_registry_watchlists():
         if key not in watchlists:
             watchlists[key] = dict(default)
     return watchlists
+
+
+def _read_ssh_targets():
+    data = _read_config_file()
+    targets = data.get("ssh_targets") or []
+    if isinstance(targets, dict):
+        targets = targets.get("items") or []
+    if not isinstance(targets, list):
+        return []
+    cleaned = []
+    for entry in targets:
+        if not isinstance(entry, dict):
+            continue
+        host = entry.get("host")
+        if not host:
+            continue
+        cleaned.append(entry)
+    return cleaned
+
+
+def _normalize_execution_target(target: dict | None):
+    if not target:
+        return ExecutionTarget(type="local")
+    if isinstance(target, str):
+        if target.lower() == "local":
+            return ExecutionTarget(type="local")
+        if target.lower() == "graph":
+            return ExecutionTarget(type="graph")
+    if isinstance(target, dict):
+        target_type = target.get("type") or "local"
+        payload = dict(target)
+        payload["type"] = target_type
+        return ExecutionTarget(**payload)
+    return ExecutionTarget(type="local")
 
 
 def _normalize_watchlist_payload(payload):
@@ -792,6 +833,7 @@ def _security_posture():
                 "certificates",
                 "processes",
                 "baselines",
+                "remote_workflows",
             ],
             "cloud_services": [
                 "exchange",
@@ -855,6 +897,7 @@ class BackendConfig:
     onedrive_drive_id: str | None = None
     use_keychain: bool | None = None
     config_lock: bool | None = None
+    allow_remote_dangerous: bool | None = None
 
 
 def _build_config():
@@ -882,6 +925,7 @@ def _build_config():
         onedrive_drive_id=_value("onedrive_drive_id", "ONEDRIVE_DRIVE_ID", data=data),
         use_keychain=use_keychain,
         config_lock=bool(data.get("config_lock")),
+        allow_remote_dangerous=bool(data.get("allow_remote_dangerous")),
     )
 
 
@@ -891,6 +935,7 @@ class BackendState:
         self.graph = None
         self.powershell = PowerShellSession()
         self.clients = {}
+        self._remote_powershell = {}
         self._topology_history = None
         self.snapshot_store = SnapshotSqlStore(SNAPSHOT_DB_PATH)
         self.entity_resolver = EntityResolver(self.snapshot_store)
@@ -903,11 +948,32 @@ class BackendState:
         self.graph = None
         self.powershell = PowerShellSession()
         self.clients = {}
+        self._remote_powershell = {}
         self._topology_history = None
         self.snapshot_store = SnapshotSqlStore(SNAPSHOT_DB_PATH)
         self.entity_resolver = EntityResolver(self.snapshot_store)
         self.snapshot_engine = SnapshotEngine(self.snapshot_store, self.entity_resolver)
         return self.config
+
+    def _target_key(self, target: ExecutionTarget):
+        return f"{target.type}:{target.host}:{target.port}:{target.user}:{target.key_path}:{target.strict_host_key_checking}"
+
+    def get_powershell_session(self, target: ExecutionTarget | None = None):
+        if not target or target.type == "local":
+            return self.powershell
+        if target.type == "ssh":
+            key = self._target_key(target)
+            if key not in self._remote_powershell:
+                runner = SshRunner(
+                    host=target.host,
+                    user=target.user,
+                    port=target.port or 22,
+                    key_path=target.key_path,
+                    strict_host_key_checking=target.strict_host_key_checking,
+                )
+                self._remote_powershell[key] = RemotePowerShellSession(runner)
+            return self._remote_powershell[key]
+        return self.powershell
 
     def get_topology_history(self, limit=None):
         return _read_topology_history(limit=limit)
@@ -1013,6 +1079,8 @@ class BackendState:
             "eventlog_default_hours": int(cfg_file.get("eventlog_default_hours") or 24),
             "eventlog_default_max_events": int(cfg_file.get("eventlog_default_max_events") or 500),
             "eventlog_default_sample": int(cfg_file.get("eventlog_default_sample") or 10),
+            "ssh_targets": _read_ssh_targets(),
+            "allow_remote_dangerous": bool(cfg_file.get("allow_remote_dangerous", False)),
         }
 
     def export_config_encrypted(self, passphrase=None, use_keychain=False):
@@ -1070,11 +1138,14 @@ class BackendState:
             )
         return self.graph
 
-    def get_client(self, service):
-        if service in self.clients:
-            return self.clients[service]
+    def get_client(self, service, execution_target: ExecutionTarget | None = None):
+        cache_key = service
+        if execution_target and execution_target.type == "ssh":
+            cache_key = f"{service}:{self._target_key(execution_target)}"
+        if cache_key in self.clients:
+            return self.clients[cache_key]
 
-        ps_session = self.powershell
+        ps_session = self.get_powershell_session(execution_target)
         cfg = self.config
 
         if service == "exchange":
@@ -1174,10 +1245,12 @@ class BackendState:
             client = LocalEventLogsClient(powershell=ps_session)
         elif service == "registry":
             client = LocalRegistryClient(powershell=ps_session)
+        elif service == "remote_workflows":
+            client = RemoteWorkflowClient(powershell=ps_session)
         else:
             raise ValueError(f"Unknown service: {service}")
 
-        self.clients[service] = client
+        self.clients[cache_key] = client
         return client
 
     def status(self):
@@ -1338,10 +1411,11 @@ def _check_rsat_installed():
         return {"ok": False, "error": str(exc)}
 
 
-def _action_preflight(service, action):
+def _action_preflight(service, action, target=None):
     if service not in ACTIONS or action not in ACTIONS[service]:
         raise ValueError(f"Unknown action '{action}' for service '{service}'")
 
+    execution_target = _normalize_execution_target(target)
     capability = get_action_capability(CAPABILITY_REGISTRY, service, action)
     source_kind = get_action_source(service, action)
     diagnostics = []
@@ -1361,6 +1435,22 @@ def _action_preflight(service, action):
                 }
             ],
             "capability": None,
+            "checks": {},
+        }
+
+    allowed_targets = capability.get("allowed_targets") or ["local"]
+    if execution_target.type not in allowed_targets:
+        return {
+            "ok": False,
+            "warning": None,
+            "diagnostics": [
+                {
+                    "type": "target_not_allowed",
+                    "level": "error",
+                    "message": "This action is not permitted on the selected execution target.",
+                }
+            ],
+            "capability": capability,
             "checks": {},
         }
 
@@ -1394,80 +1484,86 @@ def _action_preflight(service, action):
             )
 
     if source_kind == "powershell":
-        modules = capability.get("required_modules") or []
-        module_result = _check_powershell_modules(modules)
-        checks["modules"] = module_result
-        if not module_result.get("ok", True):
-            ok = False
-            for module, info in module_result.get("modules", {}).items():
-                if not info.get("installed"):
+        if execution_target.type == "ssh":
+            warning = warning or {
+                "message": "Remote target selected. Module checks were skipped for SSH targets.",
+                "type": "remote_preflight",
+            }
+        else:
+            modules = capability.get("required_modules") or []
+            module_result = _check_powershell_modules(modules)
+            checks["modules"] = module_result
+            if not module_result.get("ok", True):
+                ok = False
+                for module, info in module_result.get("modules", {}).items():
+                    if not info.get("installed"):
+                        diagnostics.append(
+                            {
+                                "type": "missing_module",
+                                "level": "error",
+                                "module": module,
+                                "message": info.get("error") or f"{module} is not installed.",
+                            }
+                        )
+
+            if capability.get("requires_rsat"):
+                rsat_check = _check_rsat_installed()
+                checks["rsat"] = rsat_check
+                if not rsat_check.get("ok", False):
+                    ok = False
                     diagnostics.append(
                         {
-                            "type": "missing_module",
+                            "type": "rsat_check_failed",
                             "level": "error",
-                            "module": module,
-                            "message": info.get("error") or f"{module} is not installed.",
+                            "message": rsat_check.get("error") or "RSAT check failed.",
+                        }
+                    )
+                elif not rsat_check.get("installed", False):
+                    ok = False
+                    diagnostics.append(
+                        {
+                            "type": "rsat_missing",
+                            "level": "error",
+                            "message": "RSAT tools are not installed. Install RSAT AD/GroupPolicy tools and retry.",
                         }
                     )
 
-        if capability.get("requires_rsat"):
-            rsat_check = _check_rsat_installed()
-            checks["rsat"] = rsat_check
-            if not rsat_check.get("ok", False):
-                ok = False
-                diagnostics.append(
-                    {
-                        "type": "rsat_check_failed",
-                        "level": "error",
-                        "message": rsat_check.get("error") or "RSAT check failed.",
-                    }
-                )
-            elif not rsat_check.get("installed", False):
-                ok = False
-                diagnostics.append(
-                    {
-                        "type": "rsat_missing",
-                        "level": "error",
-                        "message": "RSAT tools are not installed. Install RSAT AD/GroupPolicy tools and retry.",
-                    }
-                )
+            if capability.get("requires_admin"):
+                admin_check = _check_admin_rights()
+                checks["admin"] = admin_check
+                if not admin_check.get("ok", False):
+                    ok = False
+                    diagnostics.append(
+                        {
+                            "type": "admin_check_failed",
+                            "level": "error",
+                            "message": "Failed to verify administrator privileges.",
+                            "detail": admin_check.get("error"),
+                        }
+                    )
+                elif not admin_check.get("is_admin"):
+                    ok = False
+                    diagnostics.append(
+                        {
+                            "type": "insufficient_privileges",
+                            "level": "error",
+                            "message": "Administrator privileges are required for this action.",
+                        }
+                    )
 
-        if capability.get("requires_admin"):
-            admin_check = _check_admin_rights()
-            checks["admin"] = admin_check
-            if not admin_check.get("ok", False):
-                ok = False
-                diagnostics.append(
-                    {
-                        "type": "admin_check_failed",
-                        "level": "error",
-                        "message": "Failed to verify administrator privileges.",
-                        "detail": admin_check.get("error"),
-                    }
-                )
-            elif not admin_check.get("is_admin"):
-                ok = False
-                diagnostics.append(
-                    {
-                        "type": "insufficient_privileges",
-                        "level": "error",
-                        "message": "Administrator privileges are required for this action.",
-                    }
-                )
-
-        if capability.get("requires_domain_join"):
-            domain_check = _check_domain_joined()
-            checks["domain_join"] = domain_check
-            if not domain_check.get("ok", False):
-                ok = False
-                diagnostics.append(
-                    {
-                        "type": "domain_join_check_failed",
-                        "level": "error",
-                        "message": "Failed to verify domain join status.",
-                        "detail": domain_check.get("error"),
-                    }
-                )
+            if capability.get("requires_domain_join"):
+                domain_check = _check_domain_joined()
+                checks["domain_join"] = domain_check
+                if not domain_check.get("ok", False):
+                    ok = False
+                    diagnostics.append(
+                        {
+                            "type": "domain_join_check_failed",
+                            "level": "error",
+                            "message": "Failed to verify domain join status.",
+                            "detail": domain_check.get("error"),
+                        }
+                    )
             elif not domain_check.get("joined"):
                 ok = False
                 diagnostics.append(
@@ -1532,6 +1628,80 @@ def _health_check():
     graph = _graph_check()
     modules = _check_powershell_modules(sorted({m for mods in POWERSHELL_MODULES.values() for m in mods}))
     return {"graph": graph, "powershell": modules}
+
+
+def _list_recent_snapshots(limit: int = 5):
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 5
+    with STATE.snapshot_store._connect() as conn:
+        rows = conn.execute(
+            "SELECT snapshot_id, canonical_id, kind, profile, captured_at, snapshot_json "
+            "FROM snapshots ORDER BY captured_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    items = []
+    for row in rows:
+        snapshot = {}
+        try:
+            snapshot = json.loads(row["snapshot_json"]) if row["snapshot_json"] else {}
+        except Exception:
+            snapshot = {}
+        subject = snapshot.get("subject") if isinstance(snapshot, dict) else {}
+        items.append(
+            {
+                "snapshot_id": row["snapshot_id"],
+                "canonical_id": row["canonical_id"],
+                "kind": row["kind"],
+                "profile": row["profile"],
+                "captured_at": row["captured_at"],
+                "display_name": subject.get("display_name") if isinstance(subject, dict) else None,
+            }
+        )
+    return items
+
+
+def _system_status_summary():
+    status = STATE.status()
+    modules = _check_powershell_modules(sorted({m for mods in POWERSHELL_MODULES.values() for m in mods}))
+    recent = _list_recent_snapshots(limit=5)
+    latest = recent[0] if recent else None
+    latest_snapshot = None
+    if latest:
+        with STATE.snapshot_store._connect() as conn:
+            row = conn.execute(
+                "SELECT snapshot_json FROM snapshots WHERE snapshot_id = ?",
+                (latest.get("snapshot_id"),),
+            ).fetchone()
+        if row and row["snapshot_json"]:
+            try:
+                latest_snapshot = json.loads(row["snapshot_json"])
+            except Exception:
+                latest_snapshot = None
+    quality = latest_snapshot.get("quality") if isinstance(latest_snapshot, dict) else {}
+    completeness = None
+    if isinstance(quality, dict):
+        overall = quality.get("completeness")
+        if overall is None:
+            overall = quality.get("overall")
+        if overall is not None:
+            completeness = round(float(overall) * 100, 1)
+    warnings = quality.get("warnings") if isinstance(quality, dict) else []
+    gaps = quality.get("gaps") if isinstance(quality, dict) else []
+    warning_count = len(warnings or []) + len(gaps or [])
+    return {
+        "graph_ready": bool(status.get("graph_configured")),
+        "powershell_ready": bool(modules.get("ok")),
+        "powershell_modules": modules,
+        "completeness_percent": completeness,
+        "warnings_count": warning_count,
+        "warnings": warnings or [],
+        "gaps": gaps or [],
+        "last_snapshot_at": latest.get("captured_at") if latest else None,
+        "last_snapshot_id": latest.get("snapshot_id") if latest else None,
+        "recent_snapshots": recent,
+    }
 
 
 def _smoke_test(services=None):
@@ -2098,12 +2268,37 @@ ACTIONS = {
         "restore_gpo": {"method": "restore_gpo", "required": ["gpo_name", "path"]},
     },
     "endpoint": {
-        "computer_info": {"method": "get_computer_info"},
-        "cim_summary": {"method": "get_cim_summary"},
-        "systeminfo": {"method": "get_systeminfo"},
-        "system_inventory": {"method": "get_system_inventory"},
-        "list_processes": {"method": "list_processes", "defaults": {"top": 25}},
-        "list_services": {"method": "list_services"},
+        "computer_info": {
+            "method": "get_computer_info",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "endpoint.computer_info",
+        },
+        "cim_summary": {
+            "method": "get_cim_summary",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "endpoint.cim_summary",
+        },
+        "systeminfo": {
+            "method": "get_systeminfo",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "endpoint.systeminfo",
+        },
+        "system_inventory": {
+            "method": "get_system_inventory",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "endpoint.system_inventory",
+        },
+        "list_processes": {
+            "method": "list_processes",
+            "defaults": {"top": 25},
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "endpoint.list_processes",
+        },
+        "list_services": {
+            "method": "list_services",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "endpoint.list_services",
+        },
         "query_event_logs": {"method": "query_event_logs"},
         "wevtutil_query": {"method": "wevtutil_query"},
         "legacy_event_log": {"method": "legacy_event_log"},
@@ -2117,26 +2312,36 @@ ACTIONS = {
         "eventlog_summary": {
             "method": "eventlog_summary",
             "list_fields": ["log_names", "levels", "event_ids", "providers"],
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "eventlogs.eventlog_summary",
         },
         "eventlog_gpo_failures": {
             "method": "eventlog_summary",
             "defaults": {"log_names": ["Microsoft-Windows-GroupPolicy/Operational", "System"]},
             "list_fields": ["log_names"],
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "eventlogs.eventlog_gpo_failures",
         },
         "eventlog_print_failures": {
             "method": "eventlog_summary",
             "defaults": {"log_names": ["Microsoft-Windows-PrintService/Operational", "System"]},
             "list_fields": ["log_names"],
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "eventlogs.eventlog_print_failures",
         },
         "eventlog_rdp_failures": {
             "method": "eventlog_summary",
             "defaults": {"log_names": ["Security"], "event_ids": [4625, 4624]},
             "list_fields": ["log_names", "event_ids"],
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "eventlogs.eventlog_rdp_failures",
         },
         "eventlog_windows_update_failures": {
             "method": "eventlog_summary",
             "defaults": {"log_names": ["Microsoft-Windows-WindowsUpdateClient/Operational", "System"]},
             "list_fields": ["log_names"],
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "eventlogs.eventlog_windows_update_failures",
         },
         "export_evtx": {"method": "export_evtx", "list_fields": ["log_names"]},
         "import_evtx": {"method": "import_evtx", "required": ["file_path"]},
@@ -2149,6 +2354,34 @@ ACTIONS = {
         "diff_watchlist": {"method": "diff_watchlist"},
         "export_reg": {"method": "export_reg", "required": ["path"]},
         "save_hive": {"method": "save_hive", "required": ["hive"]},
+    },
+    "remote_workflows": {
+        "get_endpoint_auth_reality": {
+            "method": "endpoint_auth_reality",
+            "allowed_targets": ["ssh"],
+            "allowlisted_script_id": "workflow.endpoint_auth_reality",
+        },
+        "get_effective_policy": {
+            "method": "effective_policy_vs_intended",
+            "allowed_targets": ["ssh"],
+            "allowlisted_script_id": "workflow.effective_policy_vs_intended",
+        },
+        "get_service_process_integrity": {
+            "method": "service_process_integrity",
+            "allowed_targets": ["ssh"],
+            "allowlisted_script_id": "workflow.service_process_integrity",
+        },
+        "get_recent_failure_causality": {
+            "method": "recent_failure_causality",
+            "allowed_targets": ["ssh"],
+            "allowlisted_script_id": "workflow.recent_failure_causality",
+        },
+        "get_host_network_path": {
+            "method": "host_network_path_check",
+            "required": ["target_host"],
+            "allowed_targets": ["ssh"],
+            "allowlisted_script_id": "workflow.host_network_path_check",
+        },
     },
     "domaincontroller": {
         "replication_health_summary": {"method": "get_replication_health_summary"},
@@ -2185,11 +2418,27 @@ ACTIONS = {
         "cross_reference_printers_gpo": {"method": "cross_reference_printers_gpo"},
     },
     "network": {
-        "list_adapters": {"method": "list_adapters"},
+        "list_adapters": {
+            "method": "list_adapters",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "network.list_adapters",
+        },
         "get_adapter_config": {"method": "get_adapter_config", "required": ["name"]},
-        "list_ip_configurations": {"method": "list_ip_configurations"},
-        "list_ip_interfaces": {"method": "list_ip_interfaces"},
-        "list_adapter_advanced": {"method": "get_adapter_advanced_properties"},
+        "list_ip_configurations": {
+            "method": "list_ip_configurations",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "network.list_ip_configurations",
+        },
+        "list_ip_interfaces": {
+            "method": "list_ip_interfaces",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "network.list_ip_interfaces",
+        },
+        "list_adapter_advanced": {
+            "method": "get_adapter_advanced_properties",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "network.list_adapter_advanced",
+        },
         "enable_adapter": {"method": "enable_adapter", "required": ["name"]},
         "disable_adapter": {"method": "disable_adapter", "required": ["name"]},
         "rename_adapter": {"method": "rename_adapter", "required": ["name", "new_name"]},
@@ -2253,8 +2502,16 @@ ACTIONS = {
         "tls_probe": {"method": "tls_probe", "list_fields": ["targets"]},
     },
     "processes": {
-        "process_inventory": {"method": "process_inventory"},
-        "service_process_map": {"method": "service_process_map"},
+        "process_inventory": {
+            "method": "process_inventory",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "processes.process_inventory",
+        },
+        "service_process_map": {
+            "method": "service_process_map",
+            "allowed_targets": ["local", "ssh"],
+            "allowlisted_script_id": "processes.service_process_map",
+        },
     },
     "baselines": {
         "list_golden": {"method": "list_golden"},
@@ -2537,8 +2794,14 @@ def _capture_state_snapshot(service: str, action: str, client, params: dict | No
         return None
 
 
-def _snapshot_meta(service: str, action: str, stage: str, ok: bool | None = None) -> dict:
-    return {
+def _snapshot_meta(
+    service: str,
+    action: str,
+    stage: str,
+    ok: bool | None = None,
+    execution_target: ExecutionTarget | None = None,
+) -> dict:
+    meta = {
         "service": service,
         "action": action,
         "stage": stage,
@@ -2546,6 +2809,9 @@ def _snapshot_meta(service: str, action: str, stage: str, ok: bool | None = None
         "tool_version": os.getenv("TOOL_VERSION") or "dev",
         "ok": ok,
     }
+    if execution_target:
+        meta["execution_target"] = execution_target.model_dump()
+    return meta
 
 
 def _store_snapshot(
@@ -2903,6 +3169,38 @@ def _update_incident(incident_id: str, updates: dict | None):
     return _get_incident(incident_id)
 
 
+def _get_incident_report(incident_id: str):
+    return STATE.snapshot_store.get_incident_report(incident_id)
+
+
+def _update_incident_report(incident_id: str, report: dict | None):
+    if not incident_id:
+        raise ValueError("incident_id is required.")
+    payload = report or {}
+    payload.setdefault("incident_id", incident_id)
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    STATE.snapshot_store.upsert_incident_report(incident_id, payload)
+    return payload
+
+
+def _render_incident_report(incident_id: str, fmt: str, redaction: str, report: dict | None = None):
+    from .reporting import ReportRenderer
+
+    if not incident_id:
+        raise ValueError("incident_id is required.")
+    payload = report or _get_incident_report(incident_id) or {}
+    payload.setdefault("incident_id", incident_id)
+    renderer = ReportRenderer(payload)
+    if fmt == "markdown":
+        return {"content": renderer.render_markdown(redaction)}
+    if fmt == "text":
+        return {"content": renderer.render_text(redaction)}
+    if fmt == "pdf":
+        artifact = renderer.render_pdf(redaction, artifact_dir=ARTIFACTS_DIR)
+        return {"url": f"/api/artifacts/{artifact['name']}", "artifact": artifact}
+    raise ValueError("Unsupported format")
+
+
 def _link_incident_snapshot(incident_id: str, snapshot_id: str):
     if not incident_id or not snapshot_id:
         raise ValueError("incident_id and snapshot_id are required.")
@@ -3075,6 +3373,26 @@ def _snapshot_context_from_payload(payload):
     return context
 
 
+_PROFILE_ORDER = {"core": 0, "troubleshoot": 1, "deep": 2}
+
+
+def _profile_allows(profile: str, minimum: str) -> bool:
+    return _PROFILE_ORDER.get(profile or "core", 0) >= _PROFILE_ORDER.get(minimum or "core", 0)
+
+
+def _required_probe_ids_for(kind: str, profile: str) -> list[str]:
+    required = []
+    for entry in PROBE_REGISTRY:
+        if kind not in (entry.get("subject_kinds") or []):
+            continue
+        if not _profile_allows(profile, entry.get("profile_min", "core")):
+            continue
+        probe_id = entry.get("probe_id")
+        if probe_id:
+            required.append(probe_id)
+    return required
+
+
 def _capture_snapshots(payload):
     if not isinstance(payload, dict):
         raise ValueError("Snapshot payload must be an object.")
@@ -3168,6 +3486,134 @@ def _capture_snapshots(payload):
     }
 
 
+def _finalize_draft_snapshot(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("Draft payload must be an object.")
+    draft = payload.get("draft") or {}
+    subject = payload.get("subject") or draft.get("subject") or {}
+    if not subject:
+        raise ValueError("Subject is required to finalize a snapshot.")
+    profile = payload.get("profile") or draft.get("profile") or "core"
+    incident_id = payload.get("incident_id") or draft.get("incident_id")
+    entries = draft.get("entries") or payload.get("entries") or []
+    if not entries:
+        raise ValueError("Draft has no entries to finalize.")
+    kind = subject.get("kind") or subject.get("subject_kind") or subject.get("subject_type") or "user"
+    identifiers = subject.get("identifiers") or subject.get("aliases")
+    if identifiers is None:
+        identifiers = {
+            key: value
+            for key, value in subject.items()
+            if key not in ("kind", "subject_kind", "subject_type")
+        }
+    if kind != "admin_host" and not identifiers:
+        raise ValueError("Subject identifier is required.")
+    resolved = STATE.entity_resolver.resolve_subject(kind, identifiers)
+    subject_payload = resolved.model_dump()
+    if subject.get("display_name"):
+        subject_payload["display_name"] = subject.get("display_name")
+
+    probe_results = []
+    registry_ids = {entry.get("probe_id") for entry in PROBE_REGISTRY if entry.get("probe_id")}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        probe_id = entry.get("probe_id") or entry.get("probe") or None
+        if not probe_id or probe_id not in registry_ids:
+            continue
+        probe_results.append(
+            {
+                "probe": probe_id,
+                "ok": entry.get("result_status") == "success",
+                "error_class": entry.get("error_class"),
+                "data": entry.get("output"),
+                "meta": {
+                    "source": entry.get("service"),
+                    "action": entry.get("action_id"),
+                },
+            }
+        )
+
+    lens = assemble_lens(kind, probe_results)
+    previous_snapshot_id = STATE.snapshot_store.get_latest_snapshot_id(resolved.canonical_id)
+    lens.setdefault("change", {})
+    lens["change"]["previous_snapshot_id"] = previous_snapshot_id
+
+    required_probe_ids = _required_probe_ids_for(kind, profile)
+    quality = compute_completeness(lens, probe_results, required_probe_ids, registry=PROBE_REGISTRY)
+    quality["completeness"] = quality.get("overall")
+
+    snapshot_id = uuid.uuid4().hex
+    captured_at = datetime.now(timezone.utc).isoformat()
+    snapshot = Snapshot(
+        snapshot_id=snapshot_id,
+        captured_at=captured_at,
+        profile=profile,
+        scope={"profile": profile, "subject_kind": kind, "source": "draft"},
+        subject=resolved,
+        lens=lens,
+        relationships=[],
+        quality=quality,
+        evidence_refs=[],
+    )
+    snapshot_payload = snapshot.model_dump(by_alias=True)
+    snapshot_payload["executed_probes"] = [entry.get("probe") for entry in probe_results if entry.get("probe")]
+    snapshot_payload["draft"] = {
+        "id": draft.get("id"),
+        "title": draft.get("title"),
+        "notes": draft.get("notes"),
+        "entries": sanitize_payload(entries),
+        "created_at": draft.get("created_at"),
+        "updated_at": draft.get("updated_at"),
+    }
+    snapshot_payload["finalized_from_draft"] = True
+
+    STATE.snapshot_store.add_snapshot(
+        snapshot_id,
+        resolved.canonical_id,
+        kind,
+        profile,
+        captured_at,
+        snapshot_payload,
+    )
+
+    event_id = uuid.uuid4().hex
+    event_payload = {
+        "snapshot_id": snapshot_id,
+        "draft_id": draft.get("id"),
+        "subject": subject_payload,
+        "entries": len(entries),
+    }
+    STATE.snapshot_store.add_event(
+        event_id,
+        captured_at,
+        kind="snapshot.finalized",
+        source="draft",
+        service="snapshot",
+        signal_name="snapshot_finalized",
+        canonical_ids=[resolved.canonical_id],
+        event=event_payload,
+    )
+
+    if incident_id:
+        try:
+            STATE.snapshot_store.link_incident_snapshot(incident_id, snapshot_id)
+        except Exception:
+            pass
+        try:
+            STATE.snapshot_store.link_incident_event(incident_id, event_id)
+        except Exception:
+            pass
+
+    return {
+        "snapshot_id": snapshot_id,
+        "event_id": event_id,
+        "canonical_id": resolved.canonical_id,
+        "profile": profile,
+        "captured_at": captured_at,
+    }
+
+
 class SnapshotScheduler:
     def __init__(self, state: "BackendState"):
         self.state = state
@@ -3256,11 +3702,15 @@ def get_action_endpoint(service, action):
     return ACTION_ENDPOINTS.get((service, action))
 
 
-def dispatch_task(service, action, params=None):
+def dispatch_task(service, action, params=None, target=None):
     params = params or {}
     snapshot_enabled = True
     if isinstance(params, dict) and "_snapshot" in params:
         snapshot_enabled = bool(params.pop("_snapshot"))
+    execution_target = _normalize_execution_target(target)
+    target_type = execution_target.type
+    if service == "remote_workflows" and target_type == "ssh":
+        params.setdefault("host", execution_target.host)
     source_kind = get_action_source(service, action)
     source_meta = {
         "kind": source_kind,
@@ -3268,9 +3718,27 @@ def dispatch_task(service, action, params=None):
         "service": service,
         "action": action,
     }
+    source_meta["execution_target"] = execution_target.model_dump()
     request_payload = sanitize_payload(params or {})
+    request_payload["_target"] = execution_target.model_dump()
     target = _build_snapshot_target(params or {})
     action_kind = classify_action_kind(action, service)
+
+    if service in ACTIONS and action in ACTIONS[service]:
+        spec = ACTIONS[service][action]
+        allowed_targets = spec.get("allowed_targets") or ["local"]
+        allowlisted_script = spec.get("allowlisted_script_id")
+        capability = get_action_capability(CAPABILITY_REGISTRY, service, action) or {}
+        risk = capability.get("risk") or "safe"
+        if target_type not in allowed_targets:
+            raise ValueError("This action is not permitted on the selected execution target.")
+        if target_type == "ssh":
+            if source_kind != "powershell":
+                raise ValueError("Remote execution is only supported for PowerShell-backed actions.")
+            if not allowlisted_script:
+                raise ValueError("This action is not allowlisted for remote execution.")
+            if risk == "danger" and not STATE.config.allow_remote_dangerous:
+                raise ValueError("Dangerous actions are blocked for remote targets.")
     if service == "system":
         data = params or {}
         try:
@@ -3280,13 +3748,26 @@ def dispatch_task(service, action, params=None):
                 modules = data.get("modules") or POWERSHELL_MODULES.get(data.get("service"), [])
                 result = _check_powershell_modules(modules)
             elif action == "action_preflight":
-                result = _action_preflight(data.get("service"), data.get("action"))
+                result = _action_preflight(data.get("service"), data.get("action"), data.get("target"))
             elif action == "health_check":
                 result = _health_check()
             elif action == "smoke_test":
                 result = _smoke_test(data.get("services"))
             elif action == "tenant_info":
                 result = _tenant_info()
+            elif action == "ssh_test":
+                target_payload = data.get("target") or {}
+                execution_target = _normalize_execution_target(target_payload)
+                if execution_target.type != "ssh":
+                    raise ValueError("SSH test requires a ssh execution target.")
+                runner = SshRunner(
+                    host=execution_target.host,
+                    user=execution_target.user,
+                    port=execution_target.port or 22,
+                    key_path=execution_target.key_path,
+                    strict_host_key_checking=execution_target.strict_host_key_checking,
+                )
+                result = runner.test_connection()
             elif action == "global_admin_check":
                 result = _global_admin_check(data.get("user_id") or data.get("upn"))
             elif action == "security_posture":
@@ -3299,7 +3780,7 @@ def dispatch_task(service, action, params=None):
                     f"action.{service}.{action}",
                     target,
                     {"request": request_payload, "error": str(exc)},
-                    _snapshot_meta(service, action, "event", ok=False),
+                    _snapshot_meta(service, action, "event", ok=False, execution_target=execution_target),
                     source_meta,
                     inputs=request_payload,
                 )
@@ -3309,7 +3790,7 @@ def dispatch_task(service, action, params=None):
                 f"action.{service}.{action}",
                 target,
                 {"request": request_payload, "response": sanitize_payload(result)},
-                _snapshot_meta(service, action, "event", ok=True),
+                _snapshot_meta(service, action, "event", ok=True, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3320,7 +3801,7 @@ def dispatch_task(service, action, params=None):
                     f"{service}.{entity}",
                     _build_snapshot_target(params, result if isinstance(result, dict) else None),
                     sanitize_payload(result),
-                    _snapshot_meta(service, action, "snapshot", ok=True),
+                    _snapshot_meta(service, action, "snapshot", ok=True, execution_target=execution_target),
                     source_meta,
                     inputs=request_payload,
                 )
@@ -3364,7 +3845,7 @@ def dispatch_task(service, action, params=None):
                     f"action.{service}.{action}",
                     target,
                     {"request": request_payload, "error": str(exc)},
-                    _snapshot_meta(service, action, "event", ok=False),
+                    _snapshot_meta(service, action, "event", ok=False, execution_target=execution_target),
                     source_meta,
                     inputs=request_payload,
                 )
@@ -3374,7 +3855,7 @@ def dispatch_task(service, action, params=None):
                 f"action.{service}.{action}",
                 target,
                 {"request": request_payload, "response": sanitize_payload(result)},
-                _snapshot_meta(service, action, "event", ok=True),
+                _snapshot_meta(service, action, "event", ok=True, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3385,7 +3866,7 @@ def dispatch_task(service, action, params=None):
                     f"{service}.{entity}",
                     _build_snapshot_target(params, result if isinstance(result, dict) else None),
                     sanitize_payload(result),
-                    _snapshot_meta(service, action, "snapshot", ok=True),
+                    _snapshot_meta(service, action, "snapshot", ok=True, execution_target=execution_target),
                     source_meta,
                     inputs=request_payload,
                 )
@@ -3407,7 +3888,7 @@ def dispatch_task(service, action, params=None):
                     f"action.{service}.{action}",
                     target,
                     {"request": request_payload, "error": str(exc)},
-                    _snapshot_meta(service, action, "event", ok=False),
+                    _snapshot_meta(service, action, "event", ok=False, execution_target=execution_target),
                     source_meta,
                     inputs=request_payload,
                 )
@@ -3417,7 +3898,7 @@ def dispatch_task(service, action, params=None):
                 f"action.{service}.{action}",
                 target,
                 {"request": request_payload, "response": sanitize_payload(result)},
-                _snapshot_meta(service, action, "event", ok=True),
+                _snapshot_meta(service, action, "event", ok=True, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3503,7 +3984,7 @@ def dispatch_task(service, action, params=None):
             powershell_options={"session": STATE.powershell, "admin_url": cfg.spo_admin_url},
         )
     else:
-        client = STATE.get_client(service)
+        client = STATE.get_client(service, execution_target)
     method = getattr(client, spec["method"])
     call_params = {**spec.get("defaults", {}), **payload}
     if "user_id" in inspect.signature(method).parameters and "user_id" not in call_params:
@@ -3512,6 +3993,7 @@ def dispatch_task(service, action, params=None):
         else:
             raise ValueError("GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in .env.")
     request_payload = sanitize_payload(call_params)
+    request_payload["_target"] = execution_target.model_dump()
     target = _build_snapshot_target(call_params)
 
     if action_kind == "write" and snapshot_enabled:
@@ -3522,7 +4004,7 @@ def dispatch_task(service, action, params=None):
                 f"{service}.{entity}",
                 _build_snapshot_target(call_params, pre_payload if isinstance(pre_payload, dict) else None),
                 sanitize_payload(pre_payload),
-                _snapshot_meta(service, action, "pre", ok=True),
+                _snapshot_meta(service, action, "pre", ok=True, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3534,7 +4016,7 @@ def dispatch_task(service, action, params=None):
                 f"action.{service}.{action}",
                 target,
                 {"request": request_payload, "error": str(exc)},
-                _snapshot_meta(service, action, "event", ok=False),
+                _snapshot_meta(service, action, "event", ok=False, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3551,6 +4033,7 @@ def dispatch_task(service, action, params=None):
                         for key in ("user_id", "team_id", "site_id", "list_id")
                         if call_params.get(key) is not None
                     },
+                    "execution_target": execution_target.model_dump(),
                     "ok": False,
                     "error": str(exc),
                 }
@@ -3615,9 +4098,22 @@ def dispatch_task(service, action, params=None):
             f"action.{service}.{action}",
             target,
             {"request": request_payload, "response": sanitize_payload(result_payload)},
-            _snapshot_meta(service, action, "event", ok=True),
+            _snapshot_meta(service, action, "event", ok=True, execution_target=execution_target),
             source_meta,
             inputs=request_payload,
+        )
+    if service == "remote_workflows" and isinstance(result_payload, dict):
+        guidance = result_payload.get("guidance") or {}
+        _log_audit(
+            {
+                "service": service,
+                "action": action,
+                "execution_target": execution_target.model_dump(),
+                "workflow": result_payload.get("workflow"),
+                "guidance_summary": guidance.get("summary"),
+                "likely_cause": guidance.get("likely_cause"),
+                "ok": True,
+            }
         )
     if action_kind == "read":
         entity = _infer_snapshot_entity(service, action, result_payload, source_kind)
@@ -3626,7 +4122,7 @@ def dispatch_task(service, action, params=None):
                 f"{service}.{entity}",
                 _build_snapshot_target(call_params, result_payload if isinstance(result_payload, dict) else None),
                 sanitize_payload(result_payload),
-                _snapshot_meta(service, action, "snapshot", ok=True),
+                _snapshot_meta(service, action, "snapshot", ok=True, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3639,7 +4135,7 @@ def dispatch_task(service, action, params=None):
                 f"{service}.{entity}",
                 _build_snapshot_target(call_params, post_payload if isinstance(post_payload, dict) else None),
                 sanitize_payload(post_payload),
-                _snapshot_meta(service, action, "post", ok=True),
+                _snapshot_meta(service, action, "post", ok=True, execution_target=execution_target),
                 source_meta,
                 inputs=request_payload,
             )
@@ -3656,6 +4152,7 @@ def dispatch_task(service, action, params=None):
                     for key in ("user_id", "team_id", "site_id", "list_id")
                     if call_params.get(key) is not None
                 },
+                "execution_target": execution_target.model_dump(),
                 "ok": True,
             }
         )

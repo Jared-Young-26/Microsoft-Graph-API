@@ -26,13 +26,41 @@
           <button class="nav-link" data-section="incidents" data-scroll="incident-workspace">
             Incidents
           </button>
+          <button class="nav-link" data-section="workspaces">Workspaces</button>
 
-          <div class="nav-group readonly" data-group="explore">
+          <div class="nav-group readonly" data-group="observe">
             <button class="nav-group-toggle" type="button">
-              <span>Explore</span>
+              <span>Observe</span>
               <span class="nav-caret">▾</span>
             </button>
             <div class="nav-group-links">
+              <div class="nav-subheader">Snapshots &amp; Audit</div>
+              <button class="nav-link" data-section="snapshots" data-scroll="snapshot-history">Snapshots</button>
+              <button class="nav-link" data-section="auditlog" data-scroll="audit-card">Audit Log</button>
+
+              <div class="nav-subheader">Logs &amp; Diagnostics</div>
+              <button class="nav-link" data-section="eventlogs">Event Logs</button>
+              <button class="nav-link" data-section="registry">Registry</button>
+              <button class="nav-link" data-section="time">Time &amp; Drift</button>
+              <button class="nav-link" data-section="certificates">Certificates</button>
+              <button class="nav-link" data-section="processes">Processes</button>
+              <button class="nav-link" data-section="topology">Network Topology</button>
+            </div>
+          </div>
+
+          <div class="nav-group mutating" data-group="act">
+            <button class="nav-group-toggle" type="button">
+              <span>Act</span>
+              <span class="nav-caret">▾</span>
+            </button>
+            <div class="nav-group-links">
+              <div class="nav-subheader">Workflows</div>
+              <button class="nav-link" data-section="actionpacks" data-scroll="action-pack-panel">Action Packs</button>
+              <button class="nav-link" data-section="snapshotcapture" data-scroll="draft-snapshots">
+                Draft Snapshots
+              </button>
+              <button class="nav-link" data-section="quickactions" data-scroll="quick-actions-card">Quick Actions</button>
+
               <div class="nav-subheader">Microsoft 365 Cloud</div>
               <button class="nav-link" data-section="exchange">Exchange</button>
               <button class="nav-link" data-section="onedrive">OneDrive</button>
@@ -50,9 +78,9 @@
               <button class="nav-link" data-section="domaincontroller">Domain Controller</button>
               <button class="nav-link" data-section="printers">Printers</button>
               <button class="nav-link" data-section="network">Network</button>
+              <button class="nav-link" data-section="remote_workflows">Remote Workflows</button>
               <button class="nav-link" data-section="ssh">SSH</button>
               <button class="nav-link" data-section="fileserver">File Server</button>
-              <button class="nav-link" data-section="topology">Network Topology</button>
             </div>
           </div>
 
@@ -63,41 +91,22 @@
             </button>
             <div class="nav-group-links">
               <button class="nav-link" data-section="reports">Reports</button>
-              <button class="nav-link" data-section="eventlogs">Event Logs</button>
-              <button class="nav-link" data-section="registry">Registry</button>
-              <button class="nav-link" data-section="time">Time &amp; Drift</button>
-              <button class="nav-link" data-section="certificates">Certificates</button>
-              <button class="nav-link" data-section="processes">Processes</button>
+              <button class="nav-link" data-section="baselines">Baselines</button>
             </div>
           </div>
 
-          <div class="nav-group mutating" data-group="act">
+          <div class="nav-group system" data-group="configure">
             <button class="nav-group-toggle" type="button">
-              <span>Act</span>
-              <span class="nav-caret">▾</span>
-            </button>
-            <div class="nav-group-links">
-              <button class="nav-link" data-section="actionpacks" data-scroll="action-pack-panel">Action Packs</button>
-              <button class="nav-link" data-section="snapshotcapture" data-scroll="snapshot-capture">
-                Snapshot Capture
-              </button>
-              <button class="nav-link" data-section="quickactions" data-scroll="quick-actions-card">Quick Actions</button>
-            </div>
-          </div>
-
-          <button class="nav-link" data-section="baselines">Baselines</button>
-
-          <div class="nav-group system" data-group="system">
-            <button class="nav-group-toggle" type="button">
-              <span>System</span>
+              <span>Configure</span>
               <span class="nav-caret">▾</span>
             </button>
             <div class="nav-group-links">
               <button class="nav-link" data-section="settings">Settings</button>
               <button class="nav-link" data-section="healthcheck" data-scroll="health-card">Health Check</button>
-              <button class="nav-link" data-section="auditlog" data-scroll="audit-card">Audit Log</button>
             </div>
           </div>
+
+          <button class="nav-link" data-section="help">Help</button>
         </nav>
 
         <div class="sidebar-footer">
@@ -124,6 +133,7 @@
             <div class="page-subtitle" id="page-subtitle">Graph-first operations with PowerShell fallback</div>
           </div>
           <div class="topbar-right">
+            <button class="ghost icon" id="help-link" aria-label="Help">?</button>
             <div class="profile">
               <div class="avatar">AD</div>
               <div class="profile-meta">
@@ -151,39 +161,72 @@
           <button class="ghost small" id="graph-status-dismiss" type="button">Dismiss</button>
         </div>
 
-        <section class="hero" data-panel="dashboard" data-display="grid">
-          <div class="hero-content">
-            <h1>Operational clarity for Graph and admin-only tasks.</h1>
-            <p>Use Graph whenever possible. Fall back to PowerShell when required. Keep it fast, auditable, and local.</p>
-            <div class="hero-actions">
-              <button class="primary" id="open-task-runner">Open Task Runner</button>
-              <button class="ghost" id="view-activity">View Activity</button>
+        <div class="mode-header" id="mode-header">
+          <div class="mode-pill" id="mode-pill">Observe</div>
+          <div class="mode-text">
+            <div class="mode-title" id="mode-title">Observe</div>
+            <div class="mode-subtitle" id="mode-subtitle">
+              System status, snapshots, and recent activity.
             </div>
           </div>
-          <div class="hero-metrics">
-            <div class="metric">
-              <div class="metric-label">Active tenants</div>
-              <div class="metric-value" id="metric-tenants">1</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Pending tasks</div>
-              <div class="metric-value" id="metric-tasks">0</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Graph success</div>
-              <div class="metric-value" id="metric-success">--</div>
-            </div>
+        </div>
+
+        <section class="hero" data-panel="dashboard" data-display="grid">
+          <div class="hero-content">
+            <h1>Observe</h1>
+            <p>System status, snapshots, and recent activity. Use the quick links to jump into actions or details.</p>
           </div>
         </section>
 
         <section class="grid">
+          <div class="card wide status-card" data-panel="dashboard" id="system-status-card" data-workspace-block="status.summary">
+            <div class="card-header">
+              <div>
+                <div class="card-title">System Status</div>
+                <div class="card-subtitle">At-a-glance readiness and coverage</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="status-view-details">View details</button>
+              </div>
+            </div>
+            <div class="status-grid">
+              <div class="status-item">
+                <div class="status-label">Completeness</div>
+                <div class="status-value" id="status-completeness">--</div>
+              </div>
+              <div class="status-item">
+                <div class="status-label">Warnings</div>
+                <div class="status-value" id="status-warnings">0</div>
+                <div class="status-meta" id="status-warning-summary">No coverage limitations detected.</div>
+              </div>
+              <div class="status-item">
+                <div class="status-label">Last snapshot</div>
+                <div class="status-value" id="status-last-snapshot">--</div>
+              </div>
+              <div class="status-item">
+                <div class="status-label">Graph readiness</div>
+                <div class="status-value" id="status-graph-ready">--</div>
+              </div>
+              <div class="status-item">
+                <div class="status-label">PowerShell readiness</div>
+                <div class="status-value" id="status-ps-ready">--</div>
+              </div>
+            </div>
+          </div>
+
           <div class="card wide quick-actions" data-panel="dashboard" id="quick-actions-card">
             <div class="card-header">
               <div>
                 <div class="card-title">Quick actions</div>
-                <div class="card-subtitle">Pin your most-used workflows</div>
+                <div class="card-subtitle">Jump to a workflow (no actions run from here)</div>
               </div>
               <button class="ghost small" id="edit-quick-actions">Edit</button>
+            </div>
+            <div class="quick-links" id="quick-links">
+              <button class="chip" data-quick-link="health">Run Health Check</button>
+              <button class="chip" data-quick-link="task-runner">Open Task Runner</button>
+              <button class="chip" data-quick-link="action-packs">Open Action Packs</button>
+              <button class="chip" data-quick-link="help">Open Help</button>
             </div>
             <div class="chip-grid" id="quick-actions">
               <button class="chip" data-service="exchange" data-action="enable_shared_sent_items">Enable shared mailbox sent items</button>
@@ -215,7 +258,7 @@
                 </label>
                 <button type="button" class="ghost small" id="qa-add-template">Pin template</button>
               </div>
-              <div class="note">Edit mode: add or remove quick actions. Exit edit mode to run them.</div>
+              <div class="note">Edit mode: add or remove quick actions. Exit edit mode to open them.</div>
             </div>
           </div>
 
@@ -241,11 +284,17 @@
             </div>
           </div>
 
-          <div class="card output-card" data-panel="dashboard">
-            <div class="card-title">Output</div>
-            <div class="card-subtitle">Latest response from the API</div>
-            <pre id="output-dashboard" class="output" data-output="dashboard"></pre>
-            <button class="ghost small clear-output" data-output-target="dashboard">Clear</button>
+          <div class="card" data-panel="dashboard" id="recent-snapshots-card" data-workspace-block="snapshots.recent">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Recent snapshots</div>
+                <div class="card-subtitle">Latest captures and subjects</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="snapshots-view-history">View history</button>
+              </div>
+            </div>
+            <ul class="history-list" id="recent-snapshots-list"></ul>
           </div>
 
           <div class="card" data-panel="exchange">
@@ -258,6 +307,7 @@
               <button class="chip" data-service="exchange" data-action="enable_shared_sent_items">Enable shared sent items (PS)</button>
             </div>
           </div>
+
           <div class="card form-card" data-panel="exchange">
             <div class="card-title">Exchange task runner</div>
             <div class="card-subtitle">Fine-grained controls</div>
@@ -267,7 +317,7 @@
                 <select class="action-select" data-service="exchange"></select>
               </label>
               <div class="runner-fields" data-service="exchange"></div>
-              <div class="runner-actions">
+              <div class="runner-actions execution-bar">
                 <button type="button" class="ghost small runner-reset" data-service="exchange">Reset</button>
                 <button type="button" class="primary runner-run" data-service="exchange">Run</button>
               </div>
@@ -752,6 +802,59 @@
             <button class="ghost small clear-output" data-output-target="network">Clear</button>
           </div>
 
+          <div class="card" data-panel="remote_workflows">
+            <div class="card-title">Remote workflows</div>
+            <div class="card-subtitle">Endpoint-only diagnostics over SSH with guidance</div>
+            <div class="stack">
+              <button class="chip" data-service="remote_workflows" data-action="get_endpoint_auth_reality">
+                Endpoint authentication reality check
+              </button>
+              <button class="chip" data-service="remote_workflows" data-action="get_effective_policy">
+                Effective policy vs intended
+              </button>
+              <button class="chip" data-service="remote_workflows" data-action="get_service_process_integrity">
+                Service-to-process integrity
+              </button>
+              <button class="chip" data-service="remote_workflows" data-action="get_recent_failure_causality">
+                Recent failure causality
+              </button>
+              <button class="chip" data-service="remote_workflows" data-action="get_host_network_path">
+                Host-perspective network path check
+              </button>
+              <div class="note">
+                These workflows run read-only checks on a remote host. Select an SSH target in the runner before you run.
+              </div>
+            </div>
+          </div>
+          <div class="card form-card" data-panel="remote_workflows">
+            <div class="card-title">Remote workflow runner</div>
+            <div class="card-subtitle">Explainable endpoint diagnostics (SSH required)</div>
+            <form class="runner" data-service="remote_workflows">
+              <label>
+                Action
+                <select class="action-select" data-service="remote_workflows"></select>
+              </label>
+              <div class="runner-fields" data-service="remote_workflows"></div>
+              <div class="runner-actions">
+                <button type="button" class="ghost small runner-reset" data-service="remote_workflows">Reset</button>
+                <button type="button" class="primary runner-run" data-service="remote_workflows">Run</button>
+              </div>
+            </form>
+            <details class="info">
+              <summary>Why SSH is required</summary>
+              <ul>
+                <li>These workflows read live endpoint state (Kerberos tickets, applied policy, service runtime).</li>
+                <li>They cannot be inferred from Graph or the admin host alone.</li>
+              </ul>
+            </details>
+          </div>
+          <div class="card output-card" data-panel="remote_workflows">
+            <div class="card-title">Remote workflows output</div>
+            <div class="card-subtitle">Summary, guidance, and evidence</div>
+            <pre class="output" data-output="remote_workflows"></pre>
+            <button class="ghost small clear-output" data-output-target="remote_workflows">Clear</button>
+          </div>
+
           <div class="card" data-panel="ssh">
             <div class="card-title">SSH toolkit</div>
             <div class="card-subtitle">Remote workstation sessions</div>
@@ -918,9 +1021,13 @@
             </div>
             <ul class="issue-list" id="issue-list"></ul>
           </div>
-          <div class="card" data-panel="topology">
-            <div class="card-title">Incident ledger</div>
-            <div class="card-subtitle">Incidents captured in the backend</div>
+          <div class="card" data-panel="topology" data-workspace-block="incidents.ledger">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Incident ledger</div>
+                <div class="card-subtitle">Incidents captured in the backend</div>
+              </div>
+            </div>
             <div class="history-list" id="incident-list"></div>
           </div>
           <div class="card output-card" data-panel="topology">
@@ -1235,11 +1342,11 @@
             </div>
             <ul class="history-list" id="report-queue-list"></ul>
           </div>
-          <div class="card form-card" data-panel="reports" id="action-pack-panel">
+          <div class="card form-card" data-panel="actionpacks" id="action-pack-panel">
             <div class="card-header">
               <div>
                 <div class="card-title">Action packs</div>
-                <div class="card-subtitle">Multi-step workflows</div>
+                <div class="card-subtitle">Run multi-step workflows</div>
               </div>
               <div class="card-actions">
                 <label class="export-select">
@@ -1249,11 +1356,21 @@
                     <option value="all">All tenants</option>
                     <option value="global">Global only</option>
                     <option value="favorites">Favorites</option>
+                    <option value="deleted">Deleted</option>
                   </select>
                 </label>
                 <button class="ghost small" id="export-action-packs">Export packs</button>
                 <button class="ghost small" id="import-action-packs">Import packs</button>
               </div>
+            </div>
+            <div class="note action-pack-intent">
+              This page is for running existing workflows. Select a pack to preview the plan and run it.
+            </div>
+            <div class="action-pack-list" id="action-pack-list"></div>
+            <div class="action-pack-controls">
+              <button class="ghost small" id="action-pack-prev">Prev</button>
+              <span id="action-pack-page-info">Page 1 / 1</span>
+              <button class="ghost small" id="action-pack-next">Next</button>
             </div>
             <div class="action-pack-runner" id="action-pack-runner">
               <div class="card-title">Action pack runner</div>
@@ -1264,18 +1381,22 @@
                   <input type="checkbox" id="action-pack-dry-run" />
                   <span>Dry-run (safe steps only)</span>
                 </label>
+                <button type="button" class="ghost" id="action-pack-preview">Preview plan</button>
+                <button type="button" class="ghost" id="action-pack-validate">Test inputs</button>
                 <button type="button" class="primary" id="action-pack-run">Run pack</button>
                 <button type="button" class="ghost" id="action-pack-run-cancel">Cancel</button>
               </div>
-            </div>
-            <div class="action-pack-list" id="action-pack-list"></div>
-            <div class="action-pack-controls">
-              <button class="ghost small" id="action-pack-prev">Prev</button>
-              <span id="action-pack-page-info">Page 1 / 1</span>
-              <button class="ghost small" id="action-pack-next">Next</button>
+              <div class="action-pack-meta">
+                <div class="pack-last-run" id="action-pack-last-run"></div>
+                <div class="pack-how" id="action-pack-how"></div>
+                <div class="pack-plan" id="action-pack-plan"></div>
+              </div>
             </div>
             <details class="action-pack-builder" id="action-pack-builder">
-              <summary>Action Pack Builder</summary>
+              <summary>
+                <span>Build or edit action packs (advanced)</span>
+                <span class="summary-subtitle">Create, update, or clone multi-step workflows.</span>
+              </summary>
               <div class="note">Build packs visually (no JSON prompts). Use defaults for reusable client settings.</div>
               <div class="form form-grid form-grid-wide">
                 <label>
@@ -1296,6 +1417,13 @@
                 <label>
                   Defaults (optional JSON)
                   <textarea id="pack-defaults" rows="4" placeholder='{"stepParams":{"entra.set_user_license":{"sku_map":{"E3":"..."} }}}'></textarea>
+                </label>
+                <label class="pack-version-row">
+                  Version history
+                  <div class="pack-version-controls">
+                    <select id="pack-version-select"></select>
+                    <button type="button" class="ghost small" id="pack-version-restore">Restore</button>
+                  </div>
                 </label>
               </div>
               <div class="form form-grid form-grid-wide">
@@ -1319,10 +1447,12 @@
               <div class="runner-actions">
                 <button type="button" class="ghost" id="pack-add-step">Add step</button>
                 <button type="button" class="ghost" id="pack-new">New pack</button>
-                <button type="button" class="ghost" id="pack-delete">Delete pack</button>
+                <button type="button" class="ghost" id="pack-save-copy">Save as copy</button>
+                <button type="button" class="ghost" id="pack-delete">Delete pack (moves to trash)</button>
                 <button type="button" class="primary" id="pack-save">Save pack</button>
               </div>
               <div class="action-pack-steps" id="pack-step-list"></div>
+              <div class="pack-how" id="pack-how-it-runs"></div>
               <div class="profile-actions">
                 <button type="button" class="ghost small" id="export-templates">Export templates</button>
                 <button type="button" class="ghost small" id="import-templates">Import templates</button>
@@ -1331,18 +1461,39 @@
               <input id="template-import-file" type="file" accept=".json" hidden />
             </details>
           </div>
-          <div class="card" data-panel="reports" id="action-pack-history">
-            <div class="card-header">
-              <div>
-                <div class="card-title">Action pack history</div>
-                <div class="card-subtitle">Recent runs with re-run support</div>
+          <details class="card action-pack-advanced" data-panel="actionpacks" data-display="block" id="action-pack-history-panel">
+            <summary>
+              <span>Action pack history</span>
+              <span class="summary-subtitle">Recent runs with re-run support.</span>
+            </summary>
+            <div class="card-body" id="action-pack-history">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Action pack history</div>
+                  <div class="card-subtitle">Recent runs with re-run support</div>
+                </div>
+                <div class="card-actions">
+                  <button class="ghost small" id="action-pack-history-clear">Clear history</button>
+                </div>
               </div>
-              <div class="card-actions">
-                <button class="ghost small" id="action-pack-history-clear">Clear history</button>
-              </div>
+              <ul class="history-list" id="action-pack-history-list"></ul>
             </div>
-            <ul class="history-list" id="action-pack-history-list"></ul>
-          </div>
+          </details>
+          <details class="card action-pack-advanced" data-panel="actionpacks" data-display="block" id="action-pack-deleted-panel">
+            <summary>
+              <span>Deleted packs</span>
+              <span class="summary-subtitle">Restore or permanently delete packs.</span>
+            </summary>
+            <div class="card-body" id="action-pack-deleted">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Deleted packs</div>
+                  <div class="card-subtitle">Restore or permanently delete packs</div>
+                </div>
+              </div>
+              <div class="deleted-pack-list" id="action-pack-deleted-list"></div>
+            </div>
+          </details>
           <div class="card form-card" data-panel="reports">
             <div class="card-title">Reports task runner</div>
             <div class="card-subtitle">Generate detailed audits</div>
@@ -1366,7 +1517,7 @@
               </ul>
             </details>
           </div>
-          <div class="card output-card full" data-panel="reports" id="incident-workspace">
+          <div class="card output-card full" data-panel="reports" id="incident-workspace" data-workspace-block="incidents.intake">
             <div class="card-header">
               <div>
                 <div class="card-title">Incident workspace</div>
@@ -1405,6 +1556,190 @@
             </div>
             <pre class="output" data-output="incident"></pre>
             <button class="ghost small clear-output" data-output-target="incident">Clear</button>
+          </div>
+          <div class="card form-card" data-panel="reports" id="incident-report">
+            <div class="card-header tile-header">
+              <div>
+                <div class="card-title">Incident report</div>
+                <div class="card-subtitle">Client-facing report builder with evidence and timeline</div>
+              </div>
+              <div class="card-actions">
+                <div class="incident-report-controls">
+                  <label class="export-select">
+                    Incident
+                    <select id="incident-report-select"></select>
+                  </label>
+                  <button class="ghost small" id="incident-report-load">Load</button>
+                </div>
+              </div>
+            </div>
+            <div class="report-section tile-section tile-config">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Incident metadata</div>
+                  <div class="card-subtitle">Core details for the client-facing report</div>
+                </div>
+              </div>
+              <div class="report-section-body tile-section-body report-grid tile-grid">
+                <label class="field wide">
+                  Title
+                  <input id="incident-report-title" type="text" placeholder="Incident report" />
+                </label>
+                <label class="field">
+                  Client / customer
+                  <input id="incident-report-client" type="text" placeholder="Contoso" />
+                </label>
+                <label class="field">
+                  Reported by
+                  <input id="incident-report-reported-by" type="text" placeholder="Helpdesk" />
+                </label>
+                <label class="field">
+                  Severity
+                  <select id="incident-report-severity">
+                    <option value="">Select</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+                <label class="field">
+                  Status
+                  <select id="incident-report-status">
+                    <option value="open">Open</option>
+                    <option value="in-progress">In-progress</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="report-section tile-section tile-config">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Timing</div>
+                  <div class="card-subtitle">Reported and impact windows</div>
+                </div>
+              </div>
+              <div class="report-section-body tile-section-body report-grid tile-grid">
+                <label class="field">
+                  Reported at
+                  <input id="incident-report-reported-at" type="datetime-local" />
+                </label>
+                <label class="field">
+                  Resolved at
+                  <input id="incident-report-resolved-at" type="datetime-local" />
+                </label>
+                <label class="field">
+                  Impact window start
+                  <input id="incident-report-impact-start" type="datetime-local" />
+                </label>
+                <label class="field">
+                  Impact window end
+                  <input id="incident-report-impact-end" type="datetime-local" />
+                </label>
+              </div>
+            </div>
+
+            <div class="report-section narrative tile-section tile-primary">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Narrative</div>
+                  <div class="card-subtitle">Tell the story with clear findings and outcomes</div>
+                </div>
+              </div>
+              <div class="report-section-body tile-section-body report-grid tile-grid">
+                <label class="field wide">
+                  Reported problem
+                  <textarea id="incident-report-summary-reported" rows="3" placeholder="What did the user/client report?"></textarea>
+                </label>
+                <label class="field wide">
+                  Actual findings
+                  <textarea id="incident-report-summary-actual" rows="3" placeholder="What was confirmed from evidence?"></textarea>
+                </label>
+                <label class="field wide">
+                  Root cause
+                  <textarea id="incident-report-root-cause" rows="3" placeholder="Why it happened"></textarea>
+                </label>
+                <label class="field wide">
+                  Resolution
+                  <textarea id="incident-report-resolution" rows="3" placeholder="What was changed to fix it"></textarea>
+                </label>
+                <label class="field wide">
+                  Verification / validation
+                  <textarea id="incident-report-validation" rows="3" placeholder="How we confirmed it’s resolved"></textarea>
+                </label>
+                <label class="field wide">
+                  Preventive actions (optional)
+                  <textarea id="incident-report-preventive" rows="3" placeholder="Follow-ups to prevent recurrence"></textarea>
+                </label>
+                <label class="field wide">
+                  Affected users / devices / services
+                  <textarea id="incident-report-affected" rows="3" placeholder="Who/what was impacted"></textarea>
+                </label>
+              </div>
+            </div>
+
+            <details class="report-section report-collapsible tile-section tile-collapsible tile-support">
+              <summary>
+                <div>
+                  <div class="card-title">Timeline</div>
+                  <div class="card-subtitle">Investigation sequence</div>
+                </div>
+                <div class="card-actions">
+                  <button class="ghost small" id="incident-report-timeline-auto" type="button">Auto-fill</button>
+                  <button class="ghost small" id="incident-report-timeline-add" type="button">Add entry</button>
+                </div>
+              </summary>
+              <div class="report-section-body tile-section-body">
+                <ul class="history-list" id="incident-report-timeline"></ul>
+              </div>
+            </details>
+
+            <details class="report-section report-collapsible tile-section tile-collapsible tile-support">
+              <summary>
+                <div>
+                  <div class="card-title">Evidence</div>
+                  <div class="card-subtitle">Attach draft entries, runs, packs, snapshots, diffs</div>
+                </div>
+                <div class="card-actions">
+                  <button class="ghost small" id="incident-report-evidence-refresh" type="button">Refresh evidence</button>
+                </div>
+              </summary>
+              <div class="report-section-body tile-section-body">
+                <div class="evidence-list" id="incident-report-evidence"></div>
+              </div>
+            </details>
+
+            <div class="report-section tile-section tile-support">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Report output</div>
+                  <div class="card-subtitle">Preview redaction before export</div>
+                </div>
+                <div class="card-actions">
+                  <label class="export-select">
+                    Redaction
+                    <select id="incident-report-redaction">
+                      <option value="internal">Internal</option>
+                      <option value="client">Client-facing</option>
+                    </select>
+                  </label>
+                  <button class="ghost small" id="incident-report-preview">Preview</button>
+                </div>
+              </div>
+              <pre class="dataset-content" id="incident-report-preview-output"></pre>
+            </div>
+
+            <div class="tile-actions">
+              <button class="primary" id="incident-report-save">Save report</button>
+              <div class="button-group">
+                <button class="ghost small" id="incident-report-export-md">Markdown</button>
+                <button class="ghost small" id="incident-report-export-text">Text</button>
+                <button class="ghost small" id="incident-report-export-pdf">PDF</button>
+              </div>
+              <button class="ghost" id="incident-report-reset">Reset form</button>
+            </div>
           </div>
           <div class="card output-card" data-panel="reports">
             <div class="card-title">Reports output</div>
@@ -1465,45 +1800,108 @@
             <ul class="history-list" id="report-history-list"></ul>
             <input id="report-presets-import-file" type="file" accept=".json" hidden />
           </div>
-          <div class="card form-card" data-panel="reports" id="snapshot-capture">
-            <div class="card-title">Snapshot capture</div>
-            <div class="card-subtitle">Capture a baseline for a subject</div>
-            <div class="form form-grid form-grid-wide">
-              <label>
-                Subject kind
-                <select id="snapshot-subject-kind">
-                  <option value="user">User</option>
-                  <option value="device">Device</option>
-                  <option value="dc">Domain controller</option>
-                  <option value="dns_server">DNS server</option>
-                  <option value="dhcp_server">DHCP server</option>
-                  <option value="file_server">File server</option>
-                  <option value="print_server">Print server</option>
-                  <option value="admin_host">Admin host</option>
-                </select>
-              </label>
-              <label>
-                Identifier
-                <input id="snapshot-subject-value" type="text" placeholder="user@contoso.com or HOSTNAME/IP" />
-              </label>
-              <label>
-                Profile
-                <select id="snapshot-profile">
-                  <option value="core">Core</option>
-                  <option value="troubleshoot">Troubleshoot</option>
-                  <option value="deep">Deep</option>
-                </select>
-              </label>
-              <label>
-                Display name (optional)
-                <input id="snapshot-subject-name" type="text" placeholder="Sales workstation" />
-              </label>
+          <div class="card form-card" data-panel="reports" id="draft-snapshots">
+            <div class="card-header tile-header">
+              <div>
+                <div class="card-title">Draft snapshots</div>
+                <div class="card-subtitle">Collect results across panels, then finalize into a snapshot</div>
+              </div>
+              <div class="card-actions">
+                <div class="draft-header-actions">
+                  <button class="ghost small" id="draft-new">New draft</button>
+                  <button class="ghost small" id="draft-archive">Archive</button>
+                </div>
+              </div>
             </div>
-            <div class="runner-actions">
-              <button type="button" class="primary" id="snapshot-capture-btn">Capture snapshot</button>
+            <div class="draft-status">Draft snapshot (not yet finalized)</div>
+
+            <div class="draft-section tile-section tile-config">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">1. Define snapshot</div>
+                  <div class="card-subtitle">Choose the subject and profile for this draft</div>
+                </div>
+              </div>
+              <div class="draft-section-body tile-section-body draft-grid tile-grid">
+                <label class="field">
+                  Draft
+                  <select id="draft-select"></select>
+                </label>
+                <label class="field wide">
+                  Title
+                  <input id="draft-title" type="text" placeholder="User access investigation" />
+                </label>
+                <label class="field">
+                  Subject kind
+                  <select id="draft-subject-kind">
+                    <option value="user">User</option>
+                    <option value="device">Device</option>
+                    <option value="dc">Domain controller</option>
+                    <option value="dns_server">DNS server</option>
+                    <option value="dhcp_server">DHCP server</option>
+                    <option value="file_server">File server</option>
+                    <option value="print_server">Print server</option>
+                    <option value="admin_host">Admin host</option>
+                  </select>
+                </label>
+                <label class="field">
+                  Identifier
+                  <input id="draft-subject-value" type="text" placeholder="user@contoso.com or HOSTNAME/IP" />
+                </label>
+                <label class="field">
+                  Profile
+                  <select id="draft-profile">
+                    <option value="core">Core</option>
+                    <option value="troubleshoot">Troubleshoot</option>
+                    <option value="deep">Deep</option>
+                  </select>
+                </label>
+                <label class="field">
+                  Display name (optional)
+                  <input id="draft-subject-name" type="text" placeholder="Sales workstation" />
+                </label>
+              </div>
+            </div>
+
+            <div class="draft-section tile-section tile-primary">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">2. Add context</div>
+                  <div class="card-subtitle">Capture intent and investigation notes</div>
+                </div>
+              </div>
+              <div class="draft-section-body tile-section-body">
+                <label class="field wide">
+                  Notes
+                  <textarea id="draft-notes" rows="4" placeholder="Why were these entries collected?"></textarea>
+                </label>
+              </div>
+            </div>
+
+            <div class="draft-section draft-entries tile-section tile-support">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Draft entries</div>
+                  <div class="card-subtitle">Evidence collected from task runs</div>
+                </div>
+              </div>
+              <div class="draft-section-body tile-section-body">
+                <div class="draft-empty" id="draft-empty">
+                  <div class="draft-empty-icon">◎</div>
+                  <div class="draft-empty-text">
+                    No entries yet. Run an action and click “Add result to draft” to collect evidence.
+                  </div>
+                </div>
+                <ul class="history-list" id="draft-entries-list"></ul>
+              </div>
+            </div>
+
+            <div class="tile-actions">
+              <button type="button" class="primary" id="draft-finalize">Finalize snapshot</button>
+              <button type="button" class="ghost" id="draft-clear">Clear entries</button>
             </div>
           </div>
-          <div class="card" data-panel="reports" id="snapshot-history">
+          <div class="card" data-panel="reports" id="snapshot-history" data-workspace-block="snapshots.history">
             <div class="card-header">
               <div>
                 <div class="card-title">Snapshot history &amp; quality</div>
@@ -1670,6 +2068,13 @@
                   </label>
                   <span class="toggle-meta">Dev-only</span>
                 </div>
+                <div class="toggle-row">
+                  <label class="toggle">
+                    <input id="cfg-allow-remote-dangerous" type="checkbox" />
+                    <span>Allow dangerous actions on remote targets</span>
+                  </label>
+                  <span class="toggle-meta">Blocked by default</span>
+                </div>
                 <div class="note">Lock prevents config updates until disabled.</div>
               </div>
               <div class="settings-panel">
@@ -1758,6 +2163,48 @@
                   ></textarea>
                 </label>
                 <div class="note">Buckets: security, config, metadata. Supports exact keys, wildcard * suffix, or regex with re:prefix.</div>
+              </div>
+              <div class="settings-panel full" id="ssh-targets-panel">
+                <div class="settings-section-title">Remote targets (SSH)</div>
+                <div class="form form-grid form-grid-wide">
+                  <input id="ssh-target-id" type="hidden" />
+                  <label>
+                    Target name
+                    <input id="ssh-target-name" type="text" placeholder="DC01" />
+                  </label>
+                  <label>
+                    Host
+                    <input id="ssh-target-host" type="text" placeholder="dc01.contoso.local" />
+                  </label>
+                  <label>
+                    User
+                    <input id="ssh-target-user" type="text" placeholder="admin" />
+                  </label>
+                  <label>
+                    Port
+                    <input id="ssh-target-port" type="number" placeholder="22" />
+                  </label>
+                  <label>
+                    Key path (optional)
+                    <input id="ssh-target-key" type="text" placeholder="~/.ssh/id_ed25519" />
+                  </label>
+                  <label>
+                    Tags (comma-separated)
+                    <input id="ssh-target-tags" type="text" placeholder="dc, fileserver" />
+                  </label>
+                  <label class="toggle-row">
+                    <label class="toggle">
+                      <input id="ssh-target-strict" type="checkbox" checked />
+                      <span>Strict host key checking</span>
+                    </label>
+                  </label>
+                </div>
+                <div class="runner-actions">
+                  <button type="button" class="ghost" id="ssh-target-clear">Clear</button>
+                  <button type="button" class="primary" id="ssh-target-save">Save target</button>
+                </div>
+                <div class="target-list" id="ssh-target-list"></div>
+                <div class="note">Targets are stored locally. Only key paths are saved (no private key material).</div>
               </div>
             </div>
             <details class="profile-panel" id="profile-panel">
@@ -1849,6 +2296,10 @@
                 <ul class="health-list" id="health-powershell-list"></ul>
               </div>
             </details>
+            <div class="health-section">
+              <div class="health-section-title">Coverage limitations</div>
+              <div class="health-limitations" id="health-limitations"></div>
+            </div>
             <div class="note">Runs Graph probes for each service and verifies required PowerShell modules.</div>
             <pre class="output" data-output="health"></pre>
             <button class="ghost small clear-output" data-output-target="health">Clear</button>
@@ -1940,6 +2391,132 @@
               <div class="note" id="audit-empty">No audit entries found.</div>
             </div>
           </div>
+        </section>
+
+        <section class="hero" data-panel="workspaces" data-display="grid">
+          <div class="hero-content">
+            <h1>Workspaces</h1>
+            <p>Saved multi-block dashboards for cross-context workflows.</p>
+          </div>
+        </section>
+
+        <section class="workspace-shell" data-panel="workspaces" data-display="block">
+          <div class="card form-card" id="workspaces-tile">
+            <div class="card-header tile-header">
+              <div>
+                <div class="card-title">Workspaces</div>
+                <div class="card-subtitle">Saved multi-block dashboards for cross-context workflows</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="workspace-add-tile">Add tile</button>
+              </div>
+            </div>
+
+            <div class="tile-section tile-config">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Workspace configuration</div>
+                  <div class="card-subtitle">Select or manage your workspace</div>
+                </div>
+              </div>
+              <div class="tile-section-body tile-grid workspace-config-grid">
+                <label class="field">
+                  Workspace
+                  <select id="workspace-select"></select>
+                </label>
+                <div class="field wide workspace-config-actions">
+                  <span class="field-label">Manage</span>
+                  <div class="button-group">
+                    <button class="ghost small" id="workspace-new">New</button>
+                    <button class="ghost small" id="workspace-rename">Rename</button>
+                    <button class="ghost small" id="workspace-duplicate">Duplicate</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tile-section tile-primary">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Workspace canvas</div>
+                  <div class="card-subtitle">Arrange tiles to build your workflow</div>
+                </div>
+              </div>
+              <div class="tile-section-body">
+                <div class="workspace-grid" id="workspace-grid" data-skip-tiles="true"></div>
+              </div>
+            </div>
+
+            <div class="tile-section tile-support">
+              <div class="section-header">
+                <div>
+                  <div class="card-title">Templates</div>
+                  <div class="card-subtitle">Start with a ready-made layout</div>
+                </div>
+              </div>
+              <div class="tile-section-body">
+                <div class="workspace-empty" id="workspace-empty">
+                  <div class="empty-title">Create your first workspace</div>
+                  <div class="empty-subtitle">Start with a template or build your own layout.</div>
+                  <div class="empty-actions" id="workspace-templates"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tile-actions">
+              <button class="ghost" id="workspace-save">Save layout</button>
+              <div class="button-group">
+                <button class="ghost small" id="workspace-export">Export</button>
+                <button class="ghost small" id="workspace-import">Import</button>
+              </div>
+              <button class="ghost" id="workspace-delete">Delete</button>
+            </div>
+          </div>
+          <input id="workspace-import-file" type="file" accept=".json" hidden />
+        </section>
+
+        <section class="help-layout" data-panel="help" data-display="grid">
+          <aside class="help-sidebar">
+            <div class="help-search">
+              <input id="help-search" type="search" placeholder="Search docs..." />
+              <div class="help-search-results" id="help-search-results"></div>
+            </div>
+            <div class="help-toc" id="help-toc"></div>
+          </aside>
+          <article class="help-content">
+            <div class="help-content-header">
+              <div>
+                <div class="help-title" id="help-title">Help Center</div>
+                <div class="help-subtitle" id="help-subtitle">Documentation and how-to guidance</div>
+              </div>
+            </div>
+            <div class="help-body" id="help-content">
+              <div class="note">Loading help content...</div>
+            </div>
+          </article>
+          <aside class="help-rail">
+            <div class="help-rail-card">
+              <div class="help-rail-title">Quick links</div>
+              <button class="ghost small" data-help-link="getting-started">Getting started</button>
+              <button class="ghost small" data-help-link="core-concepts#task-runner">Task Runner</button>
+              <button class="ghost small" data-help-link="action-packs#preview-plan">Action Packs</button>
+              <button class="ghost small" data-help-link="core-concepts#snapshots">Snapshots</button>
+              <button class="ghost small" data-help-link="baselines#golden-baselines">Baselines</button>
+              <button class="ghost small" data-help-link="settings#configuration">Settings</button>
+            </div>
+            <div class="help-rail-card">
+              <div class="help-rail-title">Common workflows</div>
+              <button class="ghost small" data-help-link="modules#entra">User audit</button>
+              <button class="ghost small" data-help-link="action-packs#offboard-user-workflow">Offboard user</button>
+              <button class="ghost small" data-help-link="modules#network-topology">Topology diff</button>
+            </div>
+            <div class="help-rail-card">
+              <div class="help-rail-title">Troubleshooting</div>
+              <button class="ghost small" data-help-link="troubleshooting#graph-status-degraded">Graph degraded</button>
+              <button class="ghost small" data-help-link="troubleshooting#powershell-connection-issues">PowerShell not connected</button>
+              <button class="ghost small" data-help-link="troubleshooting#snapshot-capture-not-saving">Snapshot not saving</button>
+            </div>
+          </aside>
         </section>
       </main>
     </div>

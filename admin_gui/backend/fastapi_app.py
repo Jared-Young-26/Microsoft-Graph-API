@@ -37,12 +37,17 @@ from .core import (
     _link_incident_event,
     _build_incident_graph,
     _build_incident_timeline,
+    _get_incident_report,
+    _update_incident_report,
+    _render_incident_report,
     _list_golden_snapshots,
     _set_golden_snapshot,
     _clear_golden_snapshot,
     _diff_golden_snapshot,
     _extract_action_payload,
     _capture_snapshots,
+    _finalize_draft_snapshot,
+    _system_status_summary,
     ensure_snapshot_scheduler,
     ARTIFACTS_DIR,
 )
@@ -67,6 +72,7 @@ class TaskRequest(BaseModel):
     service: str
     action: str
     params: dict | None = None
+    target: dict | None = None
 
 
 class ConfigUpdate(BaseModel):
@@ -99,6 +105,11 @@ class ConfigImportRequest(BaseModel):
 @app.get("/api/status")
 def status():
     return STATE.status()
+
+
+@app.get("/api/status/summary")
+def status_summary():
+    return _system_status_summary()
 
 
 @app.get("/api/config")
@@ -183,7 +194,7 @@ def import_config(payload: ConfigImportRequest):
 @app.post("/api/task")
 def run_task(task: TaskRequest):
     try:
-        data = dispatch_task(task.service, task.action, task.params)
+        data = dispatch_task(task.service, task.action, task.params, task.target)
         normalized = None
         try:
             normalized_payload = _extract_action_payload(data)
@@ -195,7 +206,7 @@ def run_task(task: TaskRequest):
             )
         except Exception:
             normalized = None
-        return {"ok": True, "data": data, "normalized": normalized}
+        return {"ok": True, "data": data, "normalized": normalized, "target": task.target}
     except GraphAPIError as exc:
         detail = ""
         rate_limit = {}
@@ -450,10 +461,50 @@ def incident_timeline(incident_id: str):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
+@app.get("/api/incidents/{incident_id}/report")
+def get_incident_report(incident_id: str):
+    try:
+        data = _get_incident_report(incident_id) or {}
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/incidents/{incident_id}/report")
+def save_incident_report(incident_id: str, payload: dict):
+    report = payload.get("report") if isinstance(payload, dict) else payload
+    try:
+        data = _update_incident_report(incident_id, report)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/incidents/{incident_id}/report/render")
+def render_incident_report(incident_id: str, payload: dict):
+    fmt = payload.get("format") or "markdown"
+    redaction = payload.get("redaction") or "internal"
+    report = payload.get("report")
+    try:
+        data = _render_incident_report(incident_id, fmt, redaction, report=report)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
 @app.post("/api/snapshots/capture")
 def capture_snapshot(payload: dict):
     try:
         data = _capture_snapshots(payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/snapshots/finalize")
+def finalize_snapshot(payload: dict):
+    try:
+        data = _finalize_draft_snapshot(payload)
         return {"ok": True, "data": data}
     except Exception as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
@@ -478,6 +529,12 @@ def add_topology_history(payload: dict):
         return {"ok": True, "data": data}
     except Exception as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/help")
+@app.get("/help/{path:path}")
+def help_page(path: str = ""):
+    return FileResponse(ROOT / "index.html")
 
 
 app.mount("/", StaticFiles(directory=ROOT, html=True), name="static")

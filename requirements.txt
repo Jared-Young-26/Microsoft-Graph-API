@@ -7,3 +7,5 @@ requests
 uvicorn[standard]
 keyring
 cryptography
+paramiko
+reportlab

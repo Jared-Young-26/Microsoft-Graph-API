@@ -25,12 +25,17 @@ from .core import (
     _link_incident_event,
     _build_incident_graph,
     _build_incident_timeline,
+    _get_incident_report,
+    _update_incident_report,
+    _render_incident_report,
     _list_golden_snapshots,
     _set_golden_snapshot,
     _clear_golden_snapshot,
     _diff_golden_snapshot,
     _extract_action_payload,
     _capture_snapshots,
+    _finalize_draft_snapshot,
+    _system_status_summary,
     ensure_snapshot_scheduler,
     ARTIFACTS_DIR,
 )
@@ -46,6 +51,11 @@ ensure_snapshot_scheduler()
 @app.get("/api/status")
 def status():
     return jsonify(STATE.status())
+
+
+@app.get("/api/status/summary")
+def status_summary():
+    return jsonify(_system_status_summary())
 
 
 @app.get("/api/config")
@@ -128,14 +138,15 @@ def run_task():
         service = payload.get("service")
         action = payload.get("action")
         params = payload.get("params")
-        data = dispatch_task(service, action, params)
+        target = payload.get("target")
+        data = dispatch_task(service, action, params, target)
         normalized = None
         try:
             normalized_payload = _extract_action_payload(data)
             normalized = interpret_response(service, action, normalized_payload, source=get_action_source(service, action))
         except Exception:
             normalized = None
-        return jsonify({"ok": True, "data": data, "normalized": normalized})
+        return jsonify({"ok": True, "data": data, "normalized": normalized, "target": target})
     except GraphAPIError as exc:
         detail = ""
         rate_limit = {}
@@ -413,11 +424,54 @@ def incident_timeline(incident_id):
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@app.get("/api/incidents/<incident_id>/report")
+def get_incident_report(incident_id):
+    try:
+        data = _get_incident_report(incident_id) or {}
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/incidents/<incident_id>/report")
+def save_incident_report(incident_id):
+    payload = request.get_json(silent=True) or {}
+    report = payload.get("report") or payload
+    try:
+        data = _update_incident_report(incident_id, report)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/incidents/<incident_id>/report/render")
+def render_incident_report(incident_id):
+    payload = request.get_json(silent=True) or {}
+    fmt = payload.get("format") or "markdown"
+    redaction = payload.get("redaction") or "internal"
+    report = payload.get("report")
+    try:
+        data = _render_incident_report(incident_id, fmt, redaction, report=report)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.post("/api/snapshots/capture")
 def capture_snapshot():
     payload = request.get_json(silent=True) or {}
     try:
         data = _capture_snapshots(payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/snapshots/finalize")
+def finalize_snapshot():
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _finalize_draft_snapshot(payload)
         return jsonify({"ok": True, "data": data})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -437,6 +491,12 @@ def add_topology_history():
 
 @app.get("/")
 def index():
+    return send_from_directory(str(ROOT), "index.html")
+
+
+@app.get("/help")
+@app.get("/help/<path:_path>")
+def help_page(_path=None):
     return send_from_directory(str(ROOT), "index.html")
 
 

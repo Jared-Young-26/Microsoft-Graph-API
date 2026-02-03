@@ -17,6 +17,7 @@ LOCAL_SERVICES = {
     "baselines",
     "eventlogs",
     "registry",
+    "remote_workflows",
 }
 
 SERVICE_MODULES = {
@@ -41,6 +42,7 @@ SERVICE_MODULES = {
     "baselines": [],
     "eventlogs": [],
     "registry": [],
+    "remote_workflows": [],
 }
 
 SERVICE_DEFAULTS = {
@@ -202,6 +204,33 @@ ACTION_OVERRIDES: Dict[str, Dict[str, Dict[str, Any]]] = {
         "collect_topology": {"name": "Collect topology", "risk": "safe", "output_schema": {"type": "graph"}},
         "ping_targets": {"name": "Ping targets", "risk": "safe", "output_schema": {"type": "list"}},
     },
+    "remote_workflows": {
+        "get_endpoint_auth_reality": {
+            "name": "Endpoint authentication reality check",
+            "risk": "safe",
+            "output_schema": {"type": "object"},
+        },
+        "get_effective_policy": {
+            "name": "Effective policy vs intended policy",
+            "risk": "safe",
+            "output_schema": {"type": "object"},
+        },
+        "get_service_process_integrity": {
+            "name": "Service-to-process integrity check",
+            "risk": "safe",
+            "output_schema": {"type": "object"},
+        },
+        "get_recent_failure_causality": {
+            "name": "Recent failure causality",
+            "risk": "safe",
+            "output_schema": {"type": "object"},
+        },
+        "get_host_network_path": {
+            "name": "Host-perspective network path check",
+            "risk": "safe",
+            "output_schema": {"type": "object"},
+        },
+    },
 }
 
 READ_PREFIXES = (
@@ -329,6 +358,10 @@ def build_capability_registry(actions: Dict[str, Dict[str, Dict[str, Any]]]) -> 
                 "requires_rsat": False,
                 "output_schema": infer_output_schema(action),
             }
+            allowed_targets = spec.get("allowed_targets")
+            if not allowed_targets:
+                allowed_targets = ["local", "graph"] if source == "graph" else ["local"]
+            capability["allowed_targets"] = allowed_targets
             capability["requires_rsat"] = infer_requires_rsat(capability.get("required_modules"))
             override = ACTION_OVERRIDES.get(service, {}).get(action)
             if override:

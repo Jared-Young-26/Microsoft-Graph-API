@@ -115,6 +115,13 @@ class SnapshotSqlStore:
                 event_id TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS incident_reports (
+                incident_id TEXT PRIMARY KEY,
+                created_at TEXT,
+                updated_at TEXT,
+                report_json TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_snapshots_entity_time ON snapshots (canonical_id, captured_at);
             CREATE INDEX IF NOT EXISTS idx_events_time ON events (time);
             CREATE INDEX IF NOT EXISTS idx_events_signal ON events (signal_name);
@@ -123,6 +130,7 @@ class SnapshotSqlStore:
             CREATE INDEX IF NOT EXISTS idx_incident_subjects ON incident_subjects (incident_id, canonical_id);
             CREATE INDEX IF NOT EXISTS idx_incident_snapshots ON incident_snapshots (incident_id, snapshot_id);
             CREATE INDEX IF NOT EXISTS idx_incident_events ON incident_events (incident_id, event_id);
+            CREATE INDEX IF NOT EXISTS idx_incident_reports_time ON incident_reports (updated_at);
             """
         )
 
@@ -526,6 +534,39 @@ class SnapshotSqlStore:
             conn.execute(
                 f"UPDATE incidents SET {', '.join(fields)} WHERE incident_id = ?",
                 params,
+            )
+            conn.commit()
+
+    def get_incident_report(self, incident_id: str) -> Optional[Dict[str, Any]]:
+        if not incident_id:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT report_json FROM incident_reports WHERE incident_id = ?",
+                (incident_id,),
+            ).fetchone()
+        if not row or not row["report_json"]:
+            return None
+        try:
+            return json.loads(row["report_json"])
+        except Exception:
+            return None
+
+    def upsert_incident_report(self, incident_id: str, report: Dict[str, Any]) -> None:
+        if not incident_id:
+            return
+        now = _now_iso()
+        payload = _json_dumps(report or {})
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO incident_reports (incident_id, created_at, updated_at, report_json)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(incident_id) DO UPDATE SET
+                    updated_at = excluded.updated_at,
+                    report_json = excluded.report_json
+                """,
+                (incident_id, now, now, payload),
             )
             conn.commit()
 

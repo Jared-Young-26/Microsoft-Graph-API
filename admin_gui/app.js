@@ -7,6 +7,10 @@ const toast = document.getElementById("toast");
 const navToggle = document.getElementById("nav-toggle");
 const sidebar = document.getElementById("sidebar");
 const navList = document.querySelector(".nav");
+const helpLinkButton = document.getElementById("help-link");
+const modePill = document.getElementById("mode-pill");
+const modeTitle = document.getElementById("mode-title");
+const modeSubtitle = document.getElementById("mode-subtitle");
 const statusBadge = document.getElementById("status-badge");
 const warningBanner = document.getElementById("warning-banner");
 const warningMessage = document.getElementById("warning-message");
@@ -20,17 +24,91 @@ const snapshotDiffTriage = document.getElementById("snapshot-diff-triage");
 const reportDiffTriage = document.getElementById("report-diff-triage");
 const snapshotDiffCopy = document.getElementById("snapshot-diff-copy");
 const reportDiffCopy = document.getElementById("report-diff-copy");
+const workspaceSelect = document.getElementById("workspace-select");
+const workspaceNewButton = document.getElementById("workspace-new");
+const workspaceRenameButton = document.getElementById("workspace-rename");
+const workspaceDuplicateButton = document.getElementById("workspace-duplicate");
+const workspaceDeleteButton = document.getElementById("workspace-delete");
+const workspaceAddTileButton = document.getElementById("workspace-add-tile");
+const workspaceExportButton = document.getElementById("workspace-export");
+const workspaceImportButton = document.getElementById("workspace-import");
+const workspaceImportFile = document.getElementById("workspace-import-file");
+const workspaceSaveButton = document.getElementById("workspace-save");
+const workspaceGrid = document.getElementById("workspace-grid");
+const workspaceEmpty = document.getElementById("workspace-empty");
+const workspaceTemplates = document.getElementById("workspace-templates");
 let diffImpactOverrides = {};
 let activeIncidentId = null;
 const snapshotDiffCache = new Map();
 const reportDiffCache = new Map();
 const SECTION_ALIASES = {
   incidents: "reports",
-  actionpacks: "reports",
   snapshotcapture: "reports",
   quickactions: "dashboard",
   healthcheck: "settings",
   auditlog: "settings",
+  snapshots: "reports",
+};
+const MODE_MAP = {
+  dashboard: "observe",
+  incidents: "observe",
+  workspaces: "observe",
+  baselines: "analyze",
+  healthcheck: "configure",
+  auditlog: "observe",
+  reports: "analyze",
+  snapshots: "observe",
+  eventlogs: "observe",
+  registry: "observe",
+  time: "observe",
+  certificates: "observe",
+  processes: "observe",
+  topology: "observe",
+  exchange: "act",
+  onedrive: "act",
+  sharepoint: "act",
+  teams: "act",
+  entra: "act",
+  azure: "act",
+  defender: "act",
+  powerplatform: "act",
+  purview: "act",
+  localad: "act",
+  endpoint: "act",
+  domaincontroller: "act",
+  printers: "act",
+  network: "act",
+  remote_workflows: "act",
+  ssh: "act",
+  fileserver: "act",
+  actionpacks: "act",
+  snapshotcapture: "act",
+  quickactions: "act",
+  settings: "configure",
+  help: "learn",
+};
+
+const MODE_META = {
+  observe: {
+    label: "Observe",
+    subtitle: "System status, snapshots, baselines, and read-only diagnostics.",
+  },
+  analyze: {
+    label: "Analyze",
+    subtitle: "Diffs, baselines, reports, and trend reasoning.",
+  },
+  act: {
+    label: "Act",
+    subtitle: "Run task runners and action packs with explicit execution controls.",
+  },
+  configure: {
+    label: "Configure",
+    subtitle: "Environment configuration, profiles, targets, and secrets.",
+  },
+  learn: {
+    label: "Learn",
+    subtitle: "Reference documentation, workflows, and troubleshooting guidance.",
+  },
 };
 const cfgTenantId = document.getElementById("cfg-tenant-id");
 const cfgClientId = document.getElementById("cfg-client-id");
@@ -62,6 +140,18 @@ const cfgDnsResolvers = document.getElementById("cfg-dns-resolvers");
 const cfgPublicResolvers = document.getElementById("cfg-public-resolvers");
 const cfgZoneMap = document.getElementById("cfg-zone-map");
 const cfgDiffImpactOverrides = document.getElementById("cfg-diff-impact-overrides");
+const cfgAllowRemoteDangerous = document.getElementById("cfg-allow-remote-dangerous");
+const sshTargetIdInput = document.getElementById("ssh-target-id");
+const sshTargetNameInput = document.getElementById("ssh-target-name");
+const sshTargetHostInput = document.getElementById("ssh-target-host");
+const sshTargetUserInput = document.getElementById("ssh-target-user");
+const sshTargetPortInput = document.getElementById("ssh-target-port");
+const sshTargetKeyInput = document.getElementById("ssh-target-key");
+const sshTargetTagsInput = document.getElementById("ssh-target-tags");
+const sshTargetStrictInput = document.getElementById("ssh-target-strict");
+const sshTargetSaveButton = document.getElementById("ssh-target-save");
+const sshTargetClearButton = document.getElementById("ssh-target-clear");
+const sshTargetList = document.getElementById("ssh-target-list");
 const tenantName = document.getElementById("tenant-name");
 const tenantIdField = document.getElementById("tenant-id");
 const tenantDomains = document.getElementById("tenant-domains");
@@ -75,10 +165,20 @@ const configImportFile = document.getElementById("config-import-file");
 const metricTenants = document.getElementById("metric-tenants");
 const metricTasks = document.getElementById("metric-tasks");
 const metricSuccess = document.getElementById("metric-success");
+const statusCompleteness = document.getElementById("status-completeness");
+const statusWarnings = document.getElementById("status-warnings");
+const statusWarningSummary = document.getElementById("status-warning-summary");
+const statusLastSnapshot = document.getElementById("status-last-snapshot");
+const statusGraphReady = document.getElementById("status-graph-ready");
+const statusPsReady = document.getElementById("status-ps-ready");
+const statusViewDetails = document.getElementById("status-view-details");
+const recentSnapshotsList = document.getElementById("recent-snapshots-list");
+const snapshotsViewHistory = document.getElementById("snapshots-view-history");
 const quickActionsCard = document.getElementById("quick-actions-card");
 const quickActionsGrid = document.getElementById("quick-actions");
 const quickActionsEditor = document.getElementById("quick-actions-editor");
 const quickActionsEditButton = document.getElementById("edit-quick-actions");
+const quickLinks = document.getElementById("quick-links");
 const quickActionServiceSelect = document.getElementById("qa-service");
 const quickActionActionSelect = document.getElementById("qa-action");
 const quickActionAddButton = document.getElementById("qa-add");
@@ -120,6 +220,9 @@ const packAddStepButton = document.getElementById("pack-add-step");
 const packNewButton = document.getElementById("pack-new");
 const packDeleteButton = document.getElementById("pack-delete");
 const packSaveButton = document.getElementById("pack-save");
+const packSaveCopyButton = document.getElementById("pack-save-copy");
+const packVersionSelect = document.getElementById("pack-version-select");
+const packVersionRestoreButton = document.getElementById("pack-version-restore");
 const packStepList = document.getElementById("pack-step-list");
 const reportsExportDatasetSelect = document.getElementById("reports-export-dataset");
 const exportReportsAllButton = document.getElementById("export-reports-all");
@@ -146,11 +249,17 @@ const actionPackFilterSelect = document.getElementById("action-pack-filter");
 const actionPackRunnerTitle = document.getElementById("action-pack-runner-title");
 const actionPackRunnerSteps = document.getElementById("action-pack-runner-steps");
 const actionPackRunButton = document.getElementById("action-pack-run");
+const actionPackPreviewButton = document.getElementById("action-pack-preview");
+const actionPackValidateButton = document.getElementById("action-pack-validate");
 const actionPackDryRunToggle = document.getElementById("action-pack-dry-run");
 const actionPackRunCancelButton = document.getElementById("action-pack-run-cancel");
+const actionPackHowPanel = document.getElementById("action-pack-how");
+const actionPackPlanPanel = document.getElementById("action-pack-plan");
+const actionPackLastRun = document.getElementById("action-pack-last-run");
 const packScopeSelect = document.getElementById("pack-scope");
 const actionPackHistoryList = document.getElementById("action-pack-history-list");
 const actionPackHistoryClear = document.getElementById("action-pack-history-clear");
+const actionPackDeletedList = document.getElementById("action-pack-deleted-list");
 const exportReportPresetsButton = document.getElementById("export-report-presets");
 const importReportPresetsButton = document.getElementById("import-report-presets");
 const reportPresetsImportFile = document.getElementById("report-presets-import-file");
@@ -185,11 +294,51 @@ const reportDiffSelectB = document.getElementById("report-diff-b");
 const reportDiffRunButton = document.getElementById("report-diff-run");
 const reportDiffMeta = document.getElementById("report-diff-meta");
 const reportDiffOutput = document.getElementById("report-diff-output");
-const snapshotCaptureButton = document.getElementById("snapshot-capture-btn");
-const snapshotSubjectKind = document.getElementById("snapshot-subject-kind");
-const snapshotSubjectValue = document.getElementById("snapshot-subject-value");
-const snapshotSubjectName = document.getElementById("snapshot-subject-name");
-const snapshotProfileSelect = document.getElementById("snapshot-profile");
+const draftSelect = document.getElementById("draft-select");
+const draftNewButton = document.getElementById("draft-new");
+const draftArchiveButton = document.getElementById("draft-archive");
+const draftTitleInput = document.getElementById("draft-title");
+const draftNotesInput = document.getElementById("draft-notes");
+const draftSubjectKind = document.getElementById("draft-subject-kind");
+const draftSubjectValue = document.getElementById("draft-subject-value");
+const draftSubjectName = document.getElementById("draft-subject-name");
+const draftProfileSelect = document.getElementById("draft-profile");
+const draftFinalizeButton = document.getElementById("draft-finalize");
+const draftClearButton = document.getElementById("draft-clear");
+const draftEntriesList = document.getElementById("draft-entries-list");
+const draftEmptyNote = document.getElementById("draft-empty");
+const incidentReportSelect = document.getElementById("incident-report-select");
+const incidentReportLoadButton = document.getElementById("incident-report-load");
+const incidentReportTitle = document.getElementById("incident-report-title");
+const incidentReportClient = document.getElementById("incident-report-client");
+const incidentReportReportedBy = document.getElementById("incident-report-reported-by");
+const incidentReportSeverity = document.getElementById("incident-report-severity");
+const incidentReportStatus = document.getElementById("incident-report-status");
+const incidentReportReportedAt = document.getElementById("incident-report-reported-at");
+const incidentReportResolvedAt = document.getElementById("incident-report-resolved-at");
+const incidentReportImpactStart = document.getElementById("incident-report-impact-start");
+const incidentReportImpactEnd = document.getElementById("incident-report-impact-end");
+const incidentReportSummaryReported = document.getElementById("incident-report-summary-reported");
+const incidentReportSummaryActual = document.getElementById("incident-report-summary-actual");
+const incidentReportRootCause = document.getElementById("incident-report-root-cause");
+const incidentReportResolution = document.getElementById("incident-report-resolution");
+const incidentReportValidation = document.getElementById("incident-report-validation");
+const incidentReportPreventive = document.getElementById("incident-report-preventive");
+const incidentReportAffected = document.getElementById("incident-report-affected");
+const incidentReportTimeline = document.getElementById("incident-report-timeline");
+const incidentReportTimelineAuto = document.getElementById("incident-report-timeline-auto");
+const incidentReportTimelineAdd = document.getElementById("incident-report-timeline-add");
+const incidentReportEvidence = document.getElementById("incident-report-evidence");
+const incidentReportEvidenceRefresh = document.getElementById("incident-report-evidence-refresh");
+const incidentReportPreview = document.getElementById("incident-report-preview");
+const incidentReportPreviewOutput = document.getElementById("incident-report-preview-output");
+const incidentReportRedaction = document.getElementById("incident-report-redaction");
+const incidentReportExportMd = document.getElementById("incident-report-export-md");
+const incidentReportExportText = document.getElementById("incident-report-export-text");
+const incidentReportExportPdf = document.getElementById("incident-report-export-pdf");
+const incidentReportSave = document.getElementById("incident-report-save");
+const incidentReportReset = document.getElementById("incident-report-reset");
+const reportCollapsibleButtons = document.querySelectorAll(".report-collapsible summary .card-actions button");
 const snapshotSubjectSelect = document.getElementById("snapshot-subject-select");
 const snapshotHistoryList = document.getElementById("snapshot-history-list");
 const snapshotHistoryRefresh = document.getElementById("snapshot-history-refresh");
@@ -248,6 +397,9 @@ let snapshotHistoryItems = [];
 let snapshotEntities = [];
 let symptomTemplates = [];
 let goldenBaselines = [];
+let draftSnapshots = [];
+let activeDraftId = null;
+let incidentReport = null;
 const tableRowCurrent = new WeakMap();
 const tableRowOriginal = new WeakMap();
 const prettyRowCurrent = new WeakMap();
@@ -272,8 +424,9 @@ const SENSITIVE_PARAM_KEYS = new Set([
 const subtitles = {
   dashboard: "Graph-first operations with PowerShell fallback",
   incidents: "Incident workspace, timeline, and evidence",
-  actionpacks: "Curated action packs and operator workflows",
-  snapshotcapture: "Capture snapshots on demand",
+  workspaces: "Saved multi-block dashboards",
+  actionpacks: "Run multi-step workflows",
+  snapshotcapture: "Draft snapshots built from collected results",
   quickactions: "Dashboard shortcuts and pinned tasks",
   healthcheck: "System health, readiness, and diagnostics",
   auditlog: "Audit trail and system events",
@@ -293,21 +446,25 @@ const subtitles = {
   ssh: "Remote workstation sessions over SSH",
   fileserver: "On-prem file share enumeration",
   topology: "Live on-prem device and service topology",
+  remote_workflows: "Remote-only workflows with explainable guidance",
   time: "Time sync and drift intelligence",
   certificates: "Certificate inventory and TLS trust",
   processes: "Process, service, and binary reality checks",
   baselines: "Golden baselines and drift comparison",
+  snapshots: "Snapshot history, diffs, and coverage",
   eventlogs: "Event log summaries and EVTX evidence",
   registry: "Registry watchlists and exports",
   reports: "Audit-ready reports and summaries",
   purview: "Compliance and data governance",
   settings: "Local session and credentials",
+  help: "In-app documentation and how-to guidance",
 };
 
 const serviceLabels = {
   incidents: "Incidents",
+  workspaces: "Workspaces",
   actionpacks: "Action Packs",
-  snapshotcapture: "Snapshot Capture",
+  snapshotcapture: "Draft Snapshots",
   quickactions: "Quick Actions",
   healthcheck: "Health Check",
   auditlog: "Audit Log",
@@ -322,13 +479,16 @@ const serviceLabels = {
   ssh: "SSH",
   fileserver: "File Server",
   topology: "Network Topology",
+  remote_workflows: "Remote Workflows",
   defender: "Defender for Cloud",
   time: "Time & Drift",
   certificates: "Certificates",
   processes: "Processes",
   baselines: "Baselines",
+  snapshots: "Snapshots",
   eventlogs: "Event Logs",
   registry: "Registry",
+  help: "Help",
 };
 
 const ACTIONS_UI = {
@@ -1047,31 +1207,37 @@ const ACTIONS_UI = {
     computer_info: {
       label: "Computer info",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [],
     },
     cim_summary: {
       label: "CIM summary (system/OS/BIOS)",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [],
     },
     systeminfo: {
       label: "Systeminfo baseline",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [],
     },
     system_inventory: {
       label: "System info snapshot",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [],
     },
     list_processes: {
       label: "List top processes",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [{ key: "top", label: "Top", type: "number", placeholder: "25" }],
     },
     list_services: {
       label: "List services",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [
         { key: "name", label: "Service name filter (optional)" },
         { key: "status", label: "Status filter (optional)", placeholder: "Running" },
@@ -1275,6 +1441,7 @@ const ACTIONS_UI = {
     list_adapters: {
       label: "List adapters",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [
         { key: "name", label: "Adapter name filter (optional)" },
         { key: "include_hidden", label: "Include hidden adapters", type: "checkbox" },
@@ -1471,11 +1638,13 @@ const ACTIONS_UI = {
     list_ip_configurations: {
       label: "IP configuration summary",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [{ key: "interface_alias", label: "Interface alias (optional)" }],
     },
     list_ip_interfaces: {
       label: "IP interface metrics",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [
         { key: "interface_alias", label: "Interface alias (optional)" },
         { key: "address_family", label: "Address family (optional)", placeholder: "IPv4" },
@@ -1484,6 +1653,7 @@ const ACTIONS_UI = {
     list_adapter_advanced: {
       label: "Adapter advanced properties",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [{ key: "name", label: "Adapter name (optional)" }],
     },
     list_neighbors: {
@@ -1601,6 +1771,53 @@ const ACTIONS_UI = {
       ],
     },
   },
+  remote_workflows: {
+    get_endpoint_auth_reality: {
+      label: "Endpoint authentication reality check",
+      mode: "powershell",
+      allowed_targets: ["ssh"],
+      fields: [
+        { key: "lookback_hours", label: "Lookback hours", type: "number", placeholder: "24" },
+        { key: "time_skew_warn_minutes", label: "Time skew warn (minutes)", type: "number", placeholder: "5" },
+      ],
+    },
+    get_effective_policy: {
+      label: "Effective policy vs intended",
+      mode: "powershell",
+      allowed_targets: ["ssh"],
+      fields: [
+        { key: "lookback_hours", label: "Lookback hours", type: "number", placeholder: "24" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "50" },
+      ],
+    },
+    get_service_process_integrity: {
+      label: "Service-to-process integrity",
+      mode: "powershell",
+      allowed_targets: ["ssh"],
+      fields: [
+        { key: "lookback_hours", label: "Lookback hours", type: "number", placeholder: "24" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "25" },
+      ],
+    },
+    get_recent_failure_causality: {
+      label: "Recent failure causality",
+      mode: "powershell",
+      allowed_targets: ["ssh"],
+      fields: [
+        { key: "lookback_hours", label: "Lookback hours", type: "number", placeholder: "24" },
+        { key: "max_events", label: "Max events", type: "number", placeholder: "50" },
+      ],
+    },
+    get_host_network_path: {
+      label: "Host-perspective network path check",
+      mode: "powershell",
+      allowed_targets: ["ssh"],
+      fields: [
+        { key: "target_host", label: "Target host", placeholder: "server.contoso.local" },
+        { key: "port", label: "Port (optional)", type: "number", placeholder: "445" },
+      ],
+    },
+  },
   fileserver: {
     list_files: {
       label: "List files in share",
@@ -1700,6 +1917,7 @@ const ACTIONS_UI = {
     process_inventory: {
       label: "Process inventory",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [
         { key: "include_command_line", label: "Include command line", type: "checkbox" },
         { key: "max_items", label: "Max items", type: "number", placeholder: "200" },
@@ -1708,6 +1926,7 @@ const ACTIONS_UI = {
     service_process_map: {
       label: "Service → process map",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [{ key: "max_items", label: "Max items", type: "number", placeholder: "200" }],
     },
   },
@@ -1737,6 +1956,7 @@ const ACTIONS_UI = {
     eventlog_summary: {
       label: "Event log summary",
       mode: "powershell",
+      allowed_targets: ["local", "ssh"],
       fields: [
         { key: "log_names", label: "Log names", placeholder: "System, Application" },
         { key: "levels", label: "Levels", placeholder: "Error, Warning" },
@@ -1747,10 +1967,10 @@ const ACTIONS_UI = {
         { key: "sample_size", label: "Sample size", type: "number", placeholder: "10" },
       ],
     },
-    eventlog_gpo_failures: { label: "GPO failures summary", mode: "powershell", fields: [] },
-    eventlog_print_failures: { label: "Print failures summary", mode: "powershell", fields: [] },
-    eventlog_rdp_failures: { label: "RDP/logon failures summary", mode: "powershell", fields: [] },
-    eventlog_windows_update_failures: { label: "Windows Update failures", mode: "powershell", fields: [] },
+    eventlog_gpo_failures: { label: "GPO failures summary", mode: "powershell", allowed_targets: ["local", "ssh"], fields: [] },
+    eventlog_print_failures: { label: "Print failures summary", mode: "powershell", allowed_targets: ["local", "ssh"], fields: [] },
+    eventlog_rdp_failures: { label: "RDP/logon failures summary", mode: "powershell", allowed_targets: ["local", "ssh"], fields: [] },
+    eventlog_windows_update_failures: { label: "Windows Update failures", mode: "powershell", allowed_targets: ["local", "ssh"], fields: [] },
     export_evtx: {
       label: "Export EVTX",
       mode: "powershell",
@@ -2011,8 +2231,12 @@ const ACTION_PACK_FILTER_KEY = "actionPackFilter";
 const ACTION_PACK_FAVORITES_KEY = "actionPackFavorites";
 const ACTION_PACK_HISTORY_KEY = "actionPackHistory";
 const ACTION_PACK_PARAMS_KEY = "actionPackParams";
+const ACTION_PACK_AUDIT_KEY = "actionPackAudit";
+const ACTION_PACK_VERSION_LIMIT = 5;
 const REPORT_HISTORY_KEY = "reportHistory";
 const SNAPSHOT_PREFS_KEY = "snapshotPrefs";
+const DRAFT_SNAPSHOTS_KEY = "draftSnapshots";
+const ACTIVE_DRAFT_KEY = "draftSnapshotActive";
 
 const DEFAULT_TEMPLATES = [
   {
@@ -2068,7 +2292,7 @@ let currentReportJob = null;
 const DEFAULT_ACTION_PACKS = [
   {
     id: "flagship-user-lifecycle",
-    name: "Flagship: User lifecycle (onboard/offboard)",
+    name: "User lifecycle: onboard/offboard (M365)",
     description:
       "End-to-end onboarding with verification, dry-run controls, and rollback guidance across cloud + on-prem.",
     steps: [
@@ -2701,6 +2925,336 @@ function showToast(message) {
   setTimeout(() => toast.classList.remove("show"), 2000);
 }
 
+let activeModal = null;
+
+function ensureAppModal() {
+  let modal = document.getElementById("app-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "app-modal";
+  modal.classList.add("modal");
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.setAttribute("aria-hidden", "true");
+  modal.setAttribute("aria-labelledby", "app-modal-title");
+  modal.setAttribute("aria-describedby", "app-modal-body");
+  modal.innerHTML = `
+    <div class="modal-card" role="document">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="app-modal-title"></div>
+          <div class="modal-subtitle" id="app-modal-subtitle"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost small modal-close" id="app-modal-close" aria-label="Close">×</button>
+        </div>
+      </div>
+      <div class="modal-body" id="app-modal-body"></div>
+      <div class="modal-footer" id="app-modal-footer"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal && activeModal?.allowOutsideClose) {
+      activeModal.close("cancel");
+    }
+  });
+  modal.querySelector("#app-modal-close").addEventListener("click", () => {
+    if (activeModal) activeModal.close("cancel");
+  });
+  return modal;
+}
+
+function getFocusableElements(root) {
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter((el) => !el.disabled && !el.getAttribute("aria-hidden"));
+}
+
+function openModal(config = {}) {
+  const modal = ensureAppModal();
+  const card = modal.querySelector(".modal-card");
+  const titleEl = modal.querySelector("#app-modal-title");
+  const subtitleEl = modal.querySelector("#app-modal-subtitle");
+  const bodyEl = modal.querySelector("#app-modal-body");
+  const footerEl = modal.querySelector("#app-modal-footer");
+
+  titleEl.textContent = config.title || "";
+  subtitleEl.textContent = config.subtitle || "";
+  subtitleEl.style.display = config.subtitle ? "block" : "none";
+
+  bodyEl.innerHTML = "";
+  if (config.body) {
+    if (typeof config.body === "string") {
+      const message = document.createElement("div");
+      message.classList.add("modal-message");
+      message.textContent = config.body;
+      bodyEl.appendChild(message);
+    } else {
+      bodyEl.appendChild(config.body);
+    }
+  }
+
+  footerEl.innerHTML = "";
+  card.classList.toggle("modal-small", config.size === "small");
+  card.classList.toggle("modal-large", config.size === "large");
+
+  let primaryButton = null;
+  const actions = config.actions || [];
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.add(action.variant === "primary" ? "primary" : "ghost");
+    if (action.variant === "primary" && action.danger) {
+      button.classList.add("danger");
+    }
+    if (action.size === "small") button.classList.add("small");
+    button.textContent = action.label;
+    if (action.primary) primaryButton = button;
+    button.addEventListener("click", () => {
+      if (action.onClick && action.onClick() === false) return;
+      const payload = action.collect ? action.collect() : null;
+      activeModal?.close(action.value || action.label, payload);
+    });
+    footerEl.appendChild(button);
+  });
+
+  const lastFocus = document.activeElement;
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+
+  const handleKeydown = (event) => {
+    if (event.key === "Escape") {
+      if (activeModal) activeModal.close("cancel");
+      return;
+    }
+    if (event.key === "Enter" && primaryButton) {
+      const target = event.target;
+      if (target && target.tagName === "TEXTAREA") return;
+      if (!primaryButton.disabled) {
+        event.preventDefault();
+        primaryButton.click();
+      }
+    }
+    if (event.key === "Tab") {
+      const focusable = getFocusableElements(card);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
+  modal.addEventListener("keydown", handleKeydown);
+
+  const close = (action, payload) => {
+    modal.classList.remove("open");
+    modal.setAttribute("aria-hidden", "true");
+    modal.removeEventListener("keydown", handleKeydown);
+    if (lastFocus && typeof lastFocus.focus === "function") {
+      lastFocus.focus();
+    }
+    if (activeModal?.resolve) {
+      activeModal.resolve({ action, payload });
+    }
+    activeModal = null;
+  };
+
+  activeModal = {
+    resolve: null,
+    close,
+    allowOutsideClose: config.allowOutsideClose !== false,
+  };
+
+  const promise = new Promise((resolve) => {
+    activeModal.resolve = resolve;
+  });
+
+  const focusables = getFocusableElements(card);
+  const focusTarget = config.initialFocus || focusables[0] || primaryButton;
+  if (focusTarget && typeof focusTarget.focus === "function") {
+    focusTarget.focus();
+  }
+
+  if (config.onReady) {
+    config.onReady({ modal, card, primaryButton, close });
+  }
+
+  return promise;
+}
+
+async function confirmModal({ title, subtitle, message, confirmLabel, cancelLabel, danger } = {}) {
+  const result = await openModal({
+    title: title || "Confirm",
+    subtitle: subtitle || "",
+    body: message || "",
+    actions: [
+      { label: cancelLabel || "Cancel", variant: "ghost", value: "cancel" },
+      {
+        label: confirmLabel || "Confirm",
+        variant: "primary",
+        value: "confirm",
+        primary: true,
+        danger: Boolean(danger),
+      },
+    ],
+  });
+  return result?.action === "confirm";
+}
+
+async function openFormModal({ title, subtitle, fields = [], confirmLabel, cancelLabel, size } = {}) {
+  const form = document.createElement("div");
+  form.classList.add("modal-form");
+  const fieldMap = new Map();
+
+  fields.forEach((field) => {
+    if (field.type === "checkbox") {
+      const wrapper = document.createElement("label");
+      wrapper.classList.add("modal-field", "checkbox");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(field.value);
+      const span = document.createElement("span");
+      span.textContent = field.label;
+      wrapper.appendChild(checkbox);
+      wrapper.appendChild(span);
+      form.appendChild(wrapper);
+      fieldMap.set(field.key, { field, input: checkbox });
+      return;
+    }
+
+    const label = document.createElement("label");
+    label.classList.add("modal-field");
+    label.textContent = field.label;
+    let input;
+    if (field.type === "select") {
+      input = document.createElement("select");
+      (field.options || []).forEach((option) => {
+        const opt = document.createElement("option");
+        opt.value = option.value;
+        opt.textContent = option.label;
+        input.appendChild(opt);
+      });
+      if (field.value !== undefined && field.value !== null) {
+        input.value = field.value;
+      }
+    } else if (field.type === "textarea") {
+      input = document.createElement("textarea");
+      input.rows = field.rows || 4;
+      input.value = field.value || "";
+    } else {
+      input = document.createElement("input");
+      input.type = field.type || "text";
+      input.value = field.value || "";
+    }
+    if (field.placeholder) input.placeholder = field.placeholder;
+    label.appendChild(input);
+    if (field.hint) {
+      const hint = document.createElement("div");
+      hint.classList.add("modal-hint");
+      hint.textContent = field.hint;
+      label.appendChild(hint);
+    }
+    form.appendChild(label);
+    fieldMap.set(field.key, { field, input });
+  });
+
+  let primaryButton = null;
+  const updateValidity = () => {
+    if (!primaryButton) return;
+    const invalid = Array.from(fieldMap.values()).some(({ field, input }) => {
+      if (!field.required) return false;
+      if (field.type === "checkbox") return !input.checked;
+      return !String(input.value || "").trim();
+    });
+    primaryButton.disabled = invalid;
+  };
+
+  const result = await openModal({
+    title: title || "",
+    subtitle: subtitle || "",
+    body: form,
+    size,
+    actions: [
+      { label: cancelLabel || "Cancel", variant: "ghost", value: "cancel" },
+      {
+        label: confirmLabel || "Save",
+        variant: "primary",
+        value: "confirm",
+        primary: true,
+      },
+    ],
+    onReady: ({ primaryButton: btn }) => {
+      primaryButton = btn;
+      updateValidity();
+      fieldMap.forEach(({ input }) => {
+        input.addEventListener("input", updateValidity);
+        input.addEventListener("change", updateValidity);
+      });
+    },
+  });
+
+  if (result?.action !== "confirm") return null;
+  const values = {};
+  fieldMap.forEach(({ field, input }, key) => {
+    values[key] = field.type === "checkbox" ? Boolean(input.checked) : input.value;
+  });
+  return values;
+}
+
+async function promptModal({ title, subtitle, label, defaultValue, placeholder, confirmLabel, cancelLabel, required, hint }) {
+  const values = await openFormModal({
+    title,
+    subtitle,
+    confirmLabel,
+    cancelLabel,
+    fields: [
+      {
+        key: "value",
+        label: label || "Value",
+        value: defaultValue || "",
+        placeholder,
+        required: Boolean(required),
+        hint,
+      },
+    ],
+  });
+  if (!values) return null;
+  return values.value;
+}
+
+async function selectModal({ title, subtitle, label, options = [], defaultValue, confirmLabel, cancelLabel }) {
+  const values = await openFormModal({
+    title,
+    subtitle,
+    confirmLabel,
+    cancelLabel,
+    fields: [
+      {
+        key: "selection",
+        label: label || "Select",
+        type: "select",
+        value: defaultValue,
+        options: options.map((option) =>
+          typeof option === "string" ? { value: option, label: option } : option
+        ),
+        required: true,
+      },
+    ],
+  });
+  if (!values) return null;
+  return values.selection;
+}
+
 function setRunnerRunning(service, running) {
   const form = document.querySelector(`.runner[data-service="${service}"]`);
   if (!form) return;
@@ -3278,6 +3832,7 @@ async function renderIncidents() {
     row.appendChild(meta);
     incidentList.appendChild(row);
   });
+  renderIncidentReportSelect();
 }
 
 async function addIssue() {
@@ -3297,6 +3852,8 @@ async function addIssue() {
   if (incident && incident.incident_id) {
     renderIncidents();
     activeIncidentId = incident.incident_id;
+    renderIncidentReportSelect();
+    loadIncidentReportFor(incident.incident_id);
   }
   const issues = loadIssues();
   const entry = {
@@ -4864,6 +5421,23 @@ function normalizePackStep(step) {
   };
 }
 
+function normalizePackVersion(version) {
+  if (!version || typeof version !== "object") return null;
+  const name = String(version.name || "").trim();
+  if (!name) return null;
+  const steps = Array.isArray(version.steps) ? version.steps.map(normalizePackStep).filter(Boolean) : [];
+  if (!steps.length) return null;
+  return {
+    version_id: version.version_id || version.versionId || `v-${Date.now()}`,
+    saved_at: version.saved_at || version.savedAt || Date.now(),
+    name,
+    description: version.description || "",
+    steps,
+    defaults: version.defaults && typeof version.defaults === "object" ? version.defaults : undefined,
+    tenant_id: version.tenant_id || version.tenantId || undefined,
+  };
+}
+
 function normalizeActionPack(pack) {
   if (!pack || typeof pack !== "object") return null;
   const name = String(pack.name || "").trim();
@@ -4873,6 +5447,12 @@ function normalizeActionPack(pack) {
   const id = pack.id || slugify(name) || `custom-pack-${Date.now()}`;
   const defaults = pack.defaults && typeof pack.defaults === "object" ? pack.defaults : undefined;
   const tenantId = pack.tenant_id || pack.tenantId || undefined;
+  const createdAt = pack.created_at || pack.createdAt || null;
+  const updatedAt = pack.updated_at || pack.updatedAt || createdAt || null;
+  const deletedAt = pack.deleted_at || pack.deletedAt || null;
+  const versions = Array.isArray(pack.versions)
+    ? pack.versions.map(normalizePackVersion).filter(Boolean)
+    : [];
   return {
     id,
     name,
@@ -4881,6 +5461,10 @@ function normalizeActionPack(pack) {
     defaults,
     tenant_id: tenantId,
     builtin: Boolean(pack.builtin),
+    created_at: createdAt,
+    updated_at: updatedAt,
+    deleted_at: deletedAt,
+    versions,
   };
 }
 
@@ -4897,6 +5481,49 @@ function loadActionPacks() {
 
 function saveActionPacks(list) {
   localStorage.setItem(ACTION_PACK_STORAGE_KEY, JSON.stringify(list));
+}
+
+function isPackDeleted(pack) {
+  return Boolean(pack?.deleted_at);
+}
+
+function buildPackVersionSnapshot(pack) {
+  return normalizePackVersion({
+    version_id: `v-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+    saved_at: Date.now(),
+    name: pack.name,
+    description: pack.description || "",
+    steps: pack.steps,
+    defaults: pack.defaults,
+    tenant_id: pack.tenant_id,
+  });
+}
+
+function loadActionPackAudit() {
+  try {
+    const raw = localStorage.getItem(ACTION_PACK_AUDIT_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveActionPackAudit(entries) {
+  localStorage.setItem(ACTION_PACK_AUDIT_KEY, JSON.stringify(entries));
+}
+
+function logActionPackAudit(action, pack, details = {}) {
+  const entries = loadActionPackAudit();
+  entries.unshift({
+    action,
+    pack_id: pack?.id || null,
+    pack_name: pack?.name || null,
+    timestamp: Date.now(),
+    details,
+  });
+  saveActionPackAudit(entries.slice(0, 200));
+  addActivity(`Pack ${action}: ${pack?.name || "unknown"}`);
 }
 
 function loadActionPackFavorites() {
@@ -5078,6 +5705,99 @@ function setSnapshotPreference(service, enabled) {
   localStorage.setItem(SNAPSHOT_PREFS_KEY, JSON.stringify(prefs));
 }
 
+function loadDraftSnapshots() {
+  try {
+    const raw = localStorage.getItem(DRAFT_SNAPSHOTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveDraftSnapshots(drafts) {
+  const payload = Array.isArray(drafts) ? drafts : [];
+  localStorage.setItem(DRAFT_SNAPSHOTS_KEY, JSON.stringify(payload));
+}
+
+function getActiveDraftId() {
+  return localStorage.getItem(ACTIVE_DRAFT_KEY) || null;
+}
+
+function setActiveDraftId(draftId) {
+  if (!draftId) {
+    localStorage.removeItem(ACTIVE_DRAFT_KEY);
+    activeDraftId = null;
+    return;
+  }
+  localStorage.setItem(ACTIVE_DRAFT_KEY, draftId);
+  activeDraftId = draftId;
+}
+
+function getActiveDraft() {
+  if (!activeDraftId) return null;
+  return (
+    draftSnapshots.find((entry) => entry.id === activeDraftId && !entry.archived_at) || null
+  );
+}
+
+function createDraftSnapshot({ title } = {}) {
+  const now = new Date().toISOString();
+  const draft = {
+    id: `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    title: title || "New draft",
+    notes: "",
+    subject: null,
+    profile: "core",
+    entries: [],
+    created_at: now,
+    updated_at: now,
+  };
+  draftSnapshots.unshift(draft);
+  setActiveDraftId(draft.id);
+  saveDraftSnapshots(draftSnapshots);
+  return draft;
+}
+
+function updateDraftSnapshot(draftId, updates) {
+  const draft = draftSnapshots.find((entry) => entry.id === draftId);
+  if (!draft) return null;
+  Object.assign(draft, updates || {});
+  draft.updated_at = new Date().toISOString();
+  saveDraftSnapshots(draftSnapshots);
+  return draft;
+}
+
+function archiveDraftSnapshot(draftId) {
+  const draft = updateDraftSnapshot(draftId, { archived_at: new Date().toISOString() });
+  if (!draft) return null;
+  saveDraftSnapshots(draftSnapshots);
+  if (activeDraftId === draftId) {
+    const next = draftSnapshots.find((entry) => !entry.archived_at);
+    setActiveDraftId(next ? next.id : null);
+  }
+  return draft;
+}
+
+function addDraftEntry(draftId, entry) {
+  const draft = draftSnapshots.find((item) => item.id === draftId);
+  if (!draft) return null;
+  draft.entries = Array.isArray(draft.entries) ? draft.entries : [];
+  draft.entries.unshift(entry);
+  draft.updated_at = new Date().toISOString();
+  saveDraftSnapshots(draftSnapshots);
+  return draft;
+}
+
+function clearDraftEntries(draftId) {
+  const draft = draftSnapshots.find((item) => item.id === draftId);
+  if (!draft) return null;
+  draft.entries = [];
+  draft.updated_at = new Date().toISOString();
+  saveDraftSnapshots(draftSnapshots);
+  return draft;
+}
+
 function getActionKind(service, action) {
   if (!action) return "event";
   if (service === "reports") return "read";
@@ -5103,9 +5823,8 @@ function getActionKind(service, action) {
 }
 
 function shouldDisableSnapshots(service, action) {
-  const kind = getActionKind(service, action);
-  if (kind !== "read") return false;
-  return !getSnapshotPreference(service);
+  if (service === "reports") return false;
+  return true;
 }
 
 async function fetchSnapshots({ type, target, prefix, action, limit } = {}) {
@@ -5134,6 +5853,7 @@ async function fetchSnapshotDiff(snapshotA, snapshotB) {
     const res = await fetch(`/api/snapshots/diff?${params.toString()}`);
     const data = await res.json();
     if (!data.ok) return null;
+    fetchSystemStatusSummary();
     return data.data || null;
   } catch (err) {
     return null;
@@ -5193,12 +5913,37 @@ async function fetchIncidents(limit = 50) {
   }
 }
 
+async function renderIncidentReportSelect() {
+  if (!incidentReportSelect) return;
+  const incidents = await fetchIncidents();
+  incidentReportSelect.innerHTML = "";
+  if (!incidents.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No incidents";
+    incidentReportSelect.appendChild(opt);
+    incidentReportSelect.disabled = true;
+    return;
+  }
+  incidentReportSelect.disabled = false;
+  incidents.forEach((incident) => {
+    const option = document.createElement("option");
+    option.value = incident.incident_id;
+    option.textContent = incident.title || incident.symptom_id || incident.incident_id;
+    incidentReportSelect.appendChild(option);
+  });
+  if (activeIncidentId) {
+    incidentReportSelect.value = activeIncidentId;
+  }
+}
+
 async function fetchIncidentGraph(incidentId) {
   if (!incidentId) return null;
   try {
     const res = await fetch(`/api/incidents/${incidentId}/graph`);
     const data = await res.json();
     if (!data.ok) return null;
+    fetchSystemStatusSummary();
     return data.data || null;
   } catch (err) {
     return null;
@@ -5433,12 +6178,14 @@ async function refreshReportHistory() {
   renderReportHistory();
 }
 
-function getAllActionPacks() {
-  return [...ACTION_PACKS, ...loadActionPacks()];
+function getAllActionPacks(options = {}) {
+  const includeDeleted = Boolean(options.includeDeleted);
+  const packs = [...ACTION_PACKS, ...loadActionPacks()];
+  return includeDeleted ? packs : packs.filter((pack) => !isPackDeleted(pack));
 }
 
-function getActionPackById(id) {
-  return getAllActionPacks().find((pack) => pack.id === id);
+function getActionPackById(id, options = {}) {
+  return getAllActionPacks({ includeDeleted: Boolean(options.includeDeleted) }).find((pack) => pack.id === id);
 }
 
 function getActionPackPageIndex() {
@@ -5459,6 +6206,10 @@ function getActionPackPaging(packs) {
   const start = pageIndex * ACTION_PACK_PAGE_SIZE;
   const end = start + ACTION_PACK_PAGE_SIZE;
   return { pageIndex, totalPages, slice: packs.slice(start, end) };
+}
+
+function getDeletedActionPacks() {
+  return loadActionPacks().filter((pack) => isPackDeleted(pack));
 }
 
 function updateActionPackControls(pageIndex, totalPages) {
@@ -5485,11 +6236,14 @@ function getActionPackStepDefaults(pack, step) {
 let currentPackId = null;
 let currentPackBuiltin = false;
 let currentPackSteps = [];
+let currentPackVersions = [];
 let reportExportOptions = [];
 let currentTenantId = "";
 let configLocked = false;
 let keychainAvailable = false;
 let tenantInfoLoading = false;
+let sshTargets = [];
+const runnerTargetSelections = {};
 let selectedPackId = null;
 const BULK_CONCURRENCY_DEFAULT = 3;
 const BULK_CONCURRENCY_KEY = "bulkConcurrency";
@@ -5537,6 +6291,34 @@ function renderPackSteps() {
     row.appendChild(remove);
     packStepList.appendChild(row);
   });
+  renderPackBuilderHowItRuns();
+}
+
+function renderPackVersionHistory() {
+  if (!packVersionSelect) return;
+  packVersionSelect.innerHTML = "";
+  if (!currentPackVersions.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No versions yet";
+    packVersionSelect.appendChild(option);
+    packVersionSelect.disabled = true;
+    if (packVersionRestoreButton) packVersionRestoreButton.disabled = true;
+    return;
+  }
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select a version";
+  packVersionSelect.appendChild(placeholder);
+  currentPackVersions.forEach((version) => {
+    const option = document.createElement("option");
+    option.value = version.version_id;
+    const stamp = version.saved_at ? new Date(version.saved_at).toLocaleString() : "Unknown time";
+    option.textContent = `${stamp} · ${version.name}`;
+    packVersionSelect.appendChild(option);
+  });
+  packVersionSelect.disabled = false;
+  if (packVersionRestoreButton) packVersionRestoreButton.disabled = false;
 }
 
 function renderPresetSteps() {
@@ -5578,11 +6360,14 @@ function resetPackBuilder() {
   currentPackId = null;
   currentPackBuiltin = false;
   currentPackSteps = [];
+  currentPackVersions = [];
   if (packNameInput) packNameInput.value = "";
   if (packDescriptionInput) packDescriptionInput.value = "";
   if (packDefaultsInput) packDefaultsInput.value = "";
   if (packScopeSelect) packScopeSelect.value = "global";
   renderPackSteps();
+  renderPackVersionHistory();
+  renderPackBuilderHowItRuns();
   const builder = document.getElementById("action-pack-builder");
   if (builder) builder.open = true;
 }
@@ -5602,6 +6387,7 @@ function setPackBuilder(pack, { clone } = {}) {
   currentPackId = useClone ? null : pack.id;
   currentPackBuiltin = useClone ? false : Boolean(pack.builtin);
   currentPackSteps = pack.steps.map((step) => ({ ...step }));
+  currentPackVersions = useClone ? [] : (pack.versions || []).slice();
   if (packNameInput) packNameInput.value = useClone ? `${pack.name} (Copy)` : pack.name;
   if (packDescriptionInput) packDescriptionInput.value = pack.description || "";
   if (packDefaultsInput) {
@@ -5611,6 +6397,8 @@ function setPackBuilder(pack, { clone } = {}) {
     packScopeSelect.value = pack.tenant_id ? "tenant" : "global";
   }
   renderPackSteps();
+  renderPackVersionHistory();
+  renderPackBuilderHowItRuns();
   const builder = document.getElementById("action-pack-builder");
   if (builder) builder.open = true;
 }
@@ -5626,7 +6414,7 @@ function setPresetBuilder(preset, { clone } = {}) {
   if (builder) builder.open = true;
 }
 
-function collectPackDefaults() {
+function collectPackDefaults(options = {}) {
   if (!packDefaultsInput) return undefined;
   const raw = packDefaultsInput.value.trim();
   if (!raw) return undefined;
@@ -5634,13 +6422,16 @@ function collectPackDefaults() {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") return parsed;
   } catch (err) {
-    showToast("Defaults JSON is invalid");
+    if (!options.silent) {
+      showToast("Defaults JSON is invalid");
+    }
     return null;
   }
   return null;
 }
 
-function savePackFromBuilder() {
+function savePackFromBuilder(options = {}) {
+  const asCopy = Boolean(options.asCopy);
   const name = packNameInput?.value.trim() || "";
   if (!name) {
     showToast("Pack name is required");
@@ -5650,7 +6441,7 @@ function savePackFromBuilder() {
     showToast("Add at least one step");
     return;
   }
-  const defaults = collectPackDefaults();
+  const defaults = collectPackDefaults({ silent: true });
   if (defaults === null) return;
   const description = packDescriptionInput?.value.trim() || "";
   const scope = packScopeSelect?.value || "global";
@@ -5661,8 +6452,9 @@ function savePackFromBuilder() {
   }
   const idBase = slugify(name) || `custom-pack-${Date.now()}`;
   const existing = loadActionPacks();
+  const current = currentPackId ? existing.find((pack) => pack.id === currentPackId) : null;
   let id = currentPackId || idBase;
-  if (!currentPackId || currentPackBuiltin) {
+  if (asCopy || !currentPackId || currentPackBuiltin) {
     id = idBase;
     if (existing.some((pack) => pack.id === id)) {
       id = `${idBase}-${Date.now()}`;
@@ -5681,6 +6473,20 @@ function savePackFromBuilder() {
     showToast("Pack data invalid");
     return;
   }
+  const now = Date.now();
+  entry.created_at = current?.created_at || now;
+  entry.updated_at = now;
+  entry.deleted_at = current?.deleted_at || null;
+  entry.versions = Array.isArray(current?.versions) ? current.versions.slice() : [];
+  if (current && !asCopy) {
+    const snapshot = buildPackVersionSnapshot(current);
+    if (snapshot) {
+      entry.versions.unshift(snapshot);
+      entry.versions = entry.versions.slice(0, ACTION_PACK_VERSION_LIMIT);
+    }
+  } else {
+    entry.versions = [];
+  }
   const idx = existing.findIndex((pack) => pack.id === id);
   if (idx >= 0) {
     existing[idx] = entry;
@@ -5690,12 +6496,18 @@ function savePackFromBuilder() {
   saveActionPacks(existing);
   currentPackId = entry.id;
   currentPackBuiltin = false;
+  currentPackVersions = entry.versions || [];
   setActionPackPageIndex(0);
   renderActionPacks();
-  showToast("Action pack saved");
+  renderDeletedActionPacks();
+  renderPackVersionHistory();
+  renderPackBuilderHowItRuns();
+  const actionLabel = asCopy ? "copied" : idx >= 0 ? "updated" : "created";
+  logActionPackAudit(actionLabel, entry, { source_id: current?.id || null });
+  showToast(asCopy ? "Action pack copied" : "Action pack saved");
 }
 
-function deletePackFromBuilder() {
+async function deletePackFromBuilder() {
   if (!currentPackId) {
     showToast("Select a custom pack to delete");
     return;
@@ -5704,13 +6516,77 @@ function deletePackFromBuilder() {
     showToast("Built-in packs cannot be deleted");
     return;
   }
-  const confirmDelete = window.confirm("Delete this action pack?");
-  if (!confirmDelete) return;
-  const existing = loadActionPacks().filter((pack) => pack.id !== currentPackId);
-  saveActionPacks(existing);
+  const pack = getActionPackById(currentPackId, { includeDeleted: true });
+  if (!pack) {
+    showToast("Pack not found");
+    return;
+  }
+  const confirmed = await confirmPackDelete(pack);
+  if (!confirmed) return;
+  const ok = softDeleteActionPack(pack.id);
+  if (!ok) {
+    showToast("Delete failed");
+    return;
+  }
   resetPackBuilder();
   renderActionPacks();
-  showToast("Action pack deleted");
+  renderDeletedActionPacks();
+  showToast("Action pack moved to trash");
+}
+
+async function confirmPackDelete(pack) {
+  const name = pack?.name || "";
+  const response = await promptModal({
+    title: "Delete action pack",
+    subtitle: `Type the pack name to confirm.`,
+    label: "Pack name",
+    placeholder: name,
+    confirmLabel: "Delete pack",
+    cancelLabel: "Cancel",
+    required: true,
+    hint: `Type "${name}" to confirm deletion.`,
+  });
+  if (!response) return false;
+  return response.trim() === name;
+}
+
+function softDeleteActionPack(packId) {
+  const existing = loadActionPacks();
+  const idx = existing.findIndex((pack) => pack.id === packId);
+  if (idx < 0) return false;
+  const pack = existing[idx];
+  existing[idx] = {
+    ...pack,
+    deleted_at: Date.now(),
+    updated_at: Date.now(),
+  };
+  saveActionPacks(existing);
+  const favorites = loadActionPackFavorites();
+  if (favorites.has(packId)) {
+    favorites.delete(packId);
+    saveActionPackFavorites(favorites);
+  }
+  logActionPackAudit("deleted", pack);
+  return true;
+}
+
+function restoreDeletedPack(packId) {
+  const existing = loadActionPacks();
+  const idx = existing.findIndex((pack) => pack.id === packId);
+  if (idx < 0) return false;
+  const pack = existing[idx];
+  existing[idx] = { ...pack, deleted_at: null, updated_at: Date.now() };
+  saveActionPacks(existing);
+  logActionPackAudit("restored", pack);
+  return true;
+}
+
+function permanentlyDeletePack(packId) {
+  const existing = loadActionPacks();
+  const pack = existing.find((entry) => entry.id === packId);
+  saveActionPacks(existing.filter((entry) => entry.id !== packId));
+  logActionPackAudit("permanently deleted", pack || { id: packId, name: packId });
+  return true;
 }
 
 function populatePackStepBuilder() {
@@ -5844,12 +6720,16 @@ function savePresetFromBuilder() {
   showToast("Preset saved");
 }
 
-function deletePresetFromBuilder() {
+async function deletePresetFromBuilder() {
   if (!currentPresetId) {
     showToast("Select a custom preset to delete");
     return;
   }
-  const confirmDelete = window.confirm("Delete this report preset?");
+  const confirmDelete = await confirmModal({
+    title: "Delete report preset",
+    message: "Delete this report preset?",
+    confirmLabel: "Delete preset",
+  });
   if (!confirmDelete) return;
   const existing = loadReportPresets().filter((preset) => preset.id !== currentPresetId);
   saveReportPresets(existing);
@@ -5888,6 +6768,7 @@ function importActionPacks(file) {
       saveActionPacks(existing);
       setActionPackPageIndex(0);
       renderActionPacks();
+      renderDeletedActionPacks();
       showToast("Action packs imported");
     } catch (err) {
       showToast("Import failed");
@@ -6058,26 +6939,36 @@ function updateDatasetPreview() {
   datasetContent.textContent = JSON.stringify(data, null, 2).slice(0, 2000);
 }
 
-function buildParamsWithDefaults(service, action, defaults = {}) {
+async function buildParamsWithDefaults(service, action, defaults = {}) {
   const fields = ACTIONS_UI?.[service]?.[action]?.fields || [];
   const params = { ...defaults };
   let cancelled = false;
-  fields.forEach((field) => {
-    if (params[field.key] !== undefined) return;
+  for (const field of fields) {
+    if (params[field.key] !== undefined) continue;
     if (field.type === "checkbox") {
-      const confirmValue = window.confirm(`${field.label}?`);
+      const confirmValue = await confirmModal({
+        title: field.label,
+        message: `${field.label}?`,
+        confirmLabel: "Yes",
+        cancelLabel: "No",
+      });
       if (confirmValue) params[field.key] = true;
-      return;
+      continue;
     }
-    const value = window.prompt(field.label, "");
+    const value = await promptModal({
+      title: field.label,
+      label: field.label,
+      confirmLabel: "Add",
+      cancelLabel: "Cancel",
+    });
     if (value === null) {
       cancelled = true;
-      return;
+      break;
     }
     if (value.trim() !== "") {
       params[field.key] = value.trim();
     }
-  });
+  }
   if (cancelled) return null;
   return params;
 }
@@ -6089,7 +6980,7 @@ async function runReportPreset(preset) {
     const meta = ACTIONS_UI?.[step.service]?.[step.action];
     let params = step.params ? { ...step.params } : {};
     if (meta?.fields?.length) {
-      const filled = buildParamsWithDefaults(step.service, step.action, params);
+      const filled = await buildParamsWithDefaults(step.service, step.action, params);
       if (filled === null) {
         showToast("Preset cancelled");
         return;
@@ -6098,7 +6989,12 @@ async function runReportPreset(preset) {
     }
     const result = await runAction(step.service, step.action, params);
     if (!result?.ok) {
-      const proceed = window.confirm(`Preset step failed: ${label}. Continue?`);
+      const proceed = await confirmModal({
+        title: "Preset step failed",
+        message: `Preset step failed: ${label}. Continue?`,
+        confirmLabel: "Continue",
+        cancelLabel: "Stop",
+      });
       if (!proceed) {
         showToast("Preset stopped");
         return;
@@ -6450,17 +7346,21 @@ function renderActionPacks() {
 
   const filter = getActionPackFilter();
   const favorites = loadActionPackFavorites();
-  const packs = getAllActionPacks().filter((pack) => {
+  const packs = getAllActionPacks({ includeDeleted: filter === "deleted" }).filter((pack) => {
     const tenantId = pack.tenant_id;
     if (filter === "favorites") {
       return favorites.has(pack.id);
+    }
+    if (filter === "deleted") {
+      return isPackDeleted(pack);
     }
     if (filter === "global") {
       return !tenantId;
     }
     if (filter === "all") {
-      return true;
+      return !isPackDeleted(pack);
     }
+    if (isPackDeleted(pack)) return false;
     if (!tenantId) return true;
     return tenantId === currentTenantId;
   });
@@ -6477,7 +7377,24 @@ function renderActionPacks() {
   if (!slice.length) {
     const empty = document.createElement("div");
     empty.classList.add("note");
-    empty.textContent = "No action packs available.";
+    empty.textContent =
+      filter === "deleted"
+        ? "No deleted action packs."
+        : "No action packs available. Create your first pack to get started.";
+    if (filter !== "deleted") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.classList.add("ghost", "small");
+      button.textContent = "Create your first pack";
+      button.addEventListener("click", () => {
+        const builder = document.getElementById("action-pack-builder");
+        if (builder) builder.open = true;
+        packNameInput?.focus();
+      });
+      const wrap = document.createElement("div");
+      wrap.appendChild(button);
+      empty.appendChild(wrap);
+    }
     container.appendChild(empty);
     return;
   }
@@ -6536,6 +7453,59 @@ function renderActionPacks() {
     });
     card.appendChild(steps);
 
+    if (filter === "deleted") {
+      const deletedMeta = document.createElement("div");
+      deletedMeta.classList.add("pack-summary");
+      deletedMeta.textContent = pack.deleted_at
+        ? `Deleted ${new Date(pack.deleted_at).toLocaleString()}`
+        : "Deleted";
+      card.appendChild(deletedMeta);
+      const actions = document.createElement("div");
+      actions.classList.add("action-pack-actions");
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.classList.add("ghost", "small");
+      restore.textContent = "Restore";
+      restore.addEventListener("click", () => {
+        restoreDeletedPack(pack.id);
+        renderActionPacks();
+        renderDeletedActionPacks();
+        showToast("Pack restored");
+      });
+      const destroy = document.createElement("button");
+      destroy.type = "button";
+      destroy.classList.add("ghost", "small");
+      destroy.textContent = "Delete permanently";
+      destroy.addEventListener("click", async () => {
+        const confirmDelete = await confirmModal({
+          title: "Delete permanently",
+          message: `Permanently delete "${pack.name}"? This cannot be undone.`,
+          confirmLabel: "Delete",
+          cancelLabel: "Cancel",
+          danger: true,
+        });
+        if (!confirmDelete) return;
+        permanentlyDeletePack(pack.id);
+        renderActionPacks();
+        renderDeletedActionPacks();
+        showToast("Pack deleted permanently");
+      });
+      actions.appendChild(restore);
+      actions.appendChild(destroy);
+      card.appendChild(actions);
+      container.appendChild(card);
+      return;
+    }
+
+    const summary = document.createElement("div");
+    summary.classList.add("pack-summary");
+    const counts = summarizePackSteps(pack);
+    const packRisk = formatRiskLabel(getPackRisk(pack));
+    const lastRun = getLastActionPackRun(pack.id);
+    const lastRunLabel = lastRun ? `${lastRun.status || "unknown"}` : "Never run";
+    summary.textContent = `${counts.total} steps · Graph(${counts.graph}) · PowerShell(${counts.powershell}) · Risk: ${packRisk} · Last run: ${lastRunLabel}`;
+    card.appendChild(summary);
+
     const actions = document.createElement("div");
     actions.classList.add("action-pack-actions");
     const favorite = document.createElement("button");
@@ -6551,7 +7521,7 @@ function renderActionPacks() {
     const edit = document.createElement("button");
     edit.type = "button";
     edit.classList.add("ghost", "small");
-    edit.textContent = pack.builtin ? "Clone" : "Edit";
+    edit.textContent = pack.builtin ? "Clone" : "Edit steps";
     edit.addEventListener("click", () => setPackBuilder(pack, { clone: pack.builtin }));
     const configure = document.createElement("button");
     configure.type = "button";
@@ -6561,7 +7531,7 @@ function renderActionPacks() {
     const run = document.createElement("button");
     run.type = "button";
     run.classList.add("primary", "small", "action-pack-run");
-    run.textContent = "Run";
+    run.textContent = "Run pack";
     run.addEventListener("click", () => {
       selectActionPack(pack, { scroll: false });
       runSelectedActionPack();
@@ -6580,6 +7550,65 @@ function renderActionPacks() {
     card.appendChild(actions);
 
     container.appendChild(card);
+  });
+}
+
+function renderDeletedActionPacks() {
+  if (!actionPackDeletedList) return;
+  actionPackDeletedList.innerHTML = "";
+  const deleted = getDeletedActionPacks();
+  if (!deleted.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No deleted packs.";
+    actionPackDeletedList.appendChild(empty);
+    return;
+  }
+  deleted.forEach((pack) => {
+    const row = document.createElement("div");
+    row.classList.add("deleted-pack-row");
+    const title = document.createElement("div");
+    title.classList.add("deleted-pack-title");
+    title.textContent = pack.name || pack.id;
+    const meta = document.createElement("div");
+    meta.classList.add("deleted-pack-meta");
+    meta.textContent = pack.deleted_at ? `Deleted ${new Date(pack.deleted_at).toLocaleString()}` : "Deleted";
+    const actions = document.createElement("div");
+    actions.classList.add("deleted-pack-actions");
+    const restore = document.createElement("button");
+    restore.type = "button";
+    restore.classList.add("ghost", "small");
+    restore.textContent = "Restore";
+    restore.addEventListener("click", () => {
+      restoreDeletedPack(pack.id);
+      renderActionPacks();
+      renderDeletedActionPacks();
+      showToast("Pack restored");
+    });
+    const destroy = document.createElement("button");
+    destroy.type = "button";
+    destroy.classList.add("ghost", "small");
+    destroy.textContent = "Delete permanently";
+    destroy.addEventListener("click", async () => {
+      const confirmDelete = await confirmModal({
+        title: "Delete permanently",
+        message: `Permanently delete "${pack.name}"? This cannot be undone.`,
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel",
+        danger: true,
+      });
+      if (!confirmDelete) return;
+      permanentlyDeletePack(pack.id);
+      renderActionPacks();
+      renderDeletedActionPacks();
+      showToast("Pack deleted permanently");
+    });
+    actions.appendChild(restore);
+    actions.appendChild(destroy);
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    actionPackDeletedList.appendChild(row);
   });
 }
 
@@ -6602,9 +7631,11 @@ function renderActionPackHistory() {
     title.textContent = entry.pack_name || entry.packId;
     const meta = document.createElement("div");
     meta.classList.add("history-meta");
+    const duration = entry.duration_ms ? ` · ${formatDuration(entry.duration_ms)}` : "";
+    const failed = entry.failed_step ? ` · Failed: ${entry.failed_step}` : "";
     meta.textContent = `${new Date(entry.timestamp).toLocaleString()} · ${entry.status}${
       entry.dryRun ? " · dry-run" : ""
-    }`;
+    }${duration}${failed}`;
     const actions = document.createElement("div");
     actions.classList.add("history-actions");
     const rerun = document.createElement("button");
@@ -6614,7 +7645,7 @@ function renderActionPackHistory() {
     rerun.addEventListener("click", () => {
       const pack = getActionPackById(entry.packId);
       if (!pack) {
-        showToast("Pack not found");
+        showToast("Pack not found or deleted");
         return;
       }
       selectActionPack(pack, { scroll: true });
@@ -6630,11 +7661,335 @@ function renderActionPackHistory() {
         dryRun: Boolean(entry.dryRun),
       });
     });
+    const view = document.createElement("button");
+    view.type = "button";
+    view.classList.add("ghost", "small");
+    view.textContent = "View output";
+    view.addEventListener("click", () => {
+      if (entry.result_summary) {
+        showModal("Action pack run output", entry.result_summary, "actionpacks");
+      } else {
+        showToast("No output stored for this run");
+      }
+    });
     actions.appendChild(rerun);
+    actions.appendChild(view);
     row.appendChild(title);
     row.appendChild(meta);
     row.appendChild(actions);
     actionPackHistoryList.appendChild(row);
+  });
+}
+
+function getLastActionPackRun(packId) {
+  const items = loadActionPackHistory();
+  return items.find((entry) => entry.packId === packId) || null;
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function summarizePackSteps(pack) {
+  let graph = 0;
+  let powershell = 0;
+  let notes = 0;
+  pack.steps.forEach((step) => {
+    if (step.type === "note") {
+      notes += 1;
+      return;
+    }
+    const meta = ACTIONS_UI?.[step.service]?.[step.action];
+    if (meta?.mode === "powershell") {
+      powershell += 1;
+    } else {
+      graph += 1;
+    }
+  });
+  const total = graph + powershell;
+  return { total, graph, powershell, notes };
+}
+
+function getPackRisk(pack) {
+  if (!pack || !Array.isArray(pack.steps)) return "safe";
+  let level = "safe";
+  const score = { safe: 0, caution: 1, danger: 2 };
+  pack.steps.forEach((step) => {
+    if (!step || step.type === "note") return;
+    const risk = getActionRisk(step.service, step.action);
+    if (score[risk] > score[level]) level = risk;
+  });
+  return level;
+}
+
+function getMissingInputsForStep(step, params) {
+  const meta = ACTIONS_UI?.[step.service]?.[step.action];
+  const fields = meta?.fields || [];
+  return fields
+    .filter((field) => field.type !== "checkbox" && field.required !== false)
+    .filter((field) => {
+      const value = params?.[field.key];
+      return value === undefined || value === null || value === "";
+    })
+    .map((field) => field.label || field.key);
+}
+
+function buildActionPackPlan(pack, params) {
+  const stepParams = params?.stepParams || {};
+  const includeSteps = params?.includeSteps || {};
+  const dryRun = params?.dryRun || false;
+  const plan = [];
+  const packContext = {};
+  pack.steps.forEach((step) => {
+    if (step.type === "note") {
+      plan.push({
+        type: "note",
+        label: step.label,
+        note: step.note,
+        phase: step.phase || "",
+        included: true,
+        skipped: false,
+      });
+      return;
+    }
+    const stepKey = `${step.service}.${step.action}`;
+    const defaults = getActionPackStepDefaults(pack, step) || {};
+    const override = stepParams[stepKey] || {};
+    const paramsResolved = applyPackAutoParams(
+      step,
+      { ...defaults, ...(step.params || {}), ...(override?.params || {}), ...override },
+      packContext
+    );
+    const include = shouldIncludePackStep(step, includeSteps);
+    const skipped = !include || (dryRun && !step.safe);
+    const reason = !include
+      ? "Excluded"
+      : dryRun && !step.safe
+        ? "Skipped (dry-run)"
+        : "";
+    const missing = getMissingInputsForStep(step, paramsResolved);
+    plan.push({
+      type: "step",
+      stepKey,
+      label: step.label || activityLabel(step.service, step.action),
+      service: step.service,
+      action: step.action,
+      mode: ACTIONS_UI?.[step.service]?.[step.action]?.mode || "graph",
+      included: include,
+      skipped,
+      reason,
+      params: paramsResolved,
+      missing,
+      safe: Boolean(step.safe),
+      optional: Boolean(step.optional),
+      phase: step.phase || "",
+    });
+  });
+  return plan;
+}
+
+function renderActionPackHowItRuns(pack, container, params = null) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!pack) return;
+  const header = document.createElement("div");
+  header.classList.add("pack-how-title");
+  header.textContent = "How it runs";
+  container.appendChild(header);
+
+  const summary = document.createElement("div");
+  summary.classList.add("pack-how-summary");
+  summary.textContent =
+    "Action packs run steps sequentially. Each step calls Graph or PowerShell with inputs merged from defaults and the form. Failures prompt you to continue or stop.";
+  container.appendChild(summary);
+
+  const flow = document.createElement("ul");
+  flow.classList.add("pack-how-flow");
+  ["Inputs → step params → outputs", "Sequential execution (no parallel steps)", "Dry-run skips non-safe steps"].forEach(
+    (text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      flow.appendChild(li);
+    }
+  );
+  container.appendChild(flow);
+
+  const list = document.createElement("div");
+  list.classList.add("pack-how-steps");
+  const plan = params ? buildActionPackPlan(pack, params) : buildActionPackPlan(pack, getPackParams(pack.id));
+  plan.forEach((item) => {
+    if (item.type === "note") {
+      const row = document.createElement("div");
+      row.classList.add("pack-how-step", "note");
+      row.textContent = item.label;
+      list.appendChild(row);
+      return;
+    }
+    const row = document.createElement("div");
+    row.classList.add("pack-how-step");
+    const title = document.createElement("div");
+    title.classList.add("pack-how-step-title");
+    title.textContent = `${item.label}`;
+    const meta = document.createElement("div");
+    meta.classList.add("pack-how-step-meta");
+    meta.textContent = `${item.service}.${item.action} · ${item.mode}`;
+    if (item.phase) {
+      const phase = document.createElement("span");
+      phase.classList.add("pack-step-phase");
+      phase.textContent = item.phase;
+      meta.appendChild(phase);
+    }
+    row.appendChild(title);
+    row.appendChild(meta);
+    const fieldMeta = ACTIONS_UI?.[item.service]?.[item.action];
+    if (fieldMeta?.fields?.length) {
+      const inputs = document.createElement("div");
+      inputs.classList.add("pack-how-inputs");
+      inputs.textContent = `Inputs: ${fieldMeta.fields.map((field) => field.label || field.key).join(", ")}`;
+      row.appendChild(inputs);
+    }
+    list.appendChild(row);
+  });
+  container.appendChild(list);
+}
+
+function renderActionPackLastRun(pack, container) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!pack) return;
+  const entry = getLastActionPackRun(pack.id);
+  const title = document.createElement("div");
+  title.classList.add("pack-last-title");
+  title.textContent = "Last run";
+  container.appendChild(title);
+  if (!entry) {
+    const note = document.createElement("div");
+    note.classList.add("note");
+    note.textContent = "No runs yet.";
+    container.appendChild(note);
+    return;
+  }
+  const meta = document.createElement("div");
+  meta.classList.add("pack-last-meta");
+  const timeText = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "Unknown time";
+  const durationText = entry.duration_ms ? formatDuration(entry.duration_ms) : "";
+  const failedStep = entry.failed_step ? ` · Failed: ${entry.failed_step}` : "";
+  const statusLabel = entry.status || "unknown";
+  meta.textContent = `${timeText} · ${statusLabel}${entry.dryRun ? " · dry-run" : ""}${durationText ? ` · ${durationText}` : ""}${failedStep}`;
+  container.appendChild(meta);
+  const link = document.createElement("button");
+  link.type = "button";
+  link.classList.add("ghost", "small");
+  link.textContent = "View in history";
+  link.addEventListener("click", () => {
+    const historyPanel = document.getElementById("action-pack-history-panel");
+    if (historyPanel && historyPanel.tagName === "DETAILS") {
+      historyPanel.open = true;
+    }
+    const history = document.getElementById("action-pack-history");
+    if (history) history.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  container.appendChild(link);
+  if (entry.result_summary) {
+    const view = document.createElement("button");
+    view.type = "button";
+    view.classList.add("ghost", "small");
+    view.textContent = "View output";
+    view.addEventListener("click", () => {
+      showModal("Action pack run output", entry.result_summary, "actionpacks");
+    });
+    container.appendChild(view);
+  }
+}
+
+function renderActionPackPlan(pack, params, container, { mode } = {}) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!pack) return;
+  const plan = buildActionPackPlan(pack, params);
+  const heading = document.createElement("div");
+  heading.classList.add("pack-plan-title");
+  heading.textContent = mode === "validate" ? "Input validation" : "Preview execution plan";
+  container.appendChild(heading);
+  const list = document.createElement("div");
+  list.classList.add("pack-plan-list");
+  let missingCount = 0;
+  plan.forEach((item) => {
+    if (item.type !== "step") return;
+    const row = document.createElement("div");
+    row.classList.add("pack-plan-row");
+    const title = document.createElement("div");
+    title.classList.add("pack-plan-title-row");
+    title.textContent = `${item.label} (${item.service}.${item.action})`;
+    const meta = document.createElement("div");
+    meta.classList.add("pack-plan-meta");
+    meta.textContent = item.skipped ? `Skipped · ${item.reason}` : item.included ? "Included" : "Excluded";
+    row.appendChild(title);
+    row.appendChild(meta);
+    if (item.missing.length) {
+      missingCount += item.missing.length;
+      const missing = document.createElement("div");
+      missing.classList.add("pack-plan-missing");
+      missing.textContent = `Missing inputs: ${item.missing.join(", ")}`;
+      row.appendChild(missing);
+    }
+    if (mode !== "validate" && item.included && !item.skipped) {
+      const paramsBlock = document.createElement("pre");
+      paramsBlock.classList.add("pack-plan-params");
+      paramsBlock.textContent = JSON.stringify(item.params || {}, null, 2);
+      row.appendChild(paramsBlock);
+    }
+    list.appendChild(row);
+  });
+  if (!plan.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No steps to preview.";
+    list.appendChild(empty);
+  }
+  if (mode === "validate") {
+    const summary = document.createElement("div");
+    summary.classList.add("pack-plan-summary");
+    summary.textContent = missingCount
+      ? `Missing ${missingCount} required input${missingCount === 1 ? "" : "s"}.`
+      : "All required inputs are present.";
+    container.appendChild(summary);
+  }
+  container.appendChild(list);
+}
+
+function renderPackBuilderHowItRuns() {
+  const builderPanel = document.getElementById("pack-how-it-runs");
+  if (!builderPanel) return;
+  const name = packNameInput?.value.trim() || "Untitled pack";
+  const description = packDescriptionInput?.value.trim() || "";
+  const defaults = collectPackDefaults();
+  const tempPack = normalizeActionPack({
+    id: currentPackId || `builder-${Date.now()}`,
+    name,
+    description,
+    steps: currentPackSteps,
+    defaults: defaults && defaults !== null ? defaults : undefined,
+    tenant_id: packScopeSelect?.value === "tenant" ? currentTenantId : undefined,
+    builtin: false,
+  });
+  if (!tempPack) {
+    builderPanel.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "Add at least one step to preview how this pack runs.";
+    builderPanel.appendChild(empty);
+    return;
+  }
+  renderActionPackHowItRuns(tempPack, builderPanel, {
+    stepParams: {},
+    includeSteps: {},
+    dryRun: false,
   });
 }
 
@@ -6656,16 +8011,24 @@ function renderActionPackRunner(pack) {
     if (actionPackRunCancelButton) actionPackRunCancelButton.disabled = true;
     if (actionPackDryRunToggle) actionPackDryRunToggle.checked = false;
     if (actionPackDryRunToggle) actionPackDryRunToggle.disabled = true;
+    if (actionPackPreviewButton) actionPackPreviewButton.disabled = true;
+    if (actionPackValidateButton) actionPackValidateButton.disabled = true;
+    if (actionPackHowPanel) actionPackHowPanel.innerHTML = "";
+    if (actionPackPlanPanel) actionPackPlanPanel.innerHTML = "";
+    if (actionPackLastRun) actionPackLastRun.innerHTML = "";
     return;
   }
   if (actionPackRunnerTitle) {
     actionPackRunnerTitle.textContent = `${pack.name} · ${pack.tenant_id ? "Tenant" : "Global"}`;
   }
+  if (actionPackPlanPanel) actionPackPlanPanel.innerHTML = "";
   const saved = getPackParams(pack.id);
   if (actionPackDryRunToggle) {
     actionPackDryRunToggle.checked = Boolean(saved.dryRun);
     actionPackDryRunToggle.disabled = false;
   }
+  if (actionPackPreviewButton) actionPackPreviewButton.disabled = false;
+  if (actionPackValidateButton) actionPackValidateButton.disabled = false;
   pack.steps.forEach((step) => {
     if (step.type === "note") {
       const noteWrap = document.createElement("div");
@@ -6794,10 +8157,16 @@ function renderActionPackRunner(pack) {
     stepWrap.appendChild(fieldsWrap);
     actionPackRunnerSteps.appendChild(stepWrap);
   });
+  renderActionPackHowItRuns(pack, actionPackHowPanel, saved);
+  renderActionPackLastRun(pack, actionPackLastRun);
 }
 
 function selectActionPack(pack, options = {}) {
   if (!pack) return;
+  if (isPackDeleted(pack)) {
+    showToast("Pack is deleted. Restore it to run.");
+    return;
+  }
   selectedPackId = pack.id;
   renderActionPackRunner(pack);
   const running = actionPackState.has(pack.id);
@@ -7213,6 +8582,509 @@ function bindDiffCopy(button, container) {
   });
 }
 
+const helpSearchInput = document.getElementById("help-search");
+const helpSearchResults = document.getElementById("help-search-results");
+const helpToc = document.getElementById("help-toc");
+const helpContent = document.getElementById("help-content");
+const helpTitle = document.getElementById("help-title");
+const helpSubtitle = document.getElementById("help-subtitle");
+const helpRailLinks = document.querySelectorAll("[data-help-link]");
+const HELP_MANIFEST_PATH = "docs/help/help_manifest.json";
+const helpState = {
+  manifest: null,
+  pages: new Map(),
+  index: [],
+  currentPage: null,
+  headingObserver: null,
+};
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function slugifyHeading(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+}
+
+function parseMarkdown(md) {
+  const lines = String(md || "").replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  const headings = [];
+  const idCounts = new Map();
+  let inCode = false;
+  let codeLang = "";
+  let codeLines = [];
+  let listType = null;
+  let listBuffer = [];
+  let tableBuffer = null;
+  let callout = null;
+
+  const flushList = () => {
+    if (!listType || !listBuffer.length) return;
+    const items = listBuffer.map((item) => `<li>${item}</li>`).join("");
+    html.push(`<${listType}>${items}</${listType}>`);
+    listType = null;
+    listBuffer = [];
+  };
+
+  const flushTable = () => {
+    if (!tableBuffer || tableBuffer.length < 2) {
+      tableBuffer = null;
+      return;
+    }
+    const header = tableBuffer[0];
+    const rows = tableBuffer.slice(2);
+    const headerCells = header.map((cell) => `<th>${cell}</th>`).join("");
+    const bodyRows = rows
+      .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+      .join("");
+    html.push(`<table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table>`);
+    tableBuffer = null;
+  };
+
+  const flushCallout = () => {
+    if (!callout) return;
+    html.push(
+      `<div class="doc-callout ${callout.type}"><div class="doc-callout-title">${callout.title}</div>${callout.body}</div>`
+    );
+    callout = null;
+  };
+
+  const formatInline = (text) => {
+    let value = escapeHtml(text);
+    value = value.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    value = value.replace(/\*(.+?)\*/g, "<em>$1</em>");
+    value = value.replace(/`([^`]+)`/g, "<code>$1</code>");
+    value = value.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    value = value.replace(/\[\[BADGE:([a-z]+)\]\]/gi, (_, kind) => {
+      const key = kind.toLowerCase();
+      const label = key === "powershell" ? "PowerShell" : key === "ssh" ? "SSH" : key === "local" ? "Local" : "Graph";
+      return `<span class="doc-badge ${key}">${label}</span>`;
+    });
+    value = value.replace(/\[\[RISK:([a-z]+)\]\]/gi, (_, level) => {
+      const label = level === "dangerous" ? "Dangerous" : level === "caution" ? "Caution" : "Safe";
+      return `<span class="doc-badge risk ${level.toLowerCase()}">${label}</span>`;
+    });
+    return value;
+  };
+
+  const placeholder = (text) => {
+    return text
+      .replace(/<Badge\s+kind="([^"]+)"\s*\/>/gi, (_, kind) => `[[BADGE:${kind}]]`)
+      .replace(/<RiskBadge\s+level="([^"]+)"\s*\/>/gi, (_, level) => `[[RISK:${level}]]`);
+  };
+
+  lines.forEach((rawLine, idx) => {
+    const line = placeholder(rawLine);
+    if (line.startsWith("```")) {
+      if (inCode) {
+        html.push(
+          `<pre><code class="language-${codeLang}">${escapeHtml(codeLines.join("\n"))}</code></pre>`
+        );
+        inCode = false;
+        codeLang = "";
+        codeLines = [];
+      } else {
+        flushList();
+        flushTable();
+        flushCallout();
+        inCode = true;
+        codeLang = line.replace(/```/, "").trim();
+      }
+      return;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      return;
+    }
+
+    if (tableBuffer && line.match(/^\s*\|?\s*[-:| ]+\|?\s*$/)) {
+      return;
+    }
+
+    if (line.startsWith("> [!")) {
+      flushList();
+      flushTable();
+      const match = line.match(/> \[!([A-Z]+)\]\s*(.*)/);
+      const type = match ? match[1].toLowerCase() : "note";
+      const title = type === "warning" ? "Warning" : type === "danger" ? "Danger" : "Note";
+      callout = {
+        type,
+        title,
+        body: match && match[2] ? `<p>${formatInline(match[2])}</p>` : "",
+      };
+      return;
+    }
+    if (line.startsWith("> ") && callout) {
+      callout.body += `<p>${formatInline(line.replace(/^> /, ""))}</p>`;
+      return;
+    } else if (callout) {
+      flushCallout();
+    }
+
+    if (!line.trim()) {
+      flushList();
+      flushTable();
+      return;
+    }
+
+    if (line.match(/^\s*[-*]\s+/)) {
+      const item = formatInline(line.replace(/^\s*[-*]\s+/, ""));
+      if (listType !== "ul") {
+        flushList();
+        listType = "ul";
+      }
+      listBuffer.push(item);
+      return;
+    }
+    if (line.match(/^\s*\d+\.\s+/)) {
+      const item = formatInline(line.replace(/^\s*\d+\.\s+/, ""));
+      if (listType !== "ol") {
+        flushList();
+        listType = "ol";
+      }
+      listBuffer.push(item);
+      return;
+    }
+    flushList();
+
+    if (line.includes("|") && lines[idx + 1] && lines[idx + 1].match(/^\s*\|?\s*[-:| ]+\|?\s*$/)) {
+      const splitRow = (row) =>
+        row
+          .trim()
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((cell) => formatInline(cell.trim()));
+      tableBuffer = [splitRow(line), splitRow(lines[idx + 1])];
+      return;
+    }
+    if (tableBuffer) {
+      if (line.includes("|")) {
+        const row = line
+          .trim()
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((cell) => formatInline(cell.trim()));
+        tableBuffer.push(row);
+        return;
+      }
+      flushTable();
+    }
+
+    const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const text = headingMatch[2].trim();
+      const base = slugifyHeading(text);
+      const count = (idCounts.get(base) || 0) + 1;
+      idCounts.set(base, count);
+      const id = count > 1 ? `${base}-${count}` : base;
+      headings.push({ id, text, level });
+      html.push(
+        `<h${level} id="${id}">${formatInline(text)}<a class="help-anchor" href="#${id}" data-anchor="${id}">#</a></h${level}>`
+      );
+      return;
+    }
+
+    html.push(`<p>${formatInline(line)}</p>`);
+  });
+
+  flushList();
+  flushTable();
+  flushCallout();
+
+  return { html: html.join("\n"), headings };
+}
+
+async function loadHelpManifest() {
+  if (helpState.manifest) return helpState.manifest;
+  try {
+    const res = await fetch(`/${HELP_MANIFEST_PATH}`);
+    if (!res.ok) throw new Error("Help manifest not found");
+    const data = await res.json();
+    helpState.manifest = data;
+    return data;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function loadHelpPage(page) {
+  if (!page || !page.path) return null;
+  if (helpState.pages.has(page.id)) return helpState.pages.get(page.id);
+  try {
+    const res = await fetch(`/${page.path}`);
+    if (!res.ok) throw new Error("Doc not found");
+    const md = await res.text();
+    const parsed = parseMarkdown(md);
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = parsed.html;
+    const text = wrapper.textContent || "";
+    const data = { ...page, markdown: md, html: parsed.html, headings: parsed.headings, text };
+    helpState.pages.set(page.id, data);
+    return data;
+  } catch (err) {
+    return { ...page, html: `<div class="note">Doc not found.</div>`, headings: [], text: "" };
+  }
+}
+
+function groupHelpPages(pages) {
+  const groups = new Map();
+  pages.forEach((page) => {
+    const group = page.group || "General";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(page);
+  });
+  return Array.from(groups.entries());
+}
+
+function renderHelpToc(pages, currentPageId) {
+  if (!helpToc) return;
+  helpToc.innerHTML = "";
+  const groups = groupHelpPages(pages);
+  groups.forEach(([groupName, groupPages]) => {
+    const details = document.createElement("details");
+    details.classList.add("help-group");
+    if (groupPages.some((page) => page.id === currentPageId)) {
+      details.open = true;
+    }
+    const summary = document.createElement("summary");
+    summary.innerHTML = `<span>${groupName}</span><span class="nav-caret">▾</span>`;
+    details.appendChild(summary);
+    const list = document.createElement("div");
+    list.classList.add("help-group-links");
+    groupPages.forEach((page) => {
+      const link = document.createElement("button");
+      link.type = "button";
+      link.classList.add("help-link");
+      if (page.id === currentPageId) link.classList.add("active");
+      link.textContent = page.title;
+      link.addEventListener("click", () => openHelpPage(page.id));
+      list.appendChild(link);
+      if (page.id === currentPageId && helpState.pages.has(page.id)) {
+        const pageData = helpState.pages.get(page.id);
+        pageData.headings.forEach((heading) => {
+          if (heading.level === 1) return;
+          const sub = document.createElement("button");
+          sub.type = "button";
+          sub.classList.add("help-link", "heading");
+          sub.dataset.anchor = heading.id;
+          sub.style.paddingLeft = `${heading.level * 10}px`;
+          sub.textContent = heading.text;
+          sub.addEventListener("click", () => openHelpPage(page.id, heading.id));
+          list.appendChild(sub);
+        });
+      }
+    });
+    details.appendChild(list);
+    helpToc.appendChild(details);
+  });
+}
+
+function renderHelpContent(pageData) {
+  if (!helpContent) return;
+  helpContent.innerHTML = pageData?.html || "<div class=\"note\">Doc not found.</div>";
+  if (helpTitle) helpTitle.textContent = pageData?.title || "Help Center";
+  if (helpSubtitle) helpSubtitle.textContent = pageData?.description || "Documentation and how-to guidance";
+  setupHelpAnchors();
+  setupHelpScrollSpy(pageData?.headings || []);
+}
+
+function clearHelpHighlights() {
+  if (!helpContent) return;
+  helpContent.querySelectorAll("mark").forEach((mark) => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    parent.replaceChild(document.createTextNode(mark.textContent), mark);
+    parent.normalize();
+  });
+}
+
+function highlightHelpMatches(query) {
+  if (!helpContent || !query) return;
+  clearHelpHighlights();
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escaped, "gi");
+  const nodes = helpContent.querySelectorAll("p, li");
+  nodes.forEach((node) => {
+    if (node.closest("pre, code")) return;
+    if (!regex.test(node.textContent)) return;
+    node.innerHTML = node.innerHTML.replace(regex, (match) => `<mark class="help-highlight">${match}</mark>`);
+  });
+}
+
+function setupHelpAnchors() {
+  if (!helpContent) return;
+  helpContent.querySelectorAll("[data-anchor]").forEach((anchor) => {
+    anchor.addEventListener("click", (event) => {
+      event.preventDefault();
+      const id = anchor.dataset.anchor;
+      if (!id) return;
+      const url = `${window.location.origin}${window.location.pathname}#${id}`;
+      navigator.clipboard?.writeText(url).then(() => showToast("Link copied"));
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+function setupHelpScrollSpy(headings) {
+  if (!helpContent) return;
+  if (helpState.headingObserver) {
+    helpState.headingObserver.disconnect();
+  }
+  const headingEls = headings
+    .map((heading) => document.getElementById(heading.id))
+    .filter(Boolean);
+  if (!headingEls.length) return;
+  helpState.headingObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        const active = helpToc?.querySelectorAll(".help-link.heading.active");
+        active?.forEach((el) => el.classList.remove("active"));
+        const link = helpToc?.querySelector(`.help-link[data-anchor="${entry.target.id}"]`);
+        if (link) link.classList.add("active");
+      });
+    },
+    { root: null, threshold: 0.3 }
+  );
+  headingEls.forEach((el) => helpState.headingObserver.observe(el));
+}
+
+function buildHelpIndex(pages) {
+  helpState.index = pages.map((page) => ({
+    id: page.id,
+    title: page.title,
+    group: page.group,
+    tags: page.tags || [],
+    text: page.text || "",
+    headings: page.headings || [],
+  }));
+}
+
+function renderHelpSearchResults(results) {
+  if (!helpSearchResults) return;
+  helpSearchResults.innerHTML = "";
+  if (!results.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No matches.";
+    helpSearchResults.appendChild(empty);
+    return;
+  }
+  results.slice(0, 8).forEach((result) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.classList.add("ghost", "small");
+    btn.textContent = `${result.title}${result.heading ? ` · ${result.heading}` : ""}`;
+    btn.addEventListener("click", () => openHelpPage(result.id, result.anchor, result.highlight));
+    helpSearchResults.appendChild(btn);
+  });
+}
+
+function handleHelpSearch() {
+  if (!helpSearchInput) return;
+  const query = helpSearchInput.value.trim().toLowerCase();
+  if (!query) {
+    if (helpSearchResults) helpSearchResults.innerHTML = "";
+    return;
+  }
+  const results = [];
+  helpState.index.forEach((entry) => {
+    if (entry.title.toLowerCase().includes(query)) {
+      results.push({ id: entry.id, title: entry.title, highlight: query });
+    }
+    entry.headings.forEach((heading) => {
+      if (heading.text.toLowerCase().includes(query)) {
+        results.push({
+          id: entry.id,
+          title: entry.title,
+          heading: heading.text,
+          anchor: heading.id,
+          highlight: query,
+        });
+      }
+    });
+    if (entry.text.toLowerCase().includes(query)) {
+      results.push({ id: entry.id, title: entry.title, highlight: query });
+    }
+  });
+  renderHelpSearchResults(results);
+}
+
+async function openHelpPage(pageId, anchor, highlight) {
+  const manifest = await loadHelpManifest();
+  if (!manifest) return;
+  const pages = manifest.pages || [];
+  const page = pages.find((entry) => entry.id === pageId) || pages[0];
+  if (!page) return;
+  const pageData = await loadHelpPage(page);
+  helpState.currentPage = pageData.id;
+  renderHelpContent(pageData);
+  renderHelpToc(pages, helpState.currentPage);
+  if (highlight) {
+    highlightHelpMatches(highlight);
+  }
+  if (anchor) {
+    const target = document.getElementById(anchor);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.add("help-highlight");
+      setTimeout(() => target.classList.remove("help-highlight"), 1200);
+    }
+    if (window.location.pathname.startsWith("/help")) {
+      window.history.replaceState({ section: "help" }, "", `/help/${page.id}#${anchor}`);
+    }
+  } else if (window.location.pathname.startsWith("/help")) {
+    window.history.replaceState({ section: "help" }, "", `/help/${page.id}`);
+  }
+}
+
+async function initHelpCenter() {
+  const manifest = await loadHelpManifest();
+  if (!manifest || !manifest.pages) {
+    if (helpContent) {
+      helpContent.innerHTML = '<div class="note">Help content is unavailable.</div>';
+    }
+    return;
+  }
+  const pages = manifest.pages;
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const pageIdFromPath = pathParts[0] === "help" ? pathParts[1] : null;
+  const hashAnchor = window.location.hash ? window.location.hash.replace("#", "") : "";
+  const initialPage = pages.find((entry) => entry.id === pageIdFromPath) || pages[0];
+  await Promise.all(pages.map((page) => loadHelpPage(page)));
+  buildHelpIndex([...helpState.pages.values()]);
+  await openHelpPage(initialPage.id, hashAnchor || null);
+  if (helpSearchInput) {
+    helpSearchInput.addEventListener("input", handleHelpSearch);
+  }
+  helpRailLinks.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.helpLink || "";
+      if (!target) return;
+      const [pageId, anchor] = target.split("#");
+      openHelpPage(pageId, anchor);
+      setSection("help");
+    });
+  });
+}
+
+if (typeof window !== "undefined") {
+  window.GraphAdminHelp = {
+    parseMarkdown,
+    slugifyHeading,
+  };
+}
+
 function formatSnapshotQuality(quality) {
   if (!quality || typeof quality !== "object") return "No quality data.";
   const payload = {
@@ -7222,6 +9094,695 @@ function formatSnapshotQuality(quality) {
     warnings: quality.warnings || [],
   };
   return JSON.stringify(payload, null, 2);
+}
+
+function getDraftStatusLabel(status) {
+  if (status === "success") return "Success";
+  if (status === "failed") return "Failed";
+  if (status === "canceled") return "Canceled";
+  return "Unknown";
+}
+
+function buildDraftStatusBadge(status) {
+  const badge = document.createElement("span");
+  badge.classList.add("draft-status-badge");
+  const normalized = status || "unknown";
+  badge.classList.add(normalized);
+  badge.textContent = getDraftStatusLabel(normalized);
+  return badge;
+}
+
+function hasDraftableResult(service) {
+  const meta = lastRunMeta[service];
+  if (!meta) return false;
+  if (meta.ended_at) return true;
+  if (meta.ok !== undefined) return true;
+  if (meta.error || meta.cancelled) return true;
+  return false;
+}
+
+function buildDraftEntryFromService(service) {
+  const meta = lastRunMeta[service] || {};
+  const output = lastOutputs[service];
+  let raw = getOutputPanel(service)?.textContent || "";
+  const rawParsed = tryParseJson(raw);
+  if (rawParsed) {
+    raw = JSON.stringify(sanitizeParams(rawParsed), null, 2);
+  } else if (typeof raw === "string" && raw.length > 4000) {
+    raw = `${raw.slice(0, 4000)}…`;
+  }
+  const status = meta.cancelled ? "canceled" : meta.ok ? "success" : "failed";
+  return {
+    entry_id: `entry-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    timestamp: new Date().toISOString(),
+    service,
+    action_id: meta.action || null,
+    action_label: meta.label || resolveActionLabel(service, meta.action) || meta.action || service,
+    mode: meta.mode || null,
+    execution_target: meta.execution_target || null,
+    parameters: sanitizeParams(meta.params || {}),
+    result_status: status,
+    error_summary: meta.error || meta.hint || null,
+    output: sanitizeParams(output),
+    output_raw: raw,
+    meta: {
+      request_id: meta.request_id || null,
+      elapsed_ms: meta.elapsed_ms || null,
+    },
+  };
+}
+
+function renderDraftEntries(draft) {
+  if (!draftEntriesList) return;
+  draftEntriesList.innerHTML = "";
+  const entries = draft?.entries || [];
+  if (draftEmptyNote) {
+    draftEmptyNote.style.display = entries.length ? "none" : "block";
+  }
+  entries.forEach((entry) => {
+    const li = document.createElement("li");
+    li.classList.add("draft-entry");
+    const header = document.createElement("div");
+    header.classList.add("draft-entry-header");
+    const titleWrap = document.createElement("div");
+    const title = document.createElement("div");
+    title.classList.add("draft-entry-title");
+    title.textContent = entry.action_label || `${entry.service}.${entry.action_id || "action"}`;
+    const meta = document.createElement("div");
+    meta.classList.add("draft-entry-meta");
+    const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "Unknown time";
+    const targetLabel = entry.execution_target ? formatSshTargetLabel(entry.execution_target) : "Local";
+    meta.textContent = `${formatServiceLabel(entry.service)} · ${timestamp} · ${targetLabel}`;
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(meta);
+    const badge = buildDraftStatusBadge(entry.result_status);
+    const actions = document.createElement("div");
+    actions.classList.add("draft-entry-actions");
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.classList.add("ghost", "small");
+    removeBtn.textContent = "Remove";
+    removeBtn.addEventListener("click", () => {
+      const draftId = draft?.id;
+      if (!draftId) return;
+      const remaining = (draft.entries || []).filter((item) => item.entry_id !== entry.entry_id);
+      updateDraftSnapshot(draftId, { entries: remaining });
+      renderDraftSnapshots();
+    });
+    actions.appendChild(removeBtn);
+    header.appendChild(titleWrap);
+    header.appendChild(badge);
+    header.appendChild(actions);
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = entry.error_summary ? `Details · ${entry.error_summary}` : "View output";
+    const pre = document.createElement("pre");
+    const outputPayload = entry.output || entry.output_raw || entry;
+    pre.textContent = typeof outputPayload === "string" ? outputPayload : JSON.stringify(outputPayload, null, 2);
+    details.appendChild(summary);
+    details.appendChild(pre);
+    li.appendChild(header);
+    li.appendChild(details);
+    draftEntriesList.appendChild(li);
+  });
+}
+
+function readDraftSubjectFromInputs() {
+  if (!draftSubjectKind || !draftSubjectValue) return null;
+  const kind = draftSubjectKind.value || "user";
+  const identifier = draftSubjectValue.value.trim();
+  const displayName = draftSubjectName?.value.trim();
+  const identifiers = {};
+  if (identifier) {
+    if (kind === "user") {
+      identifiers.upn = identifier;
+    } else {
+      const aliasType = isIpAddress(identifier) ? "ip" : "hostname";
+      identifiers[aliasType] = identifier;
+    }
+  }
+  const subject = { kind, identifiers };
+  if (displayName) subject.display_name = displayName;
+  return subject;
+}
+
+function syncDraftFields(draft) {
+  if (!draft) return;
+  if (draftTitleInput) draftTitleInput.value = draft.title || "";
+  if (draftNotesInput) draftNotesInput.value = draft.notes || "";
+  if (draftProfileSelect) draftProfileSelect.value = draft.profile || "core";
+  if (draftSubjectKind) draftSubjectKind.value = draft.subject?.kind || "user";
+  if (draftSubjectValue) {
+    const identifiers = draft.subject?.identifiers || {};
+    const value =
+      identifiers.upn ||
+      identifiers.hostname ||
+      identifiers.ip ||
+      identifiers.fqdn ||
+      identifiers.objectId ||
+      "";
+    draftSubjectValue.value = value;
+  }
+  if (draftSubjectName) draftSubjectName.value = draft.subject?.display_name || "";
+}
+
+function renderDraftSnapshots() {
+  if (!draftSelect) return;
+  draftSelect.innerHTML = "";
+  const drafts = (draftSnapshots || []).filter((entry) => !entry.archived_at);
+  if (!drafts.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No drafts yet";
+    draftSelect.appendChild(option);
+    draftSelect.disabled = true;
+    if (draftFinalizeButton) draftFinalizeButton.disabled = true;
+    if (draftClearButton) draftClearButton.disabled = true;
+    renderDraftEntries(null);
+    return;
+  }
+  draftSelect.disabled = false;
+  drafts.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.title || "Draft snapshot";
+    draftSelect.appendChild(option);
+  });
+  const active = getActiveDraft() || drafts[0];
+  if (active && activeDraftId !== active.id) {
+    setActiveDraftId(active.id);
+  }
+  if (active) {
+    draftSelect.value = active.id;
+    syncDraftFields(active);
+    renderDraftEntries(active);
+    const hasEntries = Array.isArray(active.entries) && active.entries.length > 0;
+    if (draftFinalizeButton) draftFinalizeButton.disabled = !hasEntries;
+    if (draftClearButton) draftClearButton.disabled = !hasEntries;
+  }
+}
+
+function updateDraftFromInputs() {
+  const draft = getActiveDraft();
+  if (!draft) return;
+  const updates = {
+    title: draftTitleInput?.value.trim() || draft.title,
+    notes: draftNotesInput?.value || "",
+    profile: draftProfileSelect?.value || draft.profile || "core",
+    subject: readDraftSubjectFromInputs(),
+  };
+  updateDraftSnapshot(draft.id, updates);
+  const option = draftSelect?.querySelector(`option[value="${draft.id}"]`);
+  if (option) {
+    option.textContent = updates.title || "Draft snapshot";
+  }
+}
+
+async function addLatestResultToDraft(service) {
+  if (!hasDraftableResult(service)) {
+    showToast("Run an action first to add its result to a draft.");
+    return;
+  }
+  if (!draftSnapshots.length) {
+    createDraftSnapshot({ title: `${formatServiceLabel(service)} draft` });
+  }
+  const draft = getActiveDraft() || draftSnapshots.find((entry) => !entry.archived_at);
+  if (!draft) return;
+  const entry = buildDraftEntryFromService(service);
+  addDraftEntry(draft.id, entry);
+  renderDraftSnapshots();
+  showToast("Added result to draft");
+}
+
+function updateRunnerDraftButton(service) {
+  const form = document.querySelector(`.runner[data-service="${service}"]`);
+  if (!form) return;
+  const button = form.querySelector(".runner-draft");
+  if (!button) return;
+  const enabled = hasDraftableResult(service);
+  button.disabled = !enabled;
+  button.title = enabled ? "Add latest result to draft" : "Run an action first to add its result";
+}
+
+async function finalizeDraftSnapshot() {
+  const draft = getActiveDraft();
+  if (!draft) {
+    showToast("Create a draft first");
+    return;
+  }
+  const subject = readDraftSubjectFromInputs();
+  const kind = subject?.kind || draft.subject?.kind || "user";
+  const identifier = subject?.identifiers && Object.values(subject.identifiers).find(Boolean);
+  if (!identifier && kind !== "admin_host") {
+    showToast("Enter an identifier before finalizing");
+    return;
+  }
+  const entries = draft.entries || [];
+  if (!entries.length) {
+    showToast("Add at least one result to finalize");
+    return;
+  }
+  const payload = {
+    draft: {
+      ...draft,
+      subject: subject || draft.subject,
+      profile: draftProfileSelect?.value || draft.profile || "core",
+    },
+    subject: subject || draft.subject,
+    profile: draftProfileSelect?.value || draft.profile || "core",
+    incident_id: activeIncidentId || null,
+  };
+  try {
+    const res = await fetch("/api/snapshots/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Finalize snapshot failed");
+      return;
+    }
+    archiveDraftSnapshot(draft.id);
+    renderDraftSnapshots();
+    await refreshSnapshotEntities();
+    await refreshSnapshotHistory();
+    showToast("Snapshot finalized");
+  } catch (err) {
+    showToast("Finalize snapshot failed");
+  }
+}
+
+async function fetchIncident(incidentId) {
+  if (!incidentId) return null;
+  try {
+    const res = await fetch(`/api/incidents/${incidentId}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function fetchIncidentReport(incidentId) {
+  if (!incidentId) return null;
+  try {
+    const res = await fetch(`/api/incidents/${incidentId}/report`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function saveIncidentReport(incidentId, report) {
+  if (!incidentId) return null;
+  try {
+    const res = await fetch(`/api/incidents/${incidentId}/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Save failed");
+    return data.data || null;
+  } catch (err) {
+    showToast(err.message || "Report save failed");
+    return null;
+  }
+}
+
+function buildDefaultIncidentReport(incident) {
+  return {
+    incident_id: incident?.incident_id || null,
+    title: incident?.title || "Incident report",
+    customer: "",
+    reported_by: "",
+    severity: "",
+    status: incident?.status || "open",
+    reported_at: incident?.created_at || "",
+    resolved_at: "",
+    summary_reported: incident?.description || "",
+    summary_actual: "",
+    root_cause: "",
+    resolution: "",
+    validation: "",
+    preventive_actions: "",
+    affected: "",
+    impact_window: { start: incident?.time_window_start || "", end: incident?.time_window_end || "" },
+    timeline: [],
+    evidence_refs: [],
+    attachments: [],
+    template_id: "default",
+  };
+}
+
+function applyIncidentReportToForm(report) {
+  if (!report) return;
+  if (incidentReportTitle) incidentReportTitle.value = report.title || "";
+  if (incidentReportClient) incidentReportClient.value = report.customer || "";
+  if (incidentReportReportedBy) incidentReportReportedBy.value = report.reported_by || "";
+  if (incidentReportSeverity) incidentReportSeverity.value = report.severity || "";
+  if (incidentReportStatus) incidentReportStatus.value = report.status || "open";
+  if (incidentReportReportedAt) incidentReportReportedAt.value = report.reported_at || "";
+  if (incidentReportResolvedAt) incidentReportResolvedAt.value = report.resolved_at || "";
+  if (incidentReportImpactStart) incidentReportImpactStart.value = report.impact_window?.start || "";
+  if (incidentReportImpactEnd) incidentReportImpactEnd.value = report.impact_window?.end || "";
+  if (incidentReportSummaryReported) incidentReportSummaryReported.value = report.summary_reported || "";
+  if (incidentReportSummaryActual) incidentReportSummaryActual.value = report.summary_actual || "";
+  if (incidentReportRootCause) incidentReportRootCause.value = report.root_cause || "";
+  if (incidentReportResolution) incidentReportResolution.value = report.resolution || "";
+  if (incidentReportValidation) incidentReportValidation.value = report.validation || "";
+  if (incidentReportPreventive) incidentReportPreventive.value = report.preventive_actions || "";
+  if (incidentReportAffected) incidentReportAffected.value = report.affected || "";
+}
+
+function collectIncidentReportForm() {
+  const report = incidentReport || {};
+  return {
+    ...report,
+    title: incidentReportTitle?.value.trim() || report.title || "Incident report",
+    customer: incidentReportClient?.value.trim() || "",
+    reported_by: incidentReportReportedBy?.value.trim() || "",
+    severity: incidentReportSeverity?.value || "",
+    status: incidentReportStatus?.value || report.status || "open",
+    reported_at: incidentReportReportedAt?.value || report.reported_at || "",
+    resolved_at: incidentReportResolvedAt?.value || report.resolved_at || "",
+    summary_reported: incidentReportSummaryReported?.value || "",
+    summary_actual: incidentReportSummaryActual?.value || "",
+    root_cause: incidentReportRootCause?.value || "",
+    resolution: incidentReportResolution?.value || "",
+    validation: incidentReportValidation?.value || "",
+    preventive_actions: incidentReportPreventive?.value || "",
+    affected: incidentReportAffected?.value || "",
+    impact_window: {
+      start: incidentReportImpactStart?.value || report.impact_window?.start || "",
+      end: incidentReportImpactEnd?.value || report.impact_window?.end || "",
+    },
+    template_id: report.template_id || "default",
+  };
+}
+
+function renderIncidentReportTimeline(report) {
+  if (!incidentReportTimeline) return;
+  incidentReportTimeline.innerHTML = "";
+  const timeline = report?.timeline || [];
+  if (!timeline.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No timeline entries yet.";
+    incidentReportTimeline.appendChild(empty);
+    return;
+  }
+  timeline.forEach((entry, index) => {
+    const row = document.createElement("li");
+    row.classList.add("history-item");
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    title.textContent = entry.label || entry.summary || "Timeline entry";
+    const meta = document.createElement("div");
+    meta.classList.add("history-meta");
+    meta.textContent = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "Unknown time";
+    const actions = document.createElement("div");
+    actions.classList.add("history-actions");
+    const up = document.createElement("button");
+    up.type = "button";
+    up.classList.add("ghost", "small");
+    up.textContent = "Up";
+    up.disabled = index === 0;
+    up.addEventListener("click", () => {
+      const items = [...timeline];
+      const temp = items[index - 1];
+      items[index - 1] = items[index];
+      items[index] = temp;
+      incidentReport.timeline = items;
+      renderIncidentReportTimeline(incidentReport);
+    });
+    const down = document.createElement("button");
+    down.type = "button";
+    down.classList.add("ghost", "small");
+    down.textContent = "Down";
+    down.disabled = index === timeline.length - 1;
+    down.addEventListener("click", () => {
+      const items = [...timeline];
+      const temp = items[index + 1];
+      items[index + 1] = items[index];
+      items[index] = temp;
+      incidentReport.timeline = items;
+      renderIncidentReportTimeline(incidentReport);
+    });
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.classList.add("ghost", "small");
+    edit.textContent = "Edit";
+    edit.addEventListener("click", async () => {
+      const values = await openFormModal({
+        title: "Edit timeline entry",
+        fields: [
+          {
+            key: "label",
+            label: "Timeline entry label",
+            value: entry.label || "",
+            required: true,
+          },
+          {
+            key: "timestamp",
+            label: "Timestamp (ISO or local)",
+            value: entry.timestamp || "",
+          },
+        ],
+        confirmLabel: "Save entry",
+        cancelLabel: "Cancel",
+      });
+      if (!values) return;
+      const updated = {
+        ...entry,
+        label: values.label || entry.label,
+        timestamp: values.timestamp || entry.timestamp,
+      };
+      const items = [...timeline];
+      items[index] = updated;
+      incidentReport.timeline = items;
+      renderIncidentReportTimeline(incidentReport);
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.classList.add("ghost", "small");
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      const items = timeline.filter((_, idx) => idx !== index);
+      incidentReport.timeline = items;
+      renderIncidentReportTimeline(incidentReport);
+    });
+    actions.appendChild(up);
+    actions.appendChild(down);
+    actions.appendChild(edit);
+    actions.appendChild(remove);
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    incidentReportTimeline.appendChild(row);
+  });
+}
+
+function buildEvidenceCandidates(incident, timelineData) {
+  const candidates = [];
+  const addCandidate = (item) => {
+    if (!item) return;
+    candidates.push(item);
+  };
+  draftSnapshots.forEach((draft) => {
+    (draft.entries || []).forEach((entry) => {
+      addCandidate({
+        type: "draft_entry",
+        id: `${draft.id}:${entry.entry_id}`,
+        label: entry.action_label || entry.service,
+        timestamp: entry.timestamp,
+        summary: entry.error_summary || entry.result_status,
+        payload: entry,
+      });
+    });
+  });
+  Object.entries(lastRunMeta).forEach(([service, meta]) => {
+    if (!meta?.ended_at) return;
+    addCandidate({
+      type: "run",
+      id: `run:${service}:${meta.ended_at}`,
+      label: meta.label || `${service}.${meta.action}`,
+      timestamp: meta.ended_at,
+      summary: meta.ok ? "Success" : meta.error || "Failed",
+      payload: { meta, output: sanitizeParams(lastOutputs[service]) },
+    });
+  });
+  loadActionPackHistory().forEach((entry) => {
+    addCandidate({
+      type: "action_pack_run",
+      id: `pack:${entry.packId}:${entry.timestamp}`,
+      label: entry.pack_name || entry.packId,
+      timestamp: new Date(entry.timestamp).toISOString(),
+      summary: entry.status,
+      payload: entry,
+    });
+  });
+  (incident?.snapshots || []).forEach((snapId) => {
+    addCandidate({
+      type: "snapshot",
+      id: `snapshot:${snapId}`,
+      label: `Snapshot ${snapId}`,
+      timestamp: null,
+      summary: "Snapshot captured",
+      payload: { snapshot_id: snapId },
+    });
+  });
+  if (timelineData?.events) {
+    (timelineData.events || []).forEach((evt) => {
+      addCandidate({
+        type: "event",
+        id: evt.event_id || evt.id || `${evt.kind}:${evt.time}`,
+        label: evt.kind || "Event",
+        timestamp: evt.time || evt.timestamp,
+        summary: evt.kind || "",
+        payload: evt,
+      });
+    });
+  }
+  snapshotDiffCache.forEach((entry, key) => {
+    addCandidate({
+      type: "diff",
+      id: `diff:${key}:${entry.a}:${entry.b}`,
+      label: `Snapshot diff ${entry.a} → ${entry.b}`,
+      timestamp: new Date(entry.captured_at || Date.now()).toISOString(),
+      summary: "Snapshot diff",
+      payload: entry.diff,
+    });
+  });
+  reportDiffCache.forEach((entry, key) => {
+    addCandidate({
+      type: "diff",
+      id: `report-diff:${key}`,
+      label: "Report diff",
+      timestamp: new Date(entry.captured_at || Date.now()).toISOString(),
+      summary: "Report diff",
+      payload: entry.diff,
+    });
+  });
+  return candidates;
+}
+
+function renderIncidentEvidence(report, candidates) {
+  if (!incidentReportEvidence) return;
+  incidentReportEvidence.innerHTML = "";
+  if (!candidates.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No evidence available yet.";
+    incidentReportEvidence.appendChild(empty);
+    return;
+  }
+  const selectedIds = new Set((report?.evidence_refs || []).map((item) => item.id));
+  candidates.forEach((item) => {
+    const row = document.createElement("div");
+    row.classList.add("evidence-item");
+    const header = document.createElement("div");
+    header.classList.add("evidence-header");
+    const titleWrap = document.createElement("div");
+    const title = document.createElement("div");
+    title.classList.add("evidence-title");
+    title.textContent = item.label || item.type;
+    const meta = document.createElement("div");
+    meta.classList.add("evidence-meta");
+    const when = item.timestamp ? new Date(item.timestamp).toLocaleString() : "No timestamp";
+    meta.textContent = `${item.type.replace("_", " ")} · ${when}`;
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(meta);
+    const actions = document.createElement("div");
+    actions.classList.add("evidence-actions");
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = selectedIds.has(item.id);
+    toggle.addEventListener("change", () => {
+      const refs = report.evidence_refs || [];
+      if (toggle.checked) {
+        refs.push({
+          type: item.type,
+          id: item.id,
+          label: item.label,
+          timestamp: item.timestamp,
+          summary: item.summary,
+          raw_payload_ref: sanitizeParams(item.payload),
+        });
+      } else {
+        const idx = refs.findIndex((ref) => ref.id === item.id);
+        if (idx >= 0) refs.splice(idx, 1);
+      }
+      report.evidence_refs = refs;
+    });
+    const summary = document.createElement("span");
+    summary.textContent = item.summary || "";
+    actions.appendChild(summary);
+    actions.appendChild(toggle);
+    header.appendChild(titleWrap);
+    header.appendChild(actions);
+    row.appendChild(header);
+    incidentReportEvidence.appendChild(row);
+  });
+}
+
+async function refreshIncidentReportEvidence(report) {
+  if (!report || !incidentReportEvidence) return;
+  const incident = report.incident_id ? await fetchIncident(report.incident_id) : null;
+  const timelineData = report.incident_id ? await fetchIncidentTimeline(report.incident_id) : null;
+  const candidates = buildEvidenceCandidates(incident, timelineData);
+  renderIncidentEvidence(report, candidates);
+  return candidates;
+}
+
+async function loadIncidentReportFor(incidentId) {
+  if (!incidentId) return;
+  const incident = await fetchIncident(incidentId);
+  const existing = await fetchIncidentReport(incidentId);
+  incidentReport = existing || buildDefaultIncidentReport(incident);
+  incidentReport.timeline = incidentReport.timeline || [];
+  incidentReport.evidence_refs = incidentReport.evidence_refs || [];
+  incidentReport.incident_id = incidentId;
+  applyIncidentReportToForm(incidentReport);
+  renderIncidentReportTimeline(incidentReport);
+  await refreshIncidentReportEvidence(incidentReport);
+}
+
+async function previewIncidentReport(format) {
+  if (!incidentReportPreviewOutput) return;
+  if (!incidentReport?.incident_id) {
+    showToast("Select an incident first");
+    return;
+  }
+  const redaction = incidentReportRedaction?.value || "internal";
+  const report = collectIncidentReportForm();
+  report.timeline = incidentReport.timeline || [];
+  report.evidence_refs = incidentReport.evidence_refs || [];
+  incidentReport = { ...incidentReport, ...report };
+  try {
+    const res = await fetch(`/api/incidents/${incidentReport.incident_id}/report/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format, redaction, report }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Report render failed");
+      return;
+    }
+    if (format === "pdf") {
+      const url = data.data?.url || data.data?.artifact_url;
+      if (url) window.open(url, "_blank");
+      return;
+    }
+    incidentReportPreviewOutput.textContent = data.data?.content || "";
+  } catch (err) {
+    showToast("Report render failed");
+  }
 }
 
 function snapshotLabel(snapshot) {
@@ -7300,7 +9861,14 @@ function renderSnapshotHistory() {
       setBtn.classList.add("ghost", "small");
       setBtn.textContent = "Set golden";
       setBtn.addEventListener("click", async () => {
-        const labelText = prompt("Optional label for golden baseline:", kind);
+        const labelText = await promptModal({
+          title: "Golden baseline label",
+          subtitle: "Optional label for this golden baseline.",
+          label: "Label (optional)",
+          defaultValue: kind,
+          confirmLabel: "Set baseline",
+          cancelLabel: "Skip label",
+        });
         await setGoldenBaseline(kind, snap.snapshot_id, labelText || "");
         goldenBaselines = await fetchGoldenBaselines();
         renderSnapshotHistory();
@@ -7705,6 +10273,8 @@ async function runIncidentWorkspace() {
   });
   if (incident?.incident_id) {
     activeIncidentId = incident.incident_id;
+    renderIncidentReportSelect();
+    loadIncidentReportFor(incident.incident_id);
   }
   if (incident?.incident_id) {
     await captureIncidentSnapshots({
@@ -8230,6 +10800,16 @@ function setConfigLocked(locked) {
     cfgAzureTenantId,
     cfgAzureSubscriptionId,
     cfgUseKeychain,
+    cfgAllowRemoteDangerous,
+    sshTargetNameInput,
+    sshTargetHostInput,
+    sshTargetUserInput,
+    sshTargetPortInput,
+    sshTargetKeyInput,
+    sshTargetTagsInput,
+    sshTargetStrictInput,
+    sshTargetSaveButton,
+    sshTargetClearButton,
     profileSaveButton,
     profileApplyButton,
     profileDeleteButton,
@@ -8462,6 +11042,171 @@ function formatDiffImpactOverrides(overrides) {
     .join("\n");
 }
 
+function generateTargetId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `target-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function normalizeSshTargets(list) {
+  const targets = Array.isArray(list) ? list : [];
+  return targets
+    .filter((item) => item && typeof item === "object" && item.host)
+    .map((item) => ({
+      id: item.id || generateTargetId(),
+      name: item.name || "",
+      host: item.host,
+      user: item.user || "",
+      port: Number.parseInt(item.port, 10) || 22,
+      key_path: item.key_path || "",
+      strict_host_key_checking: item.strict_host_key_checking !== false,
+      tags: Array.isArray(item.tags)
+        ? item.tags.filter(Boolean)
+        : parseCsvList(item.tags || ""),
+    }));
+}
+
+function setSshTargets(list) {
+  sshTargets = normalizeSshTargets(list);
+  renderSshTargets();
+  refreshRunnerTargets();
+}
+
+function formatSshTargetLabel(target) {
+  if (!target) return "Local machine";
+  if (target.type === "local") return "Local machine";
+  const host = target.host || "unknown";
+  const user = target.user ? `${target.user}@` : "";
+  const port = target.port ? `:${target.port}` : "";
+  return `ssh://${user}${host}${port}`;
+}
+
+function readSshTargetForm() {
+  return {
+    id: sshTargetIdInput?.value || "",
+    name: sshTargetNameInput?.value.trim() || "",
+    host: sshTargetHostInput?.value.trim() || "",
+    user: sshTargetUserInput?.value.trim() || "",
+    port: Number.parseInt(sshTargetPortInput?.value || "22", 10) || 22,
+    key_path: sshTargetKeyInput?.value.trim() || "",
+    strict_host_key_checking: sshTargetStrictInput ? sshTargetStrictInput.checked : true,
+    tags: parseCsvList(sshTargetTagsInput?.value || ""),
+  };
+}
+
+function clearSshTargetForm() {
+  if (sshTargetIdInput) sshTargetIdInput.value = "";
+  if (sshTargetNameInput) sshTargetNameInput.value = "";
+  if (sshTargetHostInput) sshTargetHostInput.value = "";
+  if (sshTargetUserInput) sshTargetUserInput.value = "";
+  if (sshTargetPortInput) sshTargetPortInput.value = "22";
+  if (sshTargetKeyInput) sshTargetKeyInput.value = "";
+  if (sshTargetTagsInput) sshTargetTagsInput.value = "";
+  if (sshTargetStrictInput) sshTargetStrictInput.checked = true;
+}
+
+async function persistSshTargets() {
+  if (configLocked) {
+    showToast("Config is locked");
+    return;
+  }
+  try {
+    const res = await fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssh_targets: sshTargets }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Failed to save targets");
+      return;
+    }
+    showToast("Remote targets saved");
+    await fetchConfig();
+  } catch (err) {
+    showToast("Failed to save targets");
+  }
+}
+
+function renderSshTargets() {
+  if (!sshTargetList) return;
+  sshTargetList.innerHTML = "";
+  if (!sshTargets.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No remote targets configured.";
+    sshTargetList.appendChild(empty);
+    return;
+  }
+  sshTargets.forEach((target) => {
+    const row = document.createElement("div");
+    row.classList.add("target-row");
+    const meta = document.createElement("div");
+    meta.classList.add("target-meta");
+    const title = document.createElement("div");
+    title.classList.add("target-title");
+    title.textContent = target.name || target.host;
+    const subtitle = document.createElement("div");
+    subtitle.classList.add("target-subtitle");
+    const tags = target.tags?.length ? ` • ${target.tags.join(", ")}` : "";
+    subtitle.textContent = `${formatSshTargetLabel({ type: "ssh", ...target })}${tags}`;
+    meta.appendChild(title);
+    meta.appendChild(subtitle);
+    const actions = document.createElement("div");
+    actions.classList.add("target-actions");
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.classList.add("ghost", "small");
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => {
+      if (sshTargetIdInput) sshTargetIdInput.value = target.id;
+      if (sshTargetNameInput) sshTargetNameInput.value = target.name || "";
+      if (sshTargetHostInput) sshTargetHostInput.value = target.host || "";
+      if (sshTargetUserInput) sshTargetUserInput.value = target.user || "";
+      if (sshTargetPortInput) sshTargetPortInput.value = String(target.port || 22);
+      if (sshTargetKeyInput) sshTargetKeyInput.value = target.key_path || "";
+      if (sshTargetTagsInput) sshTargetTagsInput.value = (target.tags || []).join(", ");
+      if (sshTargetStrictInput) sshTargetStrictInput.checked = target.strict_host_key_checking !== false;
+      document.getElementById("ssh-targets-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    const test = document.createElement("button");
+    test.type = "button";
+    test.classList.add("ghost", "small");
+    test.textContent = "Test";
+    test.addEventListener("click", () => testSshTarget(target));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.classList.add("ghost", "small");
+    remove.textContent = "Delete";
+    remove.addEventListener("click", async () => {
+      sshTargets = sshTargets.filter((entry) => entry.id !== target.id);
+      renderSshTargets();
+      refreshRunnerTargets();
+      await persistSshTargets();
+    });
+    actions.appendChild(edit);
+    actions.appendChild(test);
+    actions.appendChild(remove);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    sshTargetList.appendChild(row);
+  });
+}
+
+async function testSshTarget(target) {
+  const execTarget = { type: "ssh", ...target };
+  const result = await runSystemTask("ssh_test", { target: execTarget });
+  if (!result?.ok) {
+    showToast(result?.error || "SSH test failed");
+    return;
+  }
+  const data = result.data || result;
+  const host = data?.checks?.hostname || target.host;
+  const osInfo = data?.checks?.os || "unknown OS";
+  showToast(`SSH OK: ${host} (${osInfo})`);
+}
+
 function getConfigPayloadFromForm() {
   const payload = {
     tenant_id: cfgTenantId?.value.trim(),
@@ -8491,6 +11236,8 @@ function getConfigPayloadFromForm() {
     zone_map: parseZoneMap(cfgZoneMap?.value || ""),
     diff_impact_overrides: parseDiffImpactOverrides(cfgDiffImpactOverrides?.value || ""),
     mock_mode: Boolean(cfgMockMode?.checked),
+    allow_remote_dangerous: Boolean(cfgAllowRemoteDangerous?.checked),
+    ssh_targets: sshTargets,
   };
   const secret = cfgClientSecret?.value.trim();
   if (secret) {
@@ -8528,6 +11275,8 @@ function applyConfigToForm(config) {
     cfgDiffImpactOverrides.value = formatDiffImpactOverrides(config.diff_impact_overrides);
   }
   if (cfgMockMode) cfgMockMode.checked = Boolean(config.mock_mode);
+  if (cfgAllowRemoteDangerous) cfgAllowRemoteDangerous.checked = Boolean(config.allow_remote_dangerous);
+  setSshTargets(config.ssh_targets || []);
   if (!config.client_secret && cfgClientSecret.placeholder.includes("set")) {
     cfgClientSecret.placeholder = "Enter to update";
   }
@@ -8890,11 +11639,11 @@ function resetPreflightCache() {
   Object.keys(powershellPreflightCache).forEach((key) => delete powershellPreflightCache[key]);
 }
 
-async function runSystemTask(action, params) {
+async function runSystemTask(action, params, target) {
   const res = await fetch("/api/task", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ service: "system", action, params }),
+    body: JSON.stringify({ service: "system", action, params, target }),
   });
   const data = await res.json();
   return data;
@@ -9103,6 +11852,7 @@ async function runHealthCheck() {
         graphSummary.state === "fail" || psSummary.state === "fail" ? "Completed with issues" : "Complete";
     }
     showToast("Health check complete");
+    fetchSystemStatusSummary();
     return { ok: true, data: report };
   } catch (err) {
     setOutput("health", `Error: ${err.message}`);
@@ -9360,9 +12110,9 @@ async function preflightGraph(service) {
   return { ok: true };
 }
 
-async function preflightAction(service, action) {
+async function preflightAction(service, action, target) {
   if (service === "system") return { ok: true };
-  const response = await runSystemTask("action_preflight", { service, action });
+  const response = await runSystemTask("action_preflight", { service, action, target });
   if (response?.ok && response.data) {
     return response.data;
   }
@@ -9373,6 +12123,9 @@ async function preflightAction(service, action) {
   }
   const meta = ACTIONS_UI?.[service]?.[action];
   if (!meta) return { ok: true };
+  if (target && target.type === "ssh") {
+    return { ok: true, warning: { message: "Remote preflight skipped for SSH targets." } };
+  }
   const targetService = meta.preflightService || service;
   if (meta.mode === "powershell") {
     return preflightPowerShell(targetService);
@@ -9477,8 +12230,10 @@ async function runActionPack(pack, options = {}) {
   const state = { cancelled: false, controller: null };
   actionPackState.set(pack.id, state);
   setActionPackRunning(pack.id, true);
+  const packStart = performance.now();
   let hadFailures = false;
   let stoppedEarly = false;
+  let failedStep = null;
   const packResults = [];
   const runParamsSnapshot = { stepParams, includeSteps, dryRun };
   const packContext = {};
@@ -9545,7 +12300,13 @@ async function runActionPack(pack, options = {}) {
     }
     if (!result?.ok) {
       hadFailures = true;
-      const continueRun = window.confirm(`Step failed: ${label}. Continue?`);
+      if (!failedStep) failedStep = label;
+      const continueRun = await confirmModal({
+        title: "Step failed",
+        message: `Step failed: ${label}. Continue?`,
+        confirmLabel: "Continue",
+        cancelLabel: "Stop",
+      });
       if (!continueRun) {
         showToast("Action pack stopped");
         stoppedEarly = true;
@@ -9572,15 +12333,31 @@ async function runActionPack(pack, options = {}) {
         : hadFailures
           ? "completed-with-errors"
           : "completed";
+  const durationMs = Math.round(performance.now() - packStart);
+  const resultSummary = packResults.map((entry) => ({
+    service: entry.service,
+    action: entry.action,
+    label: entry.label,
+    ok: entry.ok,
+    elapsed_ms: entry.elapsed_ms,
+    error: entry.ok ? null : entry.error || "Step failed",
+  }));
   addActionPackHistory({
     packId: pack.id,
     pack_name: pack.name,
     timestamp: Date.now(),
     status,
+    duration_ms: durationMs,
+    failed_step: failedStep,
+    result_summary: resultSummary,
     stepParams: runParamsSnapshot.stepParams,
     includeSteps: runParamsSnapshot.includeSteps,
     dryRun: runParamsSnapshot.dryRun,
   });
+  if (selectedPackId === pack.id) {
+    renderActionPackLastRun(pack, actionPackLastRun);
+  }
+  renderActionPacks();
   if (!state.cancelled) {
     showToast(dryRun ? "Action pack dry-run completed" : "Action pack completed");
   }
@@ -9825,6 +12602,7 @@ function setupTileDragging(grid) {
 
 function initTileLayout() {
   document.querySelectorAll(".grid").forEach((grid, idx) => {
+    if (grid.dataset.skipTiles === "true") return;
     applyTileLayout(grid);
     grid.querySelectorAll(".card").forEach((card) => {
       card.classList.add("tile");
@@ -9834,8 +12612,1282 @@ function initTileLayout() {
   });
 }
 
+const WORKSPACE_STORAGE_KEY = "gas.workspaces";
+const ACTIVE_WORKSPACE_KEY = "gas.active_workspace";
+
+const WORKSPACE_TILE_OVERRIDES = {
+  "status.summary": {
+    title: "System status",
+    description: "Completeness, warnings, and readiness signals.",
+    category: "Observe",
+    capabilities: ["Graph", "PowerShell"],
+    risk: "safe",
+    source_panel: "dashboard",
+  },
+  "snapshots.recent": {
+    title: "Recent snapshots",
+    description: "Latest captures and subjects.",
+    category: "Observe",
+    capabilities: ["Local"],
+    risk: "safe",
+    source_panel: "dashboard",
+  },
+  "incidents.ledger": {
+    title: "Incident ledger",
+    description: "Latest incidents captured in the backend.",
+    category: "Observe",
+    capabilities: ["Local"],
+    risk: "safe",
+    source_panel: "incidents",
+  },
+  "incidents.intake": {
+    title: "Incident intake",
+    description: "Create an incident and run workspace triage.",
+    category: "Act",
+    capabilities: ["Graph", "PowerShell"],
+    risk: "caution",
+    source_panel: "incidents",
+  },
+  "snapshots.history": {
+    title: "Snapshot history",
+    description: "Per-subject snapshot timeline and quality.",
+    category: "Analyze",
+    capabilities: ["Local"],
+    risk: "safe",
+    source_panel: "reports",
+  },
+  "entra.user_lookup": {
+    title: "Entra user lookup",
+    description: "Fetch a user by UPN or ID.",
+    category: "Observe",
+    capabilities: ["Graph"],
+    risk: "safe",
+    source_panel: "entra",
+  },
+};
+
+const TILE_CATEGORY_LABELS = {
+  observe: "Observe",
+  analyze: "Analyze",
+  act: "Act",
+  configure: "Configure",
+  learn: "Help",
+};
+const TILE_CATEGORY_ORDER = ["Observe", "Act", "Analyze", "Configure", "Help", "Other"];
+
+const GRAPH_PANELS = new Set([
+  "exchange",
+  "onedrive",
+  "sharepoint",
+  "teams",
+  "entra",
+  "azure",
+  "defender",
+  "powerplatform",
+  "purview",
+]);
+
+const POWERSHELL_PANELS = new Set([
+  "localad",
+  "endpoint",
+  "domaincontroller",
+  "printers",
+  "network",
+  "fileserver",
+  "eventlogs",
+  "registry",
+  "time",
+  "certificates",
+  "processes",
+  "baselines",
+  "remote_workflows",
+]);
+
+const SSH_PANELS = new Set(["ssh", "remote_workflows"]);
+
+function normalizeWorkspaceKey(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function inferCapabilities(panel) {
+  const caps = new Set();
+  if (GRAPH_PANELS.has(panel)) caps.add("Graph");
+  if (POWERSHELL_PANELS.has(panel)) caps.add("PowerShell");
+  if (SSH_PANELS.has(panel)) caps.add("SSH");
+  if (!caps.size) caps.add("Local");
+  return Array.from(caps);
+}
+
+function inferRisk(modeKey) {
+  if (modeKey === "act") return "caution";
+  if (modeKey === "configure") return "caution";
+  return "safe";
+}
+
+function buildTileRegistry() {
+  const registry = {};
+  const used = new Set();
+  const counts = {};
+  document.querySelectorAll(".card[data-panel]").forEach((card) => {
+    if (card.closest(".workspace-grid")) return;
+    const panel = card.dataset.panel || "dashboard";
+    const title = card.querySelector(".card-title")?.textContent?.trim() || panel;
+    const description = card.querySelector(".card-subtitle")?.textContent?.trim() || "";
+    const explicit = card.dataset.workspaceBlock || card.id || "";
+    const base = explicit || `${panel}.${normalizeWorkspaceKey(title) || "tile"}`;
+    const nextCount = (counts[base] || 0) + 1;
+    counts[base] = nextCount;
+    const id = used.has(base) || nextCount > 1 ? `${base}.${nextCount}` : base;
+    used.add(id);
+    card.dataset.workspaceBlock = id;
+    const modeKey = MODE_MAP[panel] || "observe";
+    registry[id] = {
+      id,
+      title: title || panel,
+      description: description || "",
+      category: TILE_CATEGORY_LABELS[modeKey] || "Other",
+      capabilities: inferCapabilities(panel),
+      risk: inferRisk(modeKey),
+      source_panel: panel,
+      source_card_id: card.id || null,
+      config_sensitive: modeKey === "configure",
+      workspace_allowed: true,
+    };
+  });
+  Object.entries(WORKSPACE_TILE_OVERRIDES).forEach(([id, override]) => {
+    registry[id] = { ...(registry[id] || {}), ...override, id };
+  });
+  return registry;
+}
+
+const TILE_REGISTRY = buildTileRegistry();
+
+function getWorkspaceBlock(blockType) {
+  return TILE_REGISTRY[blockType] || null;
+}
+
+function listWorkspaceBlocks() {
+  return Object.values(TILE_REGISTRY).filter((block) => block && block.workspace_allowed !== false);
+}
+
+async function addWorkspaceTileFromBlock(block, options = {}) {
+  if (!block) return;
+  if (block.risk === "dangerous") {
+    const ok = await confirmModal("Add dangerous tile?", {
+      message: "This tile can run risky or destructive actions. Add it to the workspace?",
+      confirmText: "Add anyway",
+      cancelText: "Cancel",
+    });
+    if (!ok) return;
+  }
+  const blockParams = { ...(options.block_params || {}) };
+  if (block.config_sensitive && !("read_only" in blockParams)) {
+    blockParams.read_only = true;
+  }
+  addWorkspaceTile(block.id, { ...options, block_params: blockParams });
+}
+
+const WORKSPACE_TEMPLATES = [
+  {
+    id: "workspace-user-issues",
+    name: "User issues workspace",
+    description: "Incident intake plus snapshot and Entra context.",
+    tiles: ["incidents.intake", "incidents.ledger", "snapshots.recent", "entra.user_lookup", "status.summary"],
+  },
+  {
+    id: "workspace-endpoint-triage",
+    name: "Network/endpoint triage",
+    description: "Snapshot visibility and system readiness.",
+    tiles: ["status.summary", "snapshots.recent", "incidents.ledger"],
+  },
+  {
+    id: "workspace-cloud-identity",
+    name: "Cloud identity & access",
+    description: "Entra lookup with incident context.",
+    tiles: ["entra.user_lookup", "incidents.ledger", "status.summary"],
+  },
+];
+
+function generateWorkspaceId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `workspace-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function generateWorkspaceTileId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `tile-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+}
+
+function loadWorkspaces() {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveWorkspaces(workspaces) {
+  localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspaces || []));
+}
+
+function getActiveWorkspaceId() {
+  return localStorage.getItem(ACTIVE_WORKSPACE_KEY) || "";
+}
+
+function setActiveWorkspaceId(id) {
+  if (id) {
+    localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
+  } else {
+    localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+  }
+}
+
+function getWorkspaceById(id) {
+  return loadWorkspaces().find((workspace) => workspace.id === id) || null;
+}
+
+function upsertWorkspace(workspace) {
+  const list = loadWorkspaces();
+  const idx = list.findIndex((item) => item.id === workspace.id);
+  const next = { ...workspace, updated_at: new Date().toISOString() };
+  if (idx >= 0) {
+    list[idx] = next;
+  } else {
+    list.push(next);
+  }
+  saveWorkspaces(list);
+  return next;
+}
+
+function deleteWorkspace(id) {
+  const list = loadWorkspaces().filter((item) => item.id !== id);
+  saveWorkspaces(list);
+}
+
+function buildWorkspaceFromTemplate(template) {
+  const now = new Date().toISOString();
+  const tiles = template.tiles.map((block) => ({
+    tile_id: generateWorkspaceTileId(),
+    block_type: block,
+    block_params: {},
+    pinned_state: null,
+  }));
+  return {
+    id: generateWorkspaceId(),
+    name: template.name,
+    description: template.description || "",
+    created_at: now,
+    updated_at: now,
+    layout: { order: tiles.map((tile) => tile.tile_id), spans: {} },
+    tiles,
+  };
+}
+
+function createWorkspace(name = "New workspace") {
+  const now = new Date().toISOString();
+  return {
+    id: generateWorkspaceId(),
+    name,
+    description: "",
+    created_at: now,
+    updated_at: now,
+    layout: { order: [], spans: {} },
+    tiles: [],
+  };
+}
+
+async function getSystemStatusSummaryData() {
+  try {
+    const res = await fetch("/api/status/summary");
+    return await res.json();
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderWorkspaceSelect() {
+  if (!workspaceSelect) return;
+  const workspaces = loadWorkspaces();
+  workspaceSelect.innerHTML = "";
+  if (!workspaces.length) {
+    workspaceSelect.innerHTML = "";
+    setActiveWorkspaceId("");
+    return;
+  }
+  workspaces.forEach((workspace) => {
+    const option = document.createElement("option");
+    option.value = workspace.id;
+    option.textContent = workspace.name || "Untitled workspace";
+    workspaceSelect.appendChild(option);
+  });
+  const activeId = getActiveWorkspaceId();
+  if (activeId && workspaces.some((item) => item.id === activeId)) {
+    workspaceSelect.value = activeId;
+  } else if (workspaces.length) {
+    workspaceSelect.value = workspaces[0].id;
+    setActiveWorkspaceId(workspaces[0].id);
+  }
+}
+
+function renderWorkspaceTemplates() {
+  if (!workspaceTemplates) return;
+  workspaceTemplates.innerHTML = "";
+  WORKSPACE_TEMPLATES.forEach((template) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.add("ghost", "small");
+    button.textContent = template.name;
+    button.addEventListener("click", () => {
+      const workspace = buildWorkspaceFromTemplate(template);
+      upsertWorkspace(workspace);
+      setActiveWorkspaceId(workspace.id);
+      renderWorkspaces();
+      showToast("Workspace created");
+    });
+    workspaceTemplates.appendChild(button);
+  });
+}
+
+function renderWorkspaceEmptyState() {
+  if (!workspaceEmpty) return;
+  const workspaces = loadWorkspaces();
+  workspaceEmpty.classList.toggle("active", !workspaces.length);
+  if (workspaceGrid) {
+    workspaceGrid.style.display = workspaces.length ? "grid" : "none";
+  }
+}
+
+function setWorkspaceTileSpan(card, span) {
+  card.classList.remove("span-1", "span-2", "span-3");
+  card.classList.add(`span-${span}`);
+  const resizeButton = card.querySelector(".tile-resize");
+  if (resizeButton) resizeButton.textContent = `${span}/3`;
+  persistWorkspaceLayout();
+}
+
+function persistWorkspaceLayout() {
+  if (!workspaceGrid) return;
+  const activeId = getActiveWorkspaceId();
+  if (!activeId) return;
+  const workspace = getWorkspaceById(activeId);
+  if (!workspace) return;
+  const order = [];
+  const spans = {};
+  workspaceGrid.querySelectorAll(".workspace-tile").forEach((card) => {
+    const tileId = card.dataset.tileId;
+    if (!tileId) return;
+    order.push(tileId);
+    spans[tileId] = Number(card.className.match(/span-(\d)/)?.[1] || 1);
+  });
+  workspace.layout = { order, spans };
+  upsertWorkspace(workspace);
+}
+
+function applyWorkspaceLayout(workspace) {
+  if (!workspaceGrid || !workspace) return;
+  const cards = Array.from(workspaceGrid.querySelectorAll(".workspace-tile"));
+  const map = new Map(cards.map((card) => [card.dataset.tileId, card]));
+  const ordered = [];
+  (workspace.layout?.order || []).forEach((tileId) => {
+    const card = map.get(tileId);
+    if (card) {
+      ordered.push(card);
+      map.delete(tileId);
+    }
+  });
+  map.forEach((card) => ordered.push(card));
+  ordered.forEach((card) => {
+    workspaceGrid.appendChild(card);
+    const span = workspace.layout?.spans?.[card.dataset.tileId] || getInitialSpan(card);
+    card.classList.add("tile");
+    setWorkspaceTileSpan(card, span);
+  });
+}
+
+function setupWorkspaceTileControls(card) {
+  if (card.querySelector(".tile-controls")) return;
+  const controls = document.createElement("div");
+  controls.classList.add("tile-controls");
+
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.classList.add("ghost", "small", "tile-handle");
+  handle.textContent = "Move";
+  handle.title = "Drag to move";
+
+  const resize = document.createElement("button");
+  resize.type = "button";
+  resize.classList.add("ghost", "small", "tile-resize");
+  const span = getInitialSpan(card);
+  resize.textContent = `${span}/3`;
+  resize.addEventListener("click", () => {
+    const current = Number(card.className.match(/span-(\d)/)?.[1] || span);
+    const next = current === 3 ? 1 : current + 1;
+    setWorkspaceTileSpan(card, next);
+  });
+
+  controls.appendChild(handle);
+  controls.appendChild(resize);
+
+  const header = card.querySelector(".card-header");
+  if (header) {
+    let actions = header.querySelector(".card-actions");
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.classList.add("card-actions");
+      header.appendChild(actions);
+    }
+    controls.classList.add("inline");
+    actions.appendChild(controls);
+  } else {
+    card.appendChild(controls);
+  }
+}
+
+function setupWorkspaceDragging() {
+  if (!workspaceGrid) return;
+  if (!workspaceGrid.dataset.dragBound) {
+    workspaceGrid.dataset.dragBound = "true";
+    workspaceGrid.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      const dragging = workspaceGrid._dragging;
+      if (!dragging) return;
+      const target = event.target.closest(".workspace-tile");
+      if (!target || target === dragging) return;
+      const rect = target.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      workspaceGrid.insertBefore(dragging, before ? target : target.nextSibling);
+    });
+    workspaceGrid.addEventListener("drop", (event) => {
+      event.preventDefault();
+      if (workspaceGrid._dragging) {
+        persistWorkspaceLayout();
+      }
+    });
+  }
+  workspaceGrid.querySelectorAll(".workspace-tile").forEach((card) => {
+    card.setAttribute("draggable", "false");
+    const handle = card.querySelector(".tile-handle");
+    if (!handle) return;
+    if (handle.dataset.dragBound === "true") return;
+    handle.dataset.dragBound = "true";
+    handle.setAttribute("draggable", "true");
+    handle.addEventListener("dragstart", (event) => {
+      workspaceGrid._dragging = card;
+      card.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", card.dataset.tileId || "");
+      event.dataTransfer.setDragImage(card, 20, 20);
+    });
+    handle.addEventListener("dragend", () => {
+      if (workspaceGrid._dragging) {
+        workspaceGrid._dragging.classList.remove("dragging");
+        workspaceGrid._dragging = null;
+      }
+    });
+  });
+}
+
+async function renderWorkspaceStatus(container) {
+  const data = await getSystemStatusSummaryData();
+  container.innerHTML = "";
+  if (!data || !data.ok) {
+    container.textContent = "Status summary unavailable.";
+    return;
+  }
+  const grid = document.createElement("div");
+  grid.classList.add("status-grid");
+  const items = [
+    ["Completeness", data.completeness || "--"],
+    ["Warnings", data.warnings_count ?? 0],
+    ["Last snapshot", data.last_snapshot || "--"],
+    ["Graph readiness", data.graph_ready ? "Ready" : "Not ready"],
+    ["PowerShell readiness", data.powershell_ready ? "Ready" : "Not ready"],
+  ];
+  items.forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.classList.add("status-item");
+    const l = document.createElement("div");
+    l.classList.add("status-label");
+    l.textContent = label;
+    const v = document.createElement("div");
+    v.classList.add("status-value");
+    v.textContent = value;
+    item.appendChild(l);
+    item.appendChild(v);
+    grid.appendChild(item);
+  });
+  container.appendChild(grid);
+}
+
+async function renderWorkspaceRecentSnapshots(container) {
+  const data = await getSystemStatusSummaryData();
+  container.innerHTML = "";
+  if (!data || !Array.isArray(data.recent_snapshots) || !data.recent_snapshots.length) {
+    const note = document.createElement("div");
+    note.classList.add("note");
+    note.textContent = "No snapshots captured yet.";
+    container.appendChild(note);
+    return;
+  }
+  const list = document.createElement("ul");
+  list.classList.add("history-list");
+  data.recent_snapshots.forEach((snap) => {
+    const item = document.createElement("li");
+    item.classList.add("history-item");
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    title.textContent = snap.label || snap.kind || snap.canonical_id;
+    const meta = document.createElement("div");
+    meta.classList.add("history-meta");
+    meta.textContent = snap.captured_at ? new Date(snap.captured_at).toLocaleString() : "";
+    item.appendChild(title);
+    item.appendChild(meta);
+    list.appendChild(item);
+  });
+  container.appendChild(list);
+}
+
+async function renderWorkspaceIncidentLedger(container) {
+  container.innerHTML = "";
+  const incidents = await fetchIncidents();
+  if (!incidents.length) {
+    const note = document.createElement("div");
+    note.classList.add("note");
+    note.textContent = "No incidents recorded.";
+    container.appendChild(note);
+    return;
+  }
+  const list = document.createElement("div");
+  list.classList.add("history-list");
+  incidents.slice(0, 6).forEach((incident) => {
+    const row = document.createElement("div");
+    row.classList.add("history-item");
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    title.textContent = incident.title || incident.symptom_id || incident.incident_id;
+    const meta = document.createElement("div");
+    meta.classList.add("history-meta");
+    const when = incident.created_at ? new Date(incident.created_at).toLocaleString() : "Unknown time";
+    meta.textContent = `Status: ${incident.status || "open"} · ${when}`;
+    row.appendChild(title);
+    row.appendChild(meta);
+    list.appendChild(row);
+  });
+  container.appendChild(list);
+}
+
+function renderWorkspaceIncidentIntake(container) {
+  container.innerHTML = "";
+  const form = document.createElement("div");
+  form.classList.add("workspace-intake");
+  form.innerHTML = `
+    <label>
+      User
+      <input type="text" class="workspace-incident-user" placeholder="user@contoso.com" />
+    </label>
+    <label>
+      Device
+      <input type="text" class="workspace-incident-device" placeholder="DEVICE-01" />
+    </label>
+    <label class="workspace-wide">
+      Symptom
+      <input type="text" class="workspace-incident-symptom" placeholder="Describe the issue" />
+    </label>
+  `;
+  const actions = document.createElement("div");
+  actions.classList.add("runner-actions");
+  const openBtn = document.createElement("button");
+  openBtn.type = "button";
+  openBtn.classList.add("ghost", "small");
+  openBtn.textContent = "Open incident workspace";
+  const runBtn = document.createElement("button");
+  runBtn.type = "button";
+  runBtn.classList.add("primary", "small");
+  runBtn.textContent = "Run workspace";
+  actions.appendChild(openBtn);
+  actions.appendChild(runBtn);
+  container.appendChild(form);
+  container.appendChild(actions);
+
+  const userInput = form.querySelector(".workspace-incident-user");
+  const deviceInput = form.querySelector(".workspace-incident-device");
+  const symptomInput = form.querySelector(".workspace-incident-symptom");
+
+  openBtn.addEventListener("click", () => {
+    if (incidentUserInput) incidentUserInput.value = userInput.value;
+    if (incidentDeviceInput) incidentDeviceInput.value = deviceInput.value;
+    if (incidentSymptomInput) incidentSymptomInput.value = symptomInput.value;
+    setSection("incidents", { scrollTarget: "incident-workspace" });
+  });
+
+  runBtn.addEventListener("click", () => {
+    if (incidentUserInput) incidentUserInput.value = userInput.value;
+    if (incidentDeviceInput) incidentDeviceInput.value = deviceInput.value;
+    if (incidentSymptomInput) incidentSymptomInput.value = symptomInput.value;
+    setSection("incidents", { scrollTarget: "incident-workspace" });
+    runIncidentWorkspace();
+  });
+}
+
+async function renderWorkspaceSnapshotHistory(container, tile) {
+  container.innerHTML = "";
+  const subjectSelect = document.createElement("select");
+  subjectSelect.classList.add("workspace-subject-select");
+  const entities = await fetchSnapshotEntities();
+  if (!entities.length) {
+    const note = document.createElement("div");
+    note.classList.add("note");
+    note.textContent = "No snapshot subjects yet.";
+    container.appendChild(note);
+    return;
+  }
+  entities.forEach((entity) => {
+    const option = document.createElement("option");
+    option.value = entity.canonical_id;
+    option.textContent = entity.display_name || entity.canonical_id;
+    subjectSelect.appendChild(option);
+  });
+  const saved = tile.block_params?.canonical_id;
+  if (saved && entities.some((entity) => entity.canonical_id === saved)) {
+    subjectSelect.value = saved;
+  }
+  container.appendChild(subjectSelect);
+  const list = document.createElement("div");
+  list.classList.add("history-list");
+  container.appendChild(list);
+
+  const renderHistory = async (canonicalId) => {
+    list.innerHTML = "";
+    const items = await fetchSnapshotHistory(canonicalId, 5);
+    if (!items.length) {
+      const note = document.createElement("div");
+      note.classList.add("note");
+      note.textContent = "No snapshots for this subject.";
+      list.appendChild(note);
+      return;
+    }
+    items.forEach((snap) => {
+      const row = document.createElement("div");
+      row.classList.add("history-item");
+      const title = document.createElement("div");
+      title.classList.add("history-title");
+      title.textContent = snap.profile || snap.snapshot_id;
+      const meta = document.createElement("div");
+      meta.classList.add("history-meta");
+      meta.textContent = snap.captured_at ? new Date(snap.captured_at).toLocaleString() : "";
+      row.appendChild(title);
+      row.appendChild(meta);
+      list.appendChild(row);
+    });
+  };
+
+  subjectSelect.addEventListener("change", () => {
+    const value = subjectSelect.value;
+    tile.block_params = { ...(tile.block_params || {}), canonical_id: value };
+    updateWorkspaceTile(tile.tile_id, { block_params: tile.block_params });
+    renderHistory(value);
+  });
+  renderHistory(subjectSelect.value);
+}
+
+async function renderWorkspaceEntraLookup(container, tile) {
+  container.innerHTML = "";
+  const form = document.createElement("div");
+  form.classList.add("workspace-intake");
+  form.innerHTML = `
+    <label class="workspace-wide">
+      User UPN or ID
+      <input type="text" class="workspace-entra-user" placeholder="user@contoso.com" />
+    </label>
+  `;
+  const actions = document.createElement("div");
+  actions.classList.add("runner-actions");
+  const runBtn = document.createElement("button");
+  runBtn.type = "button";
+  runBtn.classList.add("primary", "small");
+  runBtn.textContent = "Lookup user";
+  actions.appendChild(runBtn);
+  const output = document.createElement("pre");
+  output.classList.add("output");
+  container.appendChild(form);
+  container.appendChild(actions);
+  container.appendChild(output);
+
+  const input = form.querySelector(".workspace-entra-user");
+  if (tile.block_params?.user_id) input.value = tile.block_params.user_id;
+
+  runBtn.addEventListener("click", async () => {
+    const userId = input.value.trim();
+    if (!userId) {
+      showToast("Enter a user identifier");
+      return;
+    }
+    tile.block_params = { ...(tile.block_params || {}), user_id: userId };
+    updateWorkspaceTile(tile.tile_id, { block_params: tile.block_params });
+    output.textContent = "Loading...";
+    try {
+      const res = await fetch("/api/task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service: "entra", action: "get_user", params: { id: userId } }),
+      });
+      const data = await res.json();
+      output.textContent = JSON.stringify(data.data || data, null, 2);
+    } catch (err) {
+      output.textContent = "Lookup failed.";
+    }
+  });
+}
+
+function findWorkspaceSourceCard(block) {
+  if (!block) return null;
+  if (block.source_card_id) {
+    const byId = document.getElementById(block.source_card_id);
+    if (byId) return byId;
+  }
+  if (block.id) {
+    const byBlock = document.querySelector(`.card[data-workspace-block="${block.id}"]`);
+    if (byBlock) return byBlock;
+  }
+  if (block.source_panel) {
+    return document.querySelector(`.card[data-panel="${block.source_panel}"]`) || null;
+  }
+  return null;
+}
+
+function sanitizeWorkspaceClone(clone, block, tile) {
+  clone.classList.add("workspace-embed");
+  clone.classList.remove("tile");
+  clone.removeAttribute("id");
+  clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  clone.querySelectorAll(".tile-controls").forEach((el) => el.remove());
+  clone.querySelectorAll(".card-actions").forEach((el) => el.remove());
+  const header = clone.querySelector(".card-header");
+  if (header) header.remove();
+  clone.querySelectorAll("[data-workspace-block]").forEach((el) => el.removeAttribute("data-workspace-block"));
+  const readonly = block?.config_sensitive || tile?.block_params?.read_only;
+  clone.querySelectorAll("button, input, select, textarea").forEach((el) => {
+    el.disabled = true;
+    el.setAttribute("aria-disabled", "true");
+  });
+  if (readonly) {
+    const banner = document.createElement("div");
+    banner.classList.add("workspace-readonly-banner");
+    banner.textContent = "Read-only in Workspaces. Use Settings to edit configuration.";
+    clone.prepend(banner);
+  } else {
+    const banner = document.createElement("div");
+    banner.classList.add("workspace-readonly-banner");
+    banner.textContent = "Preview only. Open the source panel for live controls.";
+    clone.prepend(banner);
+  }
+}
+
+function renderWorkspaceTile(tile) {
+  const block = getWorkspaceBlock(tile.block_type);
+  if (!block) return null;
+  const card = document.createElement("div");
+  card.classList.add("card", "workspace-tile");
+  card.dataset.tileId = tile.tile_id;
+  const header = document.createElement("div");
+  header.classList.add("card-header");
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("div");
+  title.classList.add("card-title");
+  title.textContent = tile.title || block.title;
+  const subtitle = document.createElement("div");
+  subtitle.classList.add("card-subtitle");
+  subtitle.textContent = block.description;
+  titleWrap.appendChild(title);
+  titleWrap.appendChild(subtitle);
+  const actions = document.createElement("div");
+  actions.classList.add("card-actions");
+  if (block.source_panel) {
+    const open = document.createElement("button");
+    open.type = "button";
+    open.classList.add("ghost", "small");
+    open.textContent = "Open";
+    open.addEventListener("click", () => {
+      setSection(block.source_panel, { scrollTarget: block.source_card_id || null });
+    });
+    actions.appendChild(open);
+  }
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.classList.add("ghost", "small");
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => removeWorkspaceTile(tile.tile_id));
+  actions.appendChild(remove);
+  header.appendChild(titleWrap);
+  header.appendChild(actions);
+  card.appendChild(header);
+  const body = document.createElement("div");
+  body.classList.add("workspace-tile-body");
+  card.appendChild(body);
+
+  const render = async () => {
+    if (tile.block_type === "status.summary") {
+      await renderWorkspaceStatus(body);
+      return;
+    }
+    if (tile.block_type === "snapshots.recent") {
+      await renderWorkspaceRecentSnapshots(body);
+      return;
+    }
+    if (tile.block_type === "incidents.ledger") {
+      await renderWorkspaceIncidentLedger(body);
+      return;
+    }
+    if (tile.block_type === "incidents.intake") {
+      renderWorkspaceIncidentIntake(body);
+      return;
+    }
+    if (tile.block_type === "snapshots.history") {
+      await renderWorkspaceSnapshotHistory(body, tile);
+      return;
+    }
+    if (tile.block_type === "entra.user_lookup") {
+      await renderWorkspaceEntraLookup(body, tile);
+      return;
+    }
+    const source = findWorkspaceSourceCard(block);
+    if (!source) {
+      body.textContent = "Tile preview unavailable.";
+      return;
+    }
+    const clone = source.cloneNode(true);
+    sanitizeWorkspaceClone(clone, block, tile);
+    body.appendChild(clone);
+  };
+  render();
+  return card;
+}
+
+function updateWorkspaceTile(tileId, updates) {
+  const activeId = getActiveWorkspaceId();
+  if (!activeId) return;
+  const workspace = getWorkspaceById(activeId);
+  if (!workspace) return;
+  const tile = workspace.tiles.find((item) => item.tile_id === tileId);
+  if (!tile) return;
+  Object.assign(tile, updates);
+  upsertWorkspace(workspace);
+}
+
+function renderWorkspaceGrid() {
+  if (!workspaceGrid) return;
+  workspaceGrid.innerHTML = "";
+  const activeId = getActiveWorkspaceId();
+  const workspace = activeId ? getWorkspaceById(activeId) : null;
+  if (!workspace) return;
+  workspace.tiles.forEach((tile) => {
+    const card = renderWorkspaceTile(tile);
+    if (!card) return;
+    const span = workspace.layout?.spans?.[tile.tile_id] || 1;
+    card.classList.add(`span-${span}`);
+    workspaceGrid.appendChild(card);
+    setupWorkspaceTileControls(card);
+  });
+  applyWorkspaceLayout(workspace);
+  setupWorkspaceDragging();
+}
+
+function renderWorkspaces() {
+  renderWorkspaceSelect();
+  renderWorkspaceTemplates();
+  renderWorkspaceEmptyState();
+  renderWorkspaceGrid();
+}
+
+function addWorkspaceTile(blockType, options = {}) {
+  const activeId = getActiveWorkspaceId();
+  if (!activeId) return;
+  const workspace = getWorkspaceById(activeId);
+  if (!workspace) return;
+  const tile = {
+    tile_id: generateWorkspaceTileId(),
+    block_type: blockType,
+    block_params: options.block_params || {},
+    pinned_state: options.pinned_state || null,
+    title: options.title || null,
+  };
+  workspace.tiles.push(tile);
+  workspace.layout = workspace.layout || { order: [], spans: {} };
+  workspace.layout.order.push(tile.tile_id);
+  upsertWorkspace(workspace);
+  renderWorkspaces();
+}
+
+function removeWorkspaceTile(tileId) {
+  const activeId = getActiveWorkspaceId();
+  if (!activeId) return;
+  const workspace = getWorkspaceById(activeId);
+  if (!workspace) return;
+  workspace.tiles = workspace.tiles.filter((tile) => tile.tile_id !== tileId);
+  workspace.layout = workspace.layout || { order: [], spans: {} };
+  workspace.layout.order = (workspace.layout.order || []).filter((id) => id !== tileId);
+  delete workspace.layout.spans?.[tileId];
+  upsertWorkspace(workspace);
+  renderWorkspaces();
+}
+
+function openWorkspacePalette() {
+  if (!getActiveWorkspaceId()) {
+    showToast("Create a workspace first");
+    return;
+  }
+  const modal = ensureWorkspacePaletteModal();
+  modal.classList.add("open");
+  renderWorkspacePalette(modal);
+}
+
+function ensureWorkspacePaletteModal() {
+  let modal = document.getElementById("workspace-palette-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "workspace-palette-modal";
+  modal.classList.add("modal");
+  modal.innerHTML = `
+    <div class="modal-card workspace-modal">
+      <div class="modal-header">
+        <div class="modal-title">Add tile</div>
+        <div class="modal-actions">
+          <button class="ghost small" id="workspace-palette-close">Close</button>
+        </div>
+      </div>
+      <div class="modal-toolbar workspace-palette-toolbar">
+        <input id="workspace-palette-search" type="search" placeholder="Search tiles..." />
+        <select id="workspace-palette-category">
+          <option value="">All categories</option>
+        </select>
+        <select id="workspace-palette-capability">
+          <option value="">All capabilities</option>
+          <option value="Graph">Graph</option>
+          <option value="PowerShell">PowerShell</option>
+          <option value="SSH">SSH</option>
+          <option value="Local">Local</option>
+        </select>
+        <select id="workspace-palette-risk">
+          <option value="">All risk levels</option>
+          <option value="safe">Safe</option>
+          <option value="caution">Caution</option>
+          <option value="dangerous">Dangerous</option>
+        </select>
+      </div>
+      <div class="modal-body">
+        <div class="workspace-palette-list" id="workspace-palette-list"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.classList.remove("open");
+  });
+  modal.querySelector("#workspace-palette-close").addEventListener("click", () => {
+    modal.classList.remove("open");
+  });
+  return modal;
+}
+
+function renderWorkspacePalette(modal) {
+  const list = modal.querySelector("#workspace-palette-list");
+  const searchInput = modal.querySelector("#workspace-palette-search");
+  const categorySelect = modal.querySelector("#workspace-palette-category");
+  const capabilitySelect = modal.querySelector("#workspace-palette-capability");
+  const riskSelect = modal.querySelector("#workspace-palette-risk");
+  const query = (searchInput?.value || "").toLowerCase();
+  const categoryFilter = (categorySelect?.value || "").toLowerCase();
+  const capabilityFilter = (capabilitySelect?.value || "").toLowerCase();
+  const riskFilter = (riskSelect?.value || "").toLowerCase();
+  list.innerHTML = "";
+  const grouped = {};
+  const blocks = listWorkspaceBlocks().sort((a, b) => {
+    const orderA = TILE_CATEGORY_ORDER.indexOf(a.category || "Other");
+    const orderB = TILE_CATEGORY_ORDER.indexOf(b.category || "Other");
+    if (orderA !== orderB) return orderA - orderB;
+    return (a.title || "").localeCompare(b.title || "");
+  });
+  blocks.forEach((block) => {
+    const haystack = `${block.title} ${block.description} ${block.id}`.toLowerCase();
+    if (query && !haystack.includes(query)) {
+      return;
+    }
+    if (categoryFilter && (block.category || "").toLowerCase() !== categoryFilter) {
+      return;
+    }
+    if (capabilityFilter && !(block.capabilities || []).some((cap) => cap.toLowerCase() === capabilityFilter)) {
+      return;
+    }
+    if (riskFilter && (block.risk || "safe") !== riskFilter) {
+      return;
+    }
+    const category = block.category || "Other";
+    grouped[category] = grouped[category] || [];
+    grouped[category].push(block);
+  });
+  const rendered = new Set();
+  TILE_CATEGORY_ORDER.forEach((category) => {
+    const blocksForCategory = grouped[category];
+    if (!blocksForCategory || !blocksForCategory.length) return;
+    const heading = document.createElement("div");
+    heading.classList.add("workspace-palette-heading");
+    heading.textContent = category;
+    list.appendChild(heading);
+    blocksForCategory.forEach((block) => {
+      const row = document.createElement("div");
+      row.classList.add("workspace-block-row");
+      const meta = document.createElement("div");
+      meta.classList.add("workspace-block-meta");
+      const title = document.createElement("div");
+      title.classList.add("workspace-block-title");
+      title.textContent = block.title;
+      const desc = document.createElement("div");
+      desc.classList.add("workspace-block-desc");
+      desc.textContent = block.description;
+      meta.appendChild(title);
+      meta.appendChild(desc);
+      const badges = document.createElement("div");
+      badges.classList.add("workspace-block-badges");
+      (block.capabilities || []).forEach((cap) => {
+        const badge = document.createElement("span");
+        badge.classList.add("badge");
+        badge.textContent = cap;
+        badges.appendChild(badge);
+      });
+      const risk = document.createElement("span");
+      risk.classList.add("badge", "risk", `risk-${block.risk || "safe"}`);
+      risk.textContent = formatRiskLabel(block.risk || "safe");
+      badges.appendChild(risk);
+      const add = document.createElement("button");
+      add.type = "button";
+      add.classList.add("ghost", "small");
+      add.textContent = "Add";
+      add.addEventListener("click", async () => {
+        await addWorkspaceTileFromBlock(block);
+        modal.classList.remove("open");
+      });
+      row.appendChild(meta);
+      row.appendChild(badges);
+      row.appendChild(add);
+      list.appendChild(row);
+    });
+    rendered.add(category);
+  });
+  Object.entries(grouped).forEach(([category, blocksForCategory]) => {
+    if (rendered.has(category)) return;
+    const heading = document.createElement("div");
+    heading.classList.add("workspace-palette-heading");
+    heading.textContent = category;
+    list.appendChild(heading);
+    blocksForCategory.forEach((block) => {
+      const row = document.createElement("div");
+      row.classList.add("workspace-block-row");
+      const meta = document.createElement("div");
+      meta.classList.add("workspace-block-meta");
+      const title = document.createElement("div");
+      title.classList.add("workspace-block-title");
+      title.textContent = block.title;
+      const desc = document.createElement("div");
+      desc.classList.add("workspace-block-desc");
+      desc.textContent = block.description;
+      meta.appendChild(title);
+      meta.appendChild(desc);
+      const badges = document.createElement("div");
+      badges.classList.add("workspace-block-badges");
+      (block.capabilities || []).forEach((cap) => {
+        const badge = document.createElement("span");
+        badge.classList.add("badge");
+        badge.textContent = cap;
+        badges.appendChild(badge);
+      });
+      const risk = document.createElement("span");
+      risk.classList.add("badge", "risk", `risk-${block.risk || "safe"}`);
+      risk.textContent = formatRiskLabel(block.risk || "safe");
+      badges.appendChild(risk);
+      const add = document.createElement("button");
+      add.type = "button";
+      add.classList.add("ghost", "small");
+      add.textContent = "Add";
+      add.addEventListener("click", async () => {
+        await addWorkspaceTileFromBlock(block);
+        modal.classList.remove("open");
+      });
+      row.appendChild(meta);
+      row.appendChild(badges);
+      row.appendChild(add);
+      list.appendChild(row);
+    });
+  });
+  if (categorySelect && !categorySelect.dataset.bound) {
+    categorySelect.dataset.bound = "true";
+    const allCategories = Array.from(new Set(listWorkspaceBlocks().map((b) => b.category || "Other")));
+    const ordered = [
+      ...TILE_CATEGORY_ORDER.filter((cat) => allCategories.includes(cat)),
+      ...allCategories.filter((cat) => !TILE_CATEGORY_ORDER.includes(cat)),
+    ];
+    categorySelect.innerHTML = `<option value="">All categories</option>${ordered
+      .map((cat) => `<option value="${cat.toLowerCase()}">${cat}</option>`)
+      .join("")}`;
+  }
+  const bindFilter = (el) => {
+    if (!el || el.dataset.bound === "true") return;
+    el.dataset.bound = "true";
+    el.addEventListener("input", () => renderWorkspacePalette(modal));
+    el.addEventListener("change", () => renderWorkspacePalette(modal));
+  };
+  bindFilter(searchInput);
+  bindFilter(categorySelect);
+  bindFilter(capabilitySelect);
+  bindFilter(riskSelect);
+  if (!list.innerHTML) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No tiles match the current filters.";
+    list.appendChild(empty);
+  }
+}
+
+function ensureWorkspacePinModal() {
+  let modal = document.getElementById("workspace-pin-modal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "workspace-pin-modal";
+  modal.classList.add("modal");
+  modal.innerHTML = `
+    <div class="modal-card workspace-modal">
+      <div class="modal-header">
+        <div class="modal-title">Pin to workspace</div>
+        <div class="modal-actions">
+          <button class="ghost small" id="workspace-pin-close">Close</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <label class="modal-field">
+          Workspace
+          <select id="workspace-pin-select"></select>
+        </label>
+        <label class="modal-field">
+          Tile name (optional)
+          <input id="workspace-pin-title" type="text" placeholder="Optional custom name" />
+        </label>
+        <div class="runner-actions">
+          <button class="primary small" id="workspace-pin-confirm">Add tile</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.classList.remove("open");
+  });
+  modal.querySelector("#workspace-pin-close").addEventListener("click", () => {
+    modal.classList.remove("open");
+  });
+  return modal;
+}
+
+function openWorkspacePinModal(blockType, defaultTitle = "") {
+  const workspaces = loadWorkspaces();
+  if (!workspaces.length) {
+    showToast("Create a workspace first");
+    return;
+  }
+  const block = getWorkspaceBlock(blockType);
+  if (!block) {
+    showToast("Tile unavailable");
+    return;
+  }
+  const modal = ensureWorkspacePinModal();
+  const select = modal.querySelector("#workspace-pin-select");
+  const titleInput = modal.querySelector("#workspace-pin-title");
+  const confirm = modal.querySelector("#workspace-pin-confirm");
+  select.innerHTML = "";
+  workspaces.forEach((workspace) => {
+    const option = document.createElement("option");
+    option.value = workspace.id;
+    option.textContent = workspace.name || "Untitled workspace";
+    select.appendChild(option);
+  });
+  const activeId = getActiveWorkspaceId();
+  if (activeId) select.value = activeId;
+  titleInput.value = defaultTitle || "";
+  confirm.onclick = async () => {
+    const workspaceId = select.value;
+    if (!workspaceId) {
+      showToast("Select a workspace");
+      return;
+    }
+    const workspace = getWorkspaceById(workspaceId);
+    if (!workspace) return;
+    const blockParams = {};
+    if (block.config_sensitive) {
+      blockParams.read_only = true;
+    }
+    const tile = {
+      tile_id: generateWorkspaceTileId(),
+      block_type: blockType,
+      block_params: blockParams,
+      pinned_state: { source: "pin" },
+      title: titleInput.value.trim() || null,
+    };
+    if (block.risk === "dangerous") {
+      const ok = await confirmModal("Pin dangerous tile?", {
+        message: "This tile can run risky or destructive actions. Pin it anyway?",
+        confirmText: "Pin anyway",
+        cancelText: "Cancel",
+      });
+      if (!ok) return;
+    }
+    workspace.tiles.push(tile);
+    workspace.layout = workspace.layout || { order: [], spans: {} };
+    workspace.layout.order.push(tile.tile_id);
+    upsertWorkspace(workspace);
+    if (workspaceId === activeId) {
+      renderWorkspaces();
+    }
+    modal.classList.remove("open");
+    showToast("Tile pinned to workspace");
+  };
+  modal.classList.add("open");
+}
+
+function setupWorkspacePinButtons() {
+  document.querySelectorAll("[data-workspace-block]").forEach((card) => {
+    if (card.dataset.pinBound === "true") return;
+    if (card.closest(".workspace-grid")) return;
+    const blockType = card.dataset.workspaceBlock;
+    const block = getWorkspaceBlock(blockType);
+    if (!block) return;
+    const header = card.querySelector(".card-header");
+    if (!header) return;
+    let actions = header.querySelector(".card-actions");
+    if (!actions) {
+      actions = document.createElement("div");
+      actions.classList.add("card-actions");
+      header.appendChild(actions);
+    }
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.classList.add("ghost", "small");
+    pin.textContent = "Pin";
+    pin.addEventListener("click", () => openWorkspacePinModal(blockType, block.title));
+    actions.appendChild(pin);
+    card.dataset.pinBound = "true";
+  });
+}
+
 function setSection(section, opts = {}) {
   const resolved = SECTION_ALIASES[section] || section;
+  updateModeHeader(section, resolved);
   navLinks.forEach((link) => link.classList.toggle("active", link.dataset.section === section));
   const activeLink = document.querySelector(`.nav-link.active[data-section="${section}"]`);
   if (activeLink) {
@@ -9862,6 +13914,7 @@ function setSection(section, opts = {}) {
     serviceLabels?.[resolved] ||
     section.charAt(0).toUpperCase() + section.slice(1);
   pageSubtitle.textContent = subtitles[section] || subtitles[resolved] || "";
+  updateRouteForSection(section);
   sidebar.classList.remove("open");
   if (opts.scrollTarget) {
     const target = document.getElementById(opts.scrollTarget);
@@ -9871,6 +13924,41 @@ function setSection(section, opts = {}) {
       }, 0);
     }
   }
+}
+
+function updateModeHeader(section, resolvedSection) {
+  if (!modePill || !modeTitle || !modeSubtitle) return;
+  const modeKey = MODE_MAP[section] || MODE_MAP[resolvedSection] || "observe";
+  const meta = MODE_META[modeKey] || MODE_META.observe;
+  modePill.textContent = meta.label;
+  modePill.className = `mode-pill ${modeKey}`;
+  modeTitle.textContent = meta.label;
+  modeSubtitle.textContent = meta.subtitle;
+}
+
+function updateRouteForSection(section) {
+  if (!window.history || !window.history.pushState) return;
+  if (section === "help") {
+    if (!window.location.pathname.startsWith("/help")) {
+      window.history.pushState({ section }, "", "/help");
+    }
+    return;
+  }
+  if (section === "workspaces") {
+    if (!window.location.pathname.startsWith("/workspaces")) {
+      window.history.pushState({ section }, "", "/workspaces");
+    }
+    return;
+  }
+  if (window.location.pathname.startsWith("/help") || window.location.pathname.startsWith("/workspaces")) {
+    window.history.pushState({ section }, "", "/");
+  }
+}
+
+function resolveSectionFromPath() {
+  if (window.location.pathname.startsWith("/help")) return "help";
+  if (window.location.pathname.startsWith("/workspaces")) return "workspaces";
+  return "dashboard";
 }
 
 function updateNavShadows() {
@@ -9897,6 +13985,156 @@ async function fetchStatus() {
     statusBadge.textContent = "API offline";
     statusBadge.classList.add("warn");
   }
+}
+
+async function fetchSystemStatusSummary() {
+  try {
+    const res = await fetch("/api/status/summary");
+    const data = await res.json();
+    renderSystemStatusSummary(data);
+  } catch (err) {
+    if (statusCompleteness) statusCompleteness.textContent = "--";
+    if (statusWarnings) statusWarnings.textContent = "--";
+    if (statusWarningSummary) statusWarningSummary.textContent = "Status summary unavailable.";
+  }
+}
+
+function formatRelativeTime(value) {
+  if (!value) return "--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function buildCoverageLimitations(summary) {
+  const warnings = summary?.warnings || [];
+  const gaps = summary?.gaps || [];
+  const combined = [...warnings, ...gaps];
+  const seen = new Set();
+  const limitations = [];
+  combined.forEach((entry) => {
+    const probe = entry?.probe || entry?.id || entry?.name;
+    const key = probe || entry?.message || JSON.stringify(entry || {});
+    if (seen.has(key)) return;
+    seen.add(key);
+    const mapped = mapCoverageLimitation(probe, entry?.message);
+    limitations.push(mapped);
+  });
+  return limitations;
+}
+
+function mapCoverageLimitation(probeId, message) {
+  const map = {
+    "identity.user_core": {
+      label: "Identity data unavailable",
+      detail: "User identity details were not collected, so identity checks are incomplete.",
+    },
+    "authz.user_groups_core": {
+      label: "Group membership not evaluated",
+      detail: "Group membership checks were skipped; access decisions may be incomplete.",
+    },
+    "authz.user_licenses_core": {
+      label: "License state not evaluated",
+      detail: "License assignment could not be confirmed, so feature access may be unclear.",
+    },
+    "authz.signin_summary_24h": {
+      label: "Sign-in summary not evaluated",
+      detail: "Recent sign-in failures were not checked; authentication issues may be hidden.",
+    },
+    "authz.ca_block_summary_24h": {
+      label: "Conditional access not evaluated",
+      detail: "Conditional access blocks were not evaluated; policy impact is unknown.",
+    },
+  };
+  if (probeId && map[probeId]) {
+    return { probe: probeId, ...map[probeId] };
+  }
+  return {
+    probe: probeId || "unknown",
+    label: probeId ? `Coverage limitation: ${probeId}` : "Coverage limitation",
+    detail: message || "Coverage limitation detected; details unavailable.",
+  };
+}
+
+function renderSystemStatusSummary(summary) {
+  if (!summary) return;
+  if (statusCompleteness) {
+    statusCompleteness.textContent =
+      summary.completeness_percent !== null && summary.completeness_percent !== undefined
+        ? `${summary.completeness_percent}%`
+        : "--";
+  }
+  if (statusWarnings) {
+    statusWarnings.textContent = summary.warnings_count ?? 0;
+  }
+  const limitations = buildCoverageLimitations(summary);
+  if (statusWarningSummary) {
+    statusWarningSummary.textContent = limitations.length
+      ? limitations[0].label
+      : "No coverage limitations detected.";
+  }
+  if (statusLastSnapshot) {
+    statusLastSnapshot.textContent = formatRelativeTime(summary.last_snapshot_at);
+  }
+  if (statusGraphReady) {
+    statusGraphReady.textContent = summary.graph_ready ? "Ready" : "Not configured";
+  }
+  if (statusPsReady) {
+    statusPsReady.textContent = summary.powershell_ready ? "Ready" : "Missing modules";
+  }
+  renderRecentSnapshots(summary.recent_snapshots || []);
+  renderCoverageLimitations(limitations);
+}
+
+function renderRecentSnapshots(items) {
+  if (!recentSnapshotsList) return;
+  recentSnapshotsList.innerHTML = "";
+  if (!items || !items.length) {
+    const empty = document.createElement("li");
+    empty.classList.add("note");
+    empty.textContent = "No snapshots captured yet.";
+    recentSnapshotsList.appendChild(empty);
+    return;
+  }
+  items.slice(0, 5).forEach((item) => {
+    const row = document.createElement("li");
+    row.classList.add("history-item");
+    const title = document.createElement("div");
+    title.classList.add("history-title");
+    title.textContent = item.display_name || item.canonical_id || item.kind || "Snapshot";
+    const meta = document.createElement("div");
+    meta.classList.add("history-meta");
+    meta.textContent = `${formatRelativeTime(item.captured_at)} · ${item.profile || "core"}`;
+    row.appendChild(title);
+    row.appendChild(meta);
+    recentSnapshotsList.appendChild(row);
+  });
+}
+
+function renderCoverageLimitations(limitations) {
+  const container = document.getElementById("health-limitations");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!limitations.length) {
+    const empty = document.createElement("div");
+    empty.classList.add("note");
+    empty.textContent = "No coverage limitations detected.";
+    container.appendChild(empty);
+    return;
+  }
+  limitations.forEach((item) => {
+    const row = document.createElement("div");
+    row.classList.add("limitation-row");
+    const title = document.createElement("div");
+    title.classList.add("limitation-title");
+    title.textContent = item.label;
+    const detail = document.createElement("div");
+    detail.classList.add("limitation-detail");
+    detail.textContent = item.detail;
+    row.appendChild(title);
+    row.appendChild(detail);
+    container.appendChild(row);
+  });
 }
 
 async function fetchConfig() {
@@ -9954,6 +14192,7 @@ async function fetchConfig() {
     } else {
       renderTenantInfo(null);
     }
+    fetchSystemStatusSummary();
   } catch (err) {
     showToast("Failed to load config");
   }
@@ -10076,7 +14315,7 @@ function getArrayCandidates(data) {
 }
 
 function selectExportArray(data, options = {}) {
-  const { preferredKey, allowPrompt = true } = options;
+  const { preferredKey } = options;
   const candidates = getArrayCandidates(data);
   const keys = Object.keys(candidates);
   if (!keys.length) return null;
@@ -10084,9 +14323,27 @@ function selectExportArray(data, options = {}) {
     return candidates[preferredKey];
   }
   if (keys.length === 1) return candidates[keys[0]];
-  if (!allowPrompt) return null;
-  const choice = window.prompt(`Select dataset to export: ${keys.join(", ")}`, keys[0]);
-  if (choice === null) return null;
+  return null;
+}
+
+async function selectExportArrayWithModal(data, options = {}) {
+  const { preferredKey } = options;
+  const candidates = getArrayCandidates(data);
+  const keys = Object.keys(candidates);
+  if (!keys.length) return null;
+  if (preferredKey && candidates[preferredKey]) {
+    return candidates[preferredKey];
+  }
+  if (keys.length === 1) return candidates[keys[0]];
+  const choice = await selectModal({
+    title: "Select dataset to export",
+    label: "Dataset",
+    options: keys.map((key) => ({ value: key, label: key })),
+    defaultValue: keys[0],
+    confirmLabel: "Select",
+    cancelLabel: "Cancel",
+  });
+  if (!choice) return null;
   return candidates[choice] || null;
 }
 
@@ -10888,9 +15145,13 @@ async function applyGuardrails(service, action, params) {
   updateRunMeta(service, { guardrails: { risk, impact } });
 
   if (impact !== null && impact > IMPACT_WARN_THRESHOLD && risk !== "safe") {
-    const confirmImpact = window.confirm(
-      `This action may affect about ${impact} objects. Continue?`
-    );
+    const confirmImpact = await confirmModal({
+      title: "High impact action",
+      message: `This action may affect about ${impact} objects. Continue?`,
+      confirmLabel: "Continue",
+      cancelLabel: "Cancel",
+      danger: risk === "danger",
+    });
     if (!confirmImpact) {
       return false;
     }
@@ -10914,9 +15175,13 @@ async function applyGuardrails(service, action, params) {
     }
     if (globalAdminInfo?.is_global_admin) {
       const upnLabel = globalAdminInfo.user_principal_name || target.value;
-      const confirmAdmin = window.confirm(
-        `Warning: ${upnLabel} is a Global Administrator. Continue?`
-      );
+      const confirmAdmin = await confirmModal({
+        title: "Global administrator",
+        message: `Warning: ${upnLabel} is a Global Administrator. Continue?`,
+        confirmLabel: "Continue",
+        cancelLabel: "Cancel",
+        danger: true,
+      });
       if (!confirmAdmin) {
         return false;
       }
@@ -10929,7 +15194,16 @@ async function applyGuardrails(service, action, params) {
     const promptText = upn
       ? `Type the UPN to confirm this action:\n${upn}`
       : `Type the target identifier to confirm:\n${label}`;
-    const typed = window.prompt(promptText, "");
+    const typed = await promptModal({
+      title: "Confirm dangerous action",
+      subtitle: "Type the target identifier to confirm.",
+      label: "Confirmation",
+      placeholder: upn || label,
+      confirmLabel: "Confirm",
+      cancelLabel: "Cancel",
+      required: true,
+      hint: promptText,
+    });
     if (!typed) return false;
     if (upn) {
       if (typed.trim().toLowerCase() !== upn.trim().toLowerCase()) {
@@ -11545,10 +15819,173 @@ function buildExplanations(service, payload) {
   return explanations;
 }
 
+function renderWorkflowGuidance(service, payload, container) {
+  if (service !== "remote_workflows") return false;
+  if (!payload || typeof payload !== "object") return false;
+  const guidance = payload.guidance || null;
+  if (!guidance) return false;
+  container.innerHTML = "";
+
+  const wrapper = document.createElement("div");
+  wrapper.classList.add("workflow-guidance");
+
+  const header = document.createElement("div");
+  header.classList.add("guidance-header");
+  const title = document.createElement("div");
+  title.classList.add("guidance-title");
+  title.textContent = payload.workflow?.name || "Remote workflow";
+  const subtitle = document.createElement("div");
+  subtitle.classList.add("guidance-subtitle");
+  const purpose = payload.workflow?.purpose || "";
+  const target = payload.meta?.target ? `Target: ${payload.meta.target}` : "";
+  subtitle.textContent = [purpose, target].filter(Boolean).join(" · ");
+  header.appendChild(title);
+  header.appendChild(subtitle);
+  wrapper.appendChild(header);
+
+  const summarySection = document.createElement("div");
+  summarySection.classList.add("guidance-section");
+  const summaryTitle = document.createElement("div");
+  summaryTitle.classList.add("guidance-section-title");
+  summaryTitle.textContent = "Summary";
+  const summaryRow = document.createElement("div");
+  summaryRow.classList.add("guidance-summary");
+  const statusPill = document.createElement("span");
+  const status = payload.summary?.status || (guidance.observed?.length ? "warn" : "ok");
+  statusPill.classList.add("status-pill", status);
+  statusPill.textContent = status.toUpperCase();
+  const summaryText = document.createElement("div");
+  summaryText.textContent = payload.summary?.headline || guidance.summary || "Summary unavailable.";
+  summaryRow.appendChild(statusPill);
+  summaryRow.appendChild(summaryText);
+  summarySection.appendChild(summaryTitle);
+  summarySection.appendChild(summaryRow);
+  wrapper.appendChild(summarySection);
+
+  const guidanceSection = document.createElement("div");
+  guidanceSection.classList.add("guidance-section");
+  const guidanceTitle = document.createElement("div");
+  guidanceTitle.classList.add("guidance-section-title");
+  guidanceTitle.textContent = "Guidance";
+  guidanceSection.appendChild(guidanceTitle);
+
+  if (guidance.observed?.length) {
+    const observedTitle = document.createElement("div");
+    observedTitle.classList.add("guidance-subtitle");
+    observedTitle.textContent = "What we observed";
+    const observedList = document.createElement("ul");
+    observedList.classList.add("guidance-list");
+    guidance.observed.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item.text || "";
+      if (Array.isArray(item.evidence_keys)) {
+        item.evidence_keys.slice(0, 2).forEach((key) => {
+          const tag = document.createElement("span");
+          tag.classList.add("evidence-tag");
+          tag.textContent = key;
+          li.appendChild(tag);
+        });
+      }
+      observedList.appendChild(li);
+    });
+    guidanceSection.appendChild(observedTitle);
+    guidanceSection.appendChild(observedList);
+  }
+
+  if (guidance.why) {
+    const whyTitle = document.createElement("div");
+    whyTitle.classList.add("guidance-subtitle");
+    whyTitle.textContent = "Why this matters";
+    const whyText = document.createElement("div");
+    whyText.textContent = guidance.why;
+    guidanceSection.appendChild(whyTitle);
+    guidanceSection.appendChild(whyText);
+  }
+
+  if (guidance.likely_cause?.text) {
+    const likelyTitle = document.createElement("div");
+    likelyTitle.classList.add("guidance-subtitle");
+    likelyTitle.textContent = "Likely cause";
+    const likelyText = document.createElement("div");
+    likelyText.textContent = guidance.likely_cause.text;
+    const confidence = document.createElement("span");
+    confidence.classList.add("confidence-pill");
+    confidence.textContent = `${(guidance.likely_cause.confidence || "low").toUpperCase()} confidence`;
+    likelyText.appendChild(confidence);
+    guidanceSection.appendChild(likelyTitle);
+    guidanceSection.appendChild(likelyText);
+  }
+
+  if (guidance.next_checks?.length) {
+    const nextTitle = document.createElement("div");
+    nextTitle.classList.add("guidance-subtitle");
+    nextTitle.textContent = "Suggested next checks";
+    const nextList = document.createElement("ul");
+    nextList.classList.add("guidance-list");
+    guidance.next_checks.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      nextList.appendChild(li);
+    });
+    guidanceSection.appendChild(nextTitle);
+    guidanceSection.appendChild(nextList);
+  }
+
+  if (guidance.limitations?.length) {
+    const limitTitle = document.createElement("div");
+    limitTitle.classList.add("guidance-subtitle");
+    limitTitle.textContent = "Coverage limitations";
+    const limitList = document.createElement("ul");
+    limitList.classList.add("guidance-list");
+    guidance.limitations.forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      limitList.appendChild(li);
+    });
+    guidanceSection.appendChild(limitTitle);
+    guidanceSection.appendChild(limitList);
+  }
+
+  wrapper.appendChild(guidanceSection);
+
+  const evidence = payload.summary?.evidence || [];
+  if (evidence.length) {
+    const evidenceSection = document.createElement("div");
+    evidenceSection.classList.add("guidance-section");
+    const evidenceTitle = document.createElement("div");
+    evidenceTitle.classList.add("guidance-section-title");
+    evidenceTitle.textContent = "Evidence highlights";
+    const grid = document.createElement("div");
+    grid.classList.add("guidance-evidence-grid");
+    evidence.forEach((item) => {
+      const card = document.createElement("div");
+      card.classList.add("guidance-evidence-item");
+      const label = document.createElement("div");
+      label.classList.add("guidance-evidence-label");
+      label.textContent = item.label || "Evidence";
+      const value = document.createElement("div");
+      value.classList.add("guidance-evidence-value");
+      value.textContent = item.value !== undefined && item.value !== null ? String(item.value) : "—";
+      card.appendChild(label);
+      card.appendChild(value);
+      grid.appendChild(card);
+    });
+    evidenceSection.appendChild(evidenceTitle);
+    evidenceSection.appendChild(grid);
+    wrapper.appendChild(evidenceSection);
+  }
+
+  container.appendChild(wrapper);
+  return true;
+}
+
 function renderExplanation(service, payload) {
   const container = getExplainPanel(service);
   if (!container) return;
   container.innerHTML = "";
+  if (renderWorkflowGuidance(service, payload, container)) {
+    return;
+  }
   const explanations = buildExplanations(service, payload) || [];
   if (!explanations.length) {
     const empty = document.createElement("div");
@@ -12588,7 +17025,9 @@ function runModalSearch(modal, queryOverride) {
   state.matchIndex = matches.length ? 0 : -1;
   if (matches.length) {
     matches[0].classList.add("match-active");
-    matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    if (matches[0].scrollIntoView) {
+      matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    }
     if (meta) meta.textContent = `1 / ${matches.length} matches`;
   } else {
     if (meta) meta.textContent = query ? "0 matches" : "";
@@ -12604,7 +17043,9 @@ function jumpModalSearch(modal, direction) {
   state.matchIndex = nextIndex;
   const node = state.matches[nextIndex];
   node.classList.add("match-active");
-  node.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (node.scrollIntoView) {
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
   const meta = modal.querySelector("#modal-search-meta");
   if (meta) meta.textContent = `${nextIndex + 1} / ${state.matches.length} matches`;
 }
@@ -12800,6 +17241,7 @@ function ensureModal() {
 
   const expandButton = modal.querySelector("#modal-expand");
   const collapseButton = modal.querySelector("#modal-collapse");
+  const topButton = modal.querySelector("#modal-top");
   const toggleModalDetails = (open) => {
     const body = modal.querySelector("#modal-body");
     if (!body) return;
@@ -12812,6 +17254,14 @@ function ensureModal() {
   }
   if (collapseButton) {
     collapseButton.addEventListener("click", () => toggleModalDetails(false));
+  }
+  if (topButton) {
+    topButton.addEventListener("click", () => {
+      const card = modal.querySelector(".modal-card");
+      if (card) {
+        card.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    });
   }
 
   modal.dataset.wrap = "true";
@@ -13171,18 +17621,13 @@ function renderPretty(service, parsed) {
           return;
         }
         if (selected.length > IMPACT_WARN_THRESHOLD) {
-          const proceed = window.confirm(
-            `This bulk update will affect ${selected.length} items. Continue?`
-          );
-          if (!proceed) {
-            showToast("Bulk update cancelled");
-            return;
-          }
-        }
-        if (selected.length > IMPACT_WARN_THRESHOLD) {
-          const proceed = window.confirm(
-            `This bulk update will affect ${selected.length} items. Continue?`
-          );
+          const proceed = await confirmModal({
+            title: "Bulk update confirmation",
+            message: `This bulk update will affect ${selected.length} items. Continue?`,
+            confirmLabel: "Continue",
+            cancelLabel: "Cancel",
+            danger: true,
+          });
           if (!proceed) {
             showToast("Bulk update cancelled");
             return;
@@ -14107,7 +18552,7 @@ function unwrapEnvelopeData(payload) {
   return payload;
 }
 
-function confirmAction(service, action, params = {}) {
+async function confirmAction(service, action, params = {}) {
   const meta = ACTIONS_UI?.[service]?.[action];
   if (!meta?.confirm) return true;
   const label = meta.label || `${service}.${action}`;
@@ -14132,12 +18577,25 @@ function confirmAction(service, action, params = {}) {
     .filter(Boolean);
   const detailBlock = details.length ? `\n\n${details.join("\n")}` : "";
   const message = `Risk: ${risk}\nConfirm ${label}?${detailBlock}`;
-  return window.confirm(message);
+  const confirmed = await confirmModal({
+    title: "Confirm action",
+    message,
+    confirmLabel: "Confirm",
+    cancelLabel: "Cancel",
+    danger: risk === "Dangerous",
+  });
+  return confirmed;
 }
 
 async function runAction(service, action, params = {}, options = {}) {
   initRunMeta(service, action, params);
-  const preflight = await preflightAction(service, action);
+  const executionTarget = options.target || resolveTargetSelection(service, action);
+  const allowedTargets = getActionAllowedTargets(service, action);
+  if (executionTarget.type === "ssh" && !allowedTargets.includes("ssh")) {
+    showToast("This action is not permitted on remote targets.");
+    return { ok: false, error: "Target not allowed" };
+  }
+  const preflight = await preflightAction(service, action, executionTarget);
   updateRunMeta(service, { preflight: sanitizeParams(preflight || {}) });
   if (!preflight.ok) {
     finalizeRunMeta(service, {
@@ -14178,7 +18636,7 @@ async function runAction(service, action, params = {}, options = {}) {
     activeRequests.set(service, controller);
     setRunnerRunning(service, true);
   }
-  if (!confirmAction(service, action, params)) {
+  if (!(await confirmAction(service, action, params))) {
     finalizeRunMeta(service, { ok: false, cancelled: true, stage: "cancelled" });
     showToast("Action cancelled");
     addActivity(`Cancelled: ${activityLabel(service, action)}`);
@@ -14197,20 +18655,26 @@ async function runAction(service, action, params = {}, options = {}) {
   const label = activityLabel(service, action);
   const mode = ACTIONS_UI?.[service]?.[action]?.mode || "graph";
   const modeText = modeLabel(mode);
-  updateRunMeta(service, { label, mode, params: sanitizeParams(params || {}) });
+  updateRunMeta(service, {
+    label,
+    mode,
+    params: sanitizeParams(params || {}),
+    execution_target: executionTarget,
+  });
   if (shouldStoreContext(service, action)) {
     lastActionContext[service] = { action, params };
   }
   showToast("Dispatching action...");
   updateRunMeta(service, { dispatched_at: new Date().toISOString() });
   setOutput(service, "Running...");
+  const targetLabel = formatSshTargetLabel(executionTarget);
   setOutputStatus(service, {
     state: "running",
     text: `${label} running`,
-    meta: `${modeText} · Elapsed 0.0s`,
+    meta: `${modeText} · ${targetLabel} · Elapsed 0.0s`,
     running: true,
   });
-  startOutputTimer(service, modeText);
+  startOutputTimer(service, `${modeText} · ${targetLabel}`);
   const stats = getStats();
   stats.total += 1;
   saveStats(stats);
@@ -14226,7 +18690,7 @@ async function runAction(service, action, params = {}, options = {}) {
     const res = await fetch("/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service, action, params: finalParams }),
+      body: JSON.stringify({ service, action, params: finalParams, target: executionTarget }),
       signal: controller.signal,
     });
     const data = await res.json();
@@ -14334,23 +18798,56 @@ async function runAction(service, action, params = {}, options = {}) {
       activeRequests.delete(service);
       setRunnerRunning(service, false);
     }
+    updateRunnerDraftButton(service);
   }
 }
 
-function buildParams(service, action) {
+async function buildParams(service, action) {
   const prompts = ACTIONS_UI?.[service]?.[action]?.fields || [];
   const params = {};
   let cancelled = false;
-  prompts.forEach((prompt) => {
-    const value = window.prompt(prompt.label, "");
+  for (const prompt of prompts) {
+    const value = await promptModal({
+      title: prompt.label,
+      label: prompt.label,
+      confirmLabel: "Add",
+      cancelLabel: "Cancel",
+    });
     if (value === null) {
       cancelled = true;
-      return;
+      break;
     }
     params[prompt.key] = value;
-  });
+  }
   if (cancelled) return null;
   return params;
+}
+
+function openRunnerForAction(service, action, params = {}) {
+  if (!service || !action) return;
+  setSection(service);
+  const form = document.querySelector(`.runner[data-service="${service}"]`);
+  if (!form) return;
+  const select = form.querySelector(".action-select");
+  if (select) {
+    select.value = action;
+    select.dispatchEvent(new Event("change"));
+  }
+  const fieldNodes = form.querySelectorAll(".runner-fields .field");
+  fieldNodes.forEach((field) => {
+    const key = field.dataset.field;
+    if (!key || !(key in params)) return;
+    const input = field.querySelector("input, select, textarea");
+    if (!input) return;
+    if (input.type === "checkbox") {
+      input.checked = Boolean(params[key]);
+      return;
+    }
+    input.value = params[key];
+  });
+  if (select) {
+    select.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 }
 
 function loadPresets() {
@@ -14488,11 +18985,17 @@ function attachAdvancedControls(service) {
 
   form.appendChild(details);
 
-  presetSave.addEventListener("click", () => {
+  presetSave.addEventListener("click", async () => {
     const action = getActionSelection(service);
     const params = collectParams(service);
     if (!params) return;
-    const name = window.prompt("Preset name");
+    const name = await promptModal({
+      title: "Save preset",
+      label: "Preset name",
+      confirmLabel: "Save",
+      cancelLabel: "Cancel",
+      required: true,
+    });
     if (!name) return;
     const presets = loadPresets();
     presets[service] = presets[service] || {};
@@ -14520,12 +19023,19 @@ function attachAdvancedControls(service) {
     setOutput(service, JSON.stringify(params, null, 2));
   });
 
-  templateSave.addEventListener("click", () => {
+  templateSave.addEventListener("click", async () => {
     const action = getActionSelection(service);
     const params = collectParams(service);
     if (!params) return;
     const defaultName = `${activityLabel(service, action)}`;
-    const name = window.prompt("Template name", defaultName);
+    const name = await promptModal({
+      title: "Save template",
+      label: "Template name",
+      defaultValue: defaultName,
+      confirmLabel: "Save",
+      cancelLabel: "Cancel",
+      required: true,
+    });
     if (!name) return;
     const template = {
       id: generateTemplateId(),
@@ -14684,6 +19194,59 @@ function formatRiskLabel(risk) {
   return "Safe";
 }
 
+function getActionAllowedTargets(service, action) {
+  const meta = ACTIONS_UI?.[service]?.[action];
+  if (!meta) return ["local"];
+  if (Array.isArray(meta.allowed_targets)) return meta.allowed_targets;
+  if (meta.mode === "graph") return ["local", "graph"];
+  return ["local"];
+}
+
+function resolveTargetSelection(service, action) {
+  const allowed = getActionAllowedTargets(service, action);
+  const selection = runnerTargetSelections[service] || "local";
+  if (selection.startsWith("ssh:") && allowed.includes("ssh")) {
+    const id = selection.replace("ssh:", "");
+    const target = sshTargets.find((item) => item.id === id);
+    if (target) return { type: "ssh", ...target };
+  }
+  return { type: "local" };
+}
+
+function refreshRunnerTargets() {
+  document.querySelectorAll(".runner-target-select").forEach((select) => {
+    const service = select.dataset.service;
+    const action = select.dataset.action;
+    const allowed = getActionAllowedTargets(service, action);
+    const current = runnerTargetSelections[service] || "local";
+    select.innerHTML = "";
+    const allowLocal = allowed.includes("local") || allowed.includes("graph");
+    if (allowLocal) {
+      const localOption = document.createElement("option");
+      localOption.value = "local";
+      localOption.textContent = "Local machine";
+      select.appendChild(localOption);
+    }
+    if (allowed.includes("ssh")) {
+      sshTargets.forEach((target) => {
+        const option = document.createElement("option");
+        option.value = `ssh:${target.id}`;
+        option.textContent = target.name || formatSshTargetLabel({ type: "ssh", ...target });
+        select.appendChild(option);
+      });
+    }
+    select.disabled = !allowed.includes("ssh") && allowLocal && allowed.length === 1;
+    if (allowed.includes("ssh") && current.startsWith("ssh:")) {
+      select.value = current;
+    } else if (allowLocal) {
+      select.value = "local";
+    } else if (allowed.includes("ssh") && sshTargets.length) {
+      select.value = `ssh:${sshTargets[0].id}`;
+      runnerTargetSelections[service] = select.value;
+    }
+  });
+}
+
 function getActionRisk(service, action) {
   const meta = ACTIONS_UI?.[service]?.[action] || {};
   if (meta.risk) return meta.risk;
@@ -14739,22 +19302,7 @@ function addChipBadge(chip, mode) {
 const SNAPSHOT_TOGGLE_EXCLUDE = new Set(["dashboard", "health", "security", "ssh"]);
 
 function ensureSnapshotToggle(actions, service) {
-  if (!actions || SNAPSHOT_TOGGLE_EXCLUDE.has(service)) return;
-  if (actions.querySelector(".snapshot-toggle")) return;
-  const label = document.createElement("label");
-  label.classList.add("snapshot-toggle");
-  label.title = "Applies to read-only actions";
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.checked = getSnapshotPreference(service);
-  input.addEventListener("change", () => {
-    setSnapshotPreference(service, input.checked);
-  });
-  const text = document.createElement("span");
-  text.textContent = "Save snapshot";
-  label.appendChild(input);
-  label.appendChild(text);
-  actions.appendChild(label);
+  return;
 }
 
 function decorateChips() {
@@ -14835,7 +19383,6 @@ function setupOutputViews() {
           bundleButton.addEventListener("click", () => exportIncidentBundle(service));
           actions.appendChild(bundleButton);
         }
-        ensureSnapshotToggle(actions, service);
       }
     }
 
@@ -14974,8 +19521,9 @@ function populateRunner(service) {
   const runButton = form.querySelector(".runner-run");
   const resetButton = form.querySelector(".runner-reset");
   const actionsRow = form.querySelector(".runner-actions");
+  if (actionsRow) actionsRow.classList.add("execution-bar");
   let cancelButton = form.querySelector(".runner-cancel");
-  let snapshotButton = form.querySelector(".runner-snapshot");
+  let draftButton = form.querySelector(".runner-draft");
   if (!cancelButton && actionsRow) {
     cancelButton = document.createElement("button");
     cancelButton.type = "button";
@@ -14989,18 +19537,19 @@ function populateRunner(service) {
     cancelButton.dataset.bound = "true";
     cancelButton.addEventListener("click", () => cancelAction(service));
   }
-  if (!snapshotButton && actionsRow) {
-    snapshotButton = document.createElement("button");
-    snapshotButton.type = "button";
-    snapshotButton.classList.add("ghost", "small", "runner-snapshot");
-    snapshotButton.dataset.service = service;
-    snapshotButton.textContent = "Capture snapshot";
-    actionsRow.appendChild(snapshotButton);
+  if (!draftButton && actionsRow) {
+    draftButton = document.createElement("button");
+    draftButton.type = "button";
+    draftButton.classList.add("ghost", "small", "runner-draft");
+    draftButton.dataset.service = service;
+    draftButton.textContent = "Add result to draft";
+    actionsRow.appendChild(draftButton);
   }
-  if (snapshotButton && !snapshotButton.dataset.bound) {
-    snapshotButton.dataset.bound = "true";
-    snapshotButton.addEventListener("click", () => captureSnapshotFromPanel(service));
+  if (draftButton && !draftButton.dataset.bound) {
+    draftButton.dataset.bound = "true";
+    draftButton.addEventListener("click", () => addLatestResultToDraft(service));
   }
+  if (draftButton) updateRunnerDraftButton(service);
 
   if (!Object.keys(actions).length) {
     select.innerHTML = "";
@@ -15054,6 +19603,79 @@ function populateRunner(service) {
     modeLine.classList.add("runner-mode");
     modeLine.textContent = `Mode: ${modeLabel(meta?.mode)}`;
     container.appendChild(modeLine);
+
+    const allowedTargets = getActionAllowedTargets(service, action);
+    const targetRow = document.createElement("div");
+    targetRow.classList.add("runner-target-row");
+    const targetLabel = document.createElement("span");
+    targetLabel.classList.add("runner-target-label");
+    targetLabel.textContent = "Execution target";
+    const targetSelect = document.createElement("select");
+    targetSelect.classList.add("runner-target-select");
+    targetSelect.dataset.service = service;
+    targetSelect.dataset.action = action;
+    const allowLocal = allowedTargets.includes("local") || allowedTargets.includes("graph");
+    if (allowLocal) {
+      const localOption = document.createElement("option");
+      localOption.value = "local";
+      localOption.textContent = "Local machine";
+      targetSelect.appendChild(localOption);
+    }
+    if (allowedTargets.includes("ssh")) {
+      sshTargets.forEach((target) => {
+        const option = document.createElement("option");
+        option.value = `ssh:${target.id}`;
+        option.textContent = target.name || formatSshTargetLabel({ type: "ssh", ...target });
+        targetSelect.appendChild(option);
+      });
+    }
+    const currentTarget = runnerTargetSelections[service] || "local";
+    if (allowedTargets.includes("ssh") && currentTarget.startsWith("ssh:")) {
+      targetSelect.value = currentTarget;
+    } else if (allowLocal) {
+      targetSelect.value = "local";
+      runnerTargetSelections[service] = "local";
+    } else if (allowedTargets.includes("ssh") && sshTargets.length) {
+      targetSelect.value = `ssh:${sshTargets[0].id}`;
+      runnerTargetSelections[service] = targetSelect.value;
+    }
+    targetSelect.disabled = !allowedTargets.includes("ssh") && allowLocal && allowedTargets.length === 1;
+    const targetActions = document.createElement("div");
+    targetActions.classList.add("runner-target-actions");
+    const manageButton = document.createElement("button");
+    manageButton.type = "button";
+    manageButton.classList.add("ghost", "small");
+    manageButton.textContent = "Manage targets";
+    manageButton.addEventListener("click", () => {
+      setSection("settings", { scrollTarget: "ssh-targets-panel" });
+    });
+    const testButton = document.createElement("button");
+    testButton.type = "button";
+    testButton.classList.add("ghost", "small");
+    testButton.textContent = "Test connection";
+    testButton.disabled = !targetSelect.value.startsWith("ssh:");
+    testButton.addEventListener("click", () => {
+      const target = resolveTargetSelection(service, action);
+      if (target.type !== "ssh") {
+        showToast("Select an SSH target first");
+        return;
+      }
+      testSshTarget(target);
+    });
+    targetSelect.addEventListener("change", () => {
+      runnerTargetSelections[service] = targetSelect.value;
+      testButton.disabled = !targetSelect.value.startsWith("ssh:");
+    });
+    if (allowedTargets.includes("ssh")) {
+      targetActions.appendChild(manageButton);
+      targetActions.appendChild(testButton);
+    }
+    targetRow.appendChild(targetLabel);
+    targetRow.appendChild(targetSelect);
+    if (allowedTargets.includes("ssh")) {
+      targetRow.appendChild(targetActions);
+    }
+    container.appendChild(targetRow);
 
     fields.forEach((field) => {
       const wrapper = document.createElement("label");
@@ -15131,6 +19753,7 @@ const SNAPSHOT_KIND_BY_SERVICE = {
   printers: "print_server",
   network: "device",
   ssh: "device",
+  remote_workflows: "device",
   fileserver: "file_server",
   topology: "admin_host",
   time: "admin_host",
@@ -15262,28 +19885,6 @@ function inferSnapshotSubjectFromPanel(service) {
   return { kind, identifiers };
 }
 
-async function captureSnapshotFromPanel(service) {
-  const subject = inferSnapshotSubjectFromPanel(service);
-  if (!subject) {
-    showToast("Enter a user/host field to capture a snapshot.");
-    return;
-  }
-  const result = await captureSnapshots([subject], "core", { source: "panel", service }, activeIncidentId);
-  if (!result) {
-    showToast("Snapshot capture failed");
-    return;
-  }
-  await refreshSnapshotEntities();
-  if (subject && snapshotSubjectSelect && result.results?.length) {
-    const first = result.results.find((entry) => entry?.ok)?.result;
-    if (first?.canonical_id) {
-      snapshotSubjectSelect.value = first.canonical_id;
-    }
-  }
-  await refreshSnapshotHistory();
-  showToast("Snapshot captured");
-}
-
 navLinks.forEach((link) => {
   link.addEventListener("click", () =>
     setSection(link.dataset.section, { scrollTarget: link.dataset.scroll })
@@ -15317,21 +19918,42 @@ initDiffTabs("report");
 bindDiffCopy(snapshotDiffCopy, snapshotDiffTriage);
 bindDiffCopy(reportDiffCopy, reportDiffTriage);
 
-document.getElementById("connect-ps").addEventListener("click", () => {
-  showToast("PowerShell connection queued");
-});
+const connectPsButton = document.getElementById("connect-ps");
+if (connectPsButton) {
+  connectPsButton.addEventListener("click", () => {
+    showToast("PowerShell connection queued");
+  });
+}
 
-document.getElementById("open-task-runner").addEventListener("click", () => {
-  setSection("exchange");
-  showToast("Opened Task Runner");
-});
+const openTaskRunnerButton = document.getElementById("open-task-runner");
+if (openTaskRunnerButton) {
+  openTaskRunnerButton.addEventListener("click", () => {
+    setSection("exchange");
+    showToast("Opened Task Runner");
+  });
+}
 
-document.getElementById("view-activity").addEventListener("click", () => {
-  const list = document.getElementById("activity-list");
-  if (list) {
-    list.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-});
+const viewActivityButton = document.getElementById("view-activity");
+if (viewActivityButton) {
+  viewActivityButton.addEventListener("click", () => {
+    const list = document.getElementById("activity-list");
+    if (list) {
+      list.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
+if (statusViewDetails) {
+  statusViewDetails.addEventListener("click", () => {
+    setSection("healthcheck", { scrollTarget: "health-card" });
+  });
+}
+
+if (snapshotsViewHistory) {
+  snapshotsViewHistory.addEventListener("click", () => {
+    setSection("reports", { scrollTarget: "snapshot-history" });
+  });
+}
 
 if (activityPageSizeSelect) {
   activityPageSizeSelect.value = String(getActivityPageSize());
@@ -15415,13 +20037,19 @@ if (profileApplyButton) {
 }
 
 if (profileDeleteButton) {
-  profileDeleteButton.addEventListener("click", () => {
+  profileDeleteButton.addEventListener("click", async () => {
     const name = profileSelect?.value || profileNameInput?.value.trim();
     if (!name) {
       showToast("Select a profile");
       return;
     }
-    const confirmDelete = window.confirm(`Delete profile "${name}"?`);
+    const confirmDelete = await confirmModal({
+      title: "Delete profile",
+      message: `Delete profile "${name}"?`,
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
     if (!confirmDelete) return;
     deleteProfile(name);
     if (profileNameInput) profileNameInput.value = "";
@@ -15453,11 +20081,11 @@ if (profileImportButton && profileImportFile) {
     profileImportFile.click();
   });
 
-  profileImportFile.addEventListener("change", () => {
+  profileImportFile.addEventListener("change", async () => {
     const file = profileImportFile.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const content = String(reader.result || "");
       let imported = [];
       if (file.name.endsWith(".env")) {
@@ -15486,17 +20114,22 @@ if (profileImportButton && profileImportFile) {
       }
 
       const existing = loadProfiles();
-      imported.forEach((profile) => {
+      for (const profile of imported) {
         const name = profile?.name?.trim();
-        if (!name || !profile?.config) return;
+        if (!name || !profile?.config) continue;
         const exists = existing.find((item) => item.name === name);
         if (exists) {
-          const overwrite = window.confirm(`Profile "${name}" exists. Overwrite?`);
-          if (!overwrite) return;
+          const overwrite = await confirmModal({
+            title: "Overwrite profile",
+            message: `Profile "${name}" exists. Overwrite?`,
+            confirmLabel: "Overwrite",
+            cancelLabel: "Cancel",
+          });
+          if (!overwrite) continue;
           existing.splice(existing.indexOf(exists), 1);
         }
         existing.push({ name, config: normalizeProfileConfig(profile.config) });
-      });
+      }
       saveProfiles(existing);
       renderProfileSelect();
       showToast("Profiles imported");
@@ -15611,6 +20244,53 @@ if (cfgLock) {
   });
 }
 
+if (cfgAllowRemoteDangerous) {
+  cfgAllowRemoteDangerous.addEventListener("change", async () => {
+    if (configLocked) {
+      cfgAllowRemoteDangerous.checked = !cfgAllowRemoteDangerous.checked;
+      showToast("Config is locked");
+      return;
+    }
+    const desired = cfgAllowRemoteDangerous.checked;
+    const ok = await updateConfigPartial(
+      { allow_remote_dangerous: desired },
+      desired ? "Remote dangerous actions enabled" : "Remote dangerous actions blocked"
+    );
+    if (!ok) {
+      cfgAllowRemoteDangerous.checked = !desired;
+    }
+  });
+}
+
+if (sshTargetSaveButton) {
+  sshTargetSaveButton.addEventListener("click", async () => {
+    const target = readSshTargetForm();
+    if (!target.host) {
+      showToast("Host is required");
+      return;
+    }
+    if (!target.id) {
+      target.id = generateTargetId();
+    }
+    const idx = sshTargets.findIndex((item) => item.id === target.id);
+    if (idx >= 0) {
+      sshTargets[idx] = target;
+    } else {
+      sshTargets.push(target);
+    }
+    renderSshTargets();
+    refreshRunnerTargets();
+    clearSshTargetForm();
+    await persistSshTargets();
+  });
+}
+
+if (sshTargetClearButton) {
+  sshTargetClearButton.addEventListener("click", () => {
+    clearSshTargetForm();
+  });
+}
+
 if (refreshTenantInfoButton) {
   refreshTenantInfoButton.addEventListener("click", () => {
     loadTenantInfo();
@@ -15643,6 +20323,19 @@ if (warningDismiss) {
     hideWarningBanner();
   });
 }
+
+if (helpLinkButton) {
+  helpLinkButton.addEventListener("click", () => {
+    setSection("help");
+  });
+}
+
+window.addEventListener("popstate", () => {
+  const section = resolveSectionFromPath();
+  if (section) {
+    setSection(section);
+  }
+});
 
 if (graphStatusDismiss) {
   graphStatusDismiss.addEventListener("click", () => {
@@ -15700,8 +20393,14 @@ if (issueAddButton) {
 }
 
 if (issueClearButton) {
-  issueClearButton.addEventListener("click", () => {
-    const confirmClear = window.confirm("Clear all issues?");
+  issueClearButton.addEventListener("click", async () => {
+    const confirmClear = await confirmModal({
+      title: "Clear issues",
+      message: "Clear all issues?",
+      confirmLabel: "Clear",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
     if (!confirmClear) return;
     saveIssues([]);
     renderIssues();
@@ -15820,7 +20519,7 @@ if (topologyExportCsvButton) {
 
 if (actionPackPrevButton) {
   actionPackPrevButton.addEventListener("click", () => {
-    const packs = getAllActionPacks();
+    const packs = getAllActionPacks({ includeDeleted: getActionPackFilter() === "deleted" });
     const { pageIndex } = getActionPackPaging(packs);
     if (pageIndex > 0) {
       setActionPackPageIndex(pageIndex - 1);
@@ -15831,7 +20530,7 @@ if (actionPackPrevButton) {
 
 if (actionPackNextButton) {
   actionPackNextButton.addEventListener("click", () => {
-    const packs = getAllActionPacks();
+    const packs = getAllActionPacks({ includeDeleted: getActionPackFilter() === "deleted" });
     const { pageIndex, totalPages } = getActionPackPaging(packs);
     if (pageIndex < totalPages - 1) {
       setActionPackPageIndex(pageIndex + 1);
@@ -15841,11 +20540,18 @@ if (actionPackNextButton) {
 }
 
 if (actionPackFilterSelect) {
-  actionPackFilterSelect.value = getActionPackFilter();
+  const currentFilter = getActionPackFilter();
+  if (!actionPackFilterSelect.querySelector(`option[value="${currentFilter}"]`)) {
+    setActionPackFilter("current");
+    actionPackFilterSelect.value = "current";
+  } else {
+    actionPackFilterSelect.value = currentFilter;
+  }
   actionPackFilterSelect.addEventListener("change", () => {
     setActionPackFilter(actionPackFilterSelect.value);
     setActionPackPageIndex(0);
     renderActionPacks();
+    renderDeletedActionPacks();
   });
 }
 
@@ -15855,12 +20561,60 @@ if (actionPackRunButton) {
   });
 }
 
+if (actionPackRunnerSteps) {
+  const updatePackPreview = () => {
+    if (!selectedPackId) return;
+    const pack = getActionPackById(selectedPackId);
+    if (!pack) return;
+    const params = collectActionPackRunnerParams(pack);
+    renderActionPackHowItRuns(pack, actionPackHowPanel, params);
+  };
+  actionPackRunnerSteps.addEventListener("input", updatePackPreview);
+  actionPackRunnerSteps.addEventListener("change", updatePackPreview);
+}
+
+if (actionPackPreviewButton) {
+  actionPackPreviewButton.addEventListener("click", () => {
+    if (!selectedPackId) {
+      showToast("Select a pack first");
+      return;
+    }
+    const pack = getActionPackById(selectedPackId);
+    if (!pack) {
+      showToast("Pack not found");
+      return;
+    }
+    const params = collectActionPackRunnerParams(pack);
+    renderActionPackPlan(pack, params, actionPackPlanPanel, { mode: "preview" });
+  });
+}
+
+if (actionPackValidateButton) {
+  actionPackValidateButton.addEventListener("click", () => {
+    if (!selectedPackId) {
+      showToast("Select a pack first");
+      return;
+    }
+    const pack = getActionPackById(selectedPackId);
+    if (!pack) {
+      showToast("Pack not found");
+      return;
+    }
+    const params = collectActionPackRunnerParams(pack);
+    renderActionPackPlan(pack, params, actionPackPlanPanel, { mode: "validate" });
+  });
+}
+
 if (actionPackDryRunToggle) {
   actionPackDryRunToggle.addEventListener("change", () => {
     if (!selectedPackId) return;
     const params = getPackParams(selectedPackId);
     params.dryRun = actionPackDryRunToggle.checked;
     setPackParams(selectedPackId, params);
+    const pack = getActionPackById(selectedPackId);
+    if (pack) {
+      renderActionPackHowItRuns(pack, actionPackHowPanel, params);
+    }
   });
 }
 
@@ -15875,8 +20629,14 @@ if (actionPackRunCancelButton) {
 }
 
 if (actionPackHistoryClear) {
-  actionPackHistoryClear.addEventListener("click", () => {
-    const confirmDelete = window.confirm("Clear action pack history?");
+  actionPackHistoryClear.addEventListener("click", async () => {
+    const confirmDelete = await confirmModal({
+      title: "Clear action pack history",
+      message: "Clear action pack history?",
+      confirmLabel: "Clear",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
     if (!confirmDelete) return;
     saveActionPackHistory([]);
     renderActionPackHistory();
@@ -15897,8 +20657,14 @@ if (reportQueueClearButton) {
 }
 
 if (reportHistoryClear) {
-  reportHistoryClear.addEventListener("click", () => {
-    const confirmDelete = window.confirm("Clear report history?");
+  reportHistoryClear.addEventListener("click", async () => {
+    const confirmDelete = await confirmModal({
+      title: "Clear report history",
+      message: "Clear report history?",
+      confirmLabel: "Clear",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
     if (!confirmDelete) return;
     saveReportHistory([]);
     renderReportHistory();
@@ -15933,6 +20699,174 @@ if (incidentRunFixButton) {
   });
 }
 
+if (incidentReportLoadButton) {
+  incidentReportLoadButton.addEventListener("click", () => {
+    const id = incidentReportSelect?.value || activeIncidentId;
+    if (!id) {
+      showToast("Select an incident first");
+      return;
+    }
+    activeIncidentId = id;
+    loadIncidentReportFor(id);
+  });
+}
+
+if (incidentReportSelect) {
+  incidentReportSelect.addEventListener("change", () => {
+    const id = incidentReportSelect.value;
+    if (id) {
+      activeIncidentId = id;
+    }
+  });
+}
+
+if (incidentReportTimelineAdd) {
+  incidentReportTimelineAdd.addEventListener("click", async () => {
+    if (!incidentReport) {
+      showToast("Load an incident report first");
+      return;
+    }
+    const skipPrompt = localStorage.getItem("gas.timeline_prompt_skip") === "1";
+    let label = "";
+    if (skipPrompt) {
+      label = "Manual timeline entry";
+    } else {
+      const values = await openFormModal({
+        title: "Add timeline entry",
+        fields: [
+          {
+            key: "label",
+            label: "Timeline entry label",
+            required: true,
+            placeholder: "Describe the step",
+          },
+          {
+            key: "skip",
+            label: "Don't ask again",
+            type: "checkbox",
+            value: false,
+          },
+        ],
+        confirmLabel: "Add entry",
+        cancelLabel: "Cancel",
+      });
+      if (!values) return;
+      label = values.label;
+      if (values.skip) {
+        localStorage.setItem("gas.timeline_prompt_skip", "1");
+      }
+    }
+    const entry = {
+      timestamp: new Date().toISOString(),
+      label,
+      type: "manual",
+    };
+    incidentReport.timeline = [...(incidentReport.timeline || []), entry];
+    renderIncidentReportTimeline(incidentReport);
+  });
+}
+
+if (incidentReportTimelineAuto) {
+  incidentReportTimelineAuto.addEventListener("click", async () => {
+    if (!incidentReport?.incident_id) {
+      showToast("Load an incident first");
+      return;
+    }
+    const timelineData = await fetchIncidentTimeline(incidentReport.incident_id);
+    const entries = [];
+    (timelineData?.timeline || []).forEach((entry) => {
+      entries.push({
+        timestamp: entry.time || entry.timestamp,
+        label: entry.kind || "Event",
+        summary: entry.kind || "",
+        type: entry.kind || "event",
+      });
+    });
+    draftSnapshots.forEach((draft) => {
+      (draft.entries || []).forEach((item) => {
+        entries.push({
+          timestamp: item.timestamp,
+          label: item.action_label || item.service,
+          summary: item.result_status,
+          type: "draft_entry",
+        });
+      });
+    });
+    incidentReport.timeline = entries.sort((a, b) => {
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    });
+    renderIncidentReportTimeline(incidentReport);
+  });
+}
+
+if (incidentReportEvidenceRefresh) {
+  incidentReportEvidenceRefresh.addEventListener("click", () => {
+    if (!incidentReport) {
+      showToast("Load an incident report first");
+      return;
+    }
+    refreshIncidentReportEvidence(incidentReport);
+  });
+}
+
+if (incidentReportPreview) {
+  incidentReportPreview.addEventListener("click", () => {
+    previewIncidentReport("markdown");
+  });
+}
+
+if (incidentReportExportMd) {
+  incidentReportExportMd.addEventListener("click", () => {
+    previewIncidentReport("markdown");
+  });
+}
+
+if (incidentReportExportText) {
+  incidentReportExportText.addEventListener("click", () => {
+    previewIncidentReport("text");
+  });
+}
+
+if (incidentReportExportPdf) {
+  incidentReportExportPdf.addEventListener("click", () => {
+    previewIncidentReport("pdf");
+  });
+}
+
+if (incidentReportSave) {
+  incidentReportSave.addEventListener("click", async () => {
+    if (!incidentReport?.incident_id) {
+      showToast("Select an incident first");
+      return;
+    }
+    const payload = collectIncidentReportForm();
+    payload.timeline = incidentReport.timeline || [];
+    payload.evidence_refs = incidentReport.evidence_refs || [];
+    const saved = await saveIncidentReport(incidentReport.incident_id, payload);
+    if (saved) {
+      incidentReport = saved;
+      showToast("Incident report saved");
+    }
+  });
+}
+
+if (incidentReportReset) {
+  incidentReportReset.addEventListener("click", () => {
+    if (!incidentReport) return;
+    applyIncidentReportToForm(incidentReport);
+    renderIncidentReportTimeline(incidentReport);
+    refreshIncidentReportEvidence(incidentReport);
+  });
+}
+
+if (reportCollapsibleButtons.length) {
+  reportCollapsibleButtons.forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+  });
+}
+
 if (reportDiffRunButton) {
   reportDiffRunButton.addEventListener("click", () => {
     runReportDiff();
@@ -15950,39 +20884,74 @@ if (reportDiffSelectB) {
     runReportDiff();
   });
 }
-if (snapshotCaptureButton) {
-  snapshotCaptureButton.addEventListener("click", async () => {
-    const kind = snapshotSubjectKind?.value || "user";
-    const identifier = snapshotSubjectValue?.value.trim();
-    const displayName = snapshotSubjectName?.value.trim();
-    const profile = snapshotProfileSelect?.value || "core";
-    if (!identifier && kind !== "admin_host") {
-      showToast("Enter an identifier");
+if (draftNewButton) {
+  draftNewButton.addEventListener("click", () => {
+    createDraftSnapshot({ title: "New draft" });
+    renderDraftSnapshots();
+    showToast("Draft created");
+  });
+}
+
+if (draftArchiveButton) {
+  draftArchiveButton.addEventListener("click", () => {
+    const draft = getActiveDraft();
+    if (!draft) {
+      showToast("No draft selected");
       return;
     }
-    const identifiers = {};
-    if (identifier) {
-      if (kind === "user") {
-        identifiers.upn = identifier;
-      } else {
-        const aliasType = isIpAddress(identifier) ? "ip" : "hostname";
-        identifiers[aliasType] = identifier;
-      }
-    }
-    const subject = { kind, identifiers };
-    if (displayName) subject.display_name = displayName;
-    const result = await captureSnapshots([subject], profile, { source: "manual" });
-    if (!result) {
-      showToast("Snapshot capture failed");
-      return;
-    }
-    await refreshSnapshotEntities();
-    const first = result.results?.find((entry) => entry?.ok)?.result;
-    if (first?.canonical_id && snapshotSubjectSelect) {
-      snapshotSubjectSelect.value = first.canonical_id;
-    }
-    await refreshSnapshotHistory();
-    showToast("Snapshot captured");
+    archiveDraftSnapshot(draft.id);
+    renderDraftSnapshots();
+    showToast("Draft archived");
+  });
+}
+
+if (draftSelect) {
+  draftSelect.addEventListener("change", () => {
+    const id = draftSelect.value;
+    if (!id) return;
+    setActiveDraftId(id);
+    renderDraftSnapshots();
+  });
+}
+
+if (draftTitleInput) {
+  draftTitleInput.addEventListener("input", () => updateDraftFromInputs());
+}
+if (draftNotesInput) {
+  draftNotesInput.addEventListener("input", () => updateDraftFromInputs());
+}
+if (draftSubjectKind) {
+  draftSubjectKind.addEventListener("change", () => updateDraftFromInputs());
+}
+if (draftSubjectValue) {
+  draftSubjectValue.addEventListener("input", () => updateDraftFromInputs());
+}
+if (draftSubjectName) {
+  draftSubjectName.addEventListener("input", () => updateDraftFromInputs());
+}
+if (draftProfileSelect) {
+  draftProfileSelect.addEventListener("change", () => updateDraftFromInputs());
+}
+if (draftFinalizeButton) {
+  draftFinalizeButton.addEventListener("click", () => {
+    finalizeDraftSnapshot();
+  });
+}
+if (draftClearButton) {
+  draftClearButton.addEventListener("click", async () => {
+    const draft = getActiveDraft();
+    if (!draft) return;
+    const confirmClear = await confirmModal({
+      title: "Clear draft entries",
+      message: "Clear all entries from this draft?",
+      confirmLabel: "Clear entries",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (!confirmClear) return;
+    clearDraftEntries(draft.id);
+    renderDraftSnapshots();
+    showToast("Draft entries cleared");
   });
 }
 if (snapshotHistoryRefresh) {
@@ -16024,6 +20993,12 @@ if (packSaveButton) {
   });
 }
 
+if (packSaveCopyButton) {
+  packSaveCopyButton.addEventListener("click", () => {
+    savePackFromBuilder({ asCopy: true });
+  });
+}
+
 if (packNewButton) {
   packNewButton.addEventListener("click", () => {
     resetPackBuilder();
@@ -16031,8 +21006,39 @@ if (packNewButton) {
 }
 
 if (packDeleteButton) {
-  packDeleteButton.addEventListener("click", () => {
-    deletePackFromBuilder();
+  packDeleteButton.addEventListener("click", async () => {
+    await deletePackFromBuilder();
+  });
+}
+
+const packBuilderInputs = [packNameInput, packDescriptionInput, packDefaultsInput, packScopeSelect];
+packBuilderInputs.forEach((input) => {
+  if (!input) return;
+  input.addEventListener("input", () => renderPackBuilderHowItRuns());
+  input.addEventListener("change", () => renderPackBuilderHowItRuns());
+});
+
+if (packVersionRestoreButton) {
+  packVersionRestoreButton.addEventListener("click", () => {
+    if (!packVersionSelect) return;
+    const selected = packVersionSelect.value;
+    if (!selected) {
+      showToast("Select a version first");
+      return;
+    }
+    const version = currentPackVersions.find((entry) => entry.version_id === selected);
+    if (!version) {
+      showToast("Version not found");
+      return;
+    }
+    currentPackSteps = version.steps.map((step) => ({ ...step }));
+    if (packNameInput) packNameInput.value = version.name;
+    if (packDescriptionInput) packDescriptionInput.value = version.description || "";
+    if (packDefaultsInput) {
+      packDefaultsInput.value = version.defaults ? JSON.stringify(version.defaults, null, 2) : "";
+    }
+    renderPackSteps();
+    showToast("Version restored. Save to apply.");
   });
 }
 
@@ -16137,8 +21143,8 @@ if (presetNewButton) {
 }
 
 if (presetDeleteButton) {
-  presetDeleteButton.addEventListener("click", () => {
-    deletePresetFromBuilder();
+  presetDeleteButton.addEventListener("click", async () => {
+    await deletePresetFromBuilder();
   });
 }
 
@@ -16223,7 +21229,7 @@ if (quickActionsGrid) {
     const chip = event.target.closest(".chip");
     if (!chip) return;
     if (isQuickActionsEditing()) {
-      showToast("Exit edit mode to run actions");
+      showToast("Exit edit mode to open actions");
       return;
     }
     const { type } = chip.dataset;
@@ -16234,16 +21240,176 @@ if (quickActionsGrid) {
         showToast("Template not found");
         return;
       }
-      runAction(template.service, template.action, template.params || {});
+      openRunnerForAction(template.service, template.action, template.params || {});
       return;
     }
     const { service, action } = chip.dataset;
-    const params = buildParams(service, action);
-    if (params === null) {
-      showToast("Action cancelled");
+    openRunnerForAction(service, action);
+  });
+}
+
+if (quickLinks) {
+  quickLinks.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-quick-link]");
+    if (!button) return;
+    const link = button.dataset.quickLink;
+    if (link === "health") {
+      setSection("healthcheck", { scrollTarget: "health-card" });
       return;
     }
-    runAction(service, action, params);
+    if (link === "task-runner") {
+      setSection("exchange");
+      return;
+    }
+    if (link === "action-packs") {
+      setSection("actionpacks", { scrollTarget: "action-pack-panel" });
+      return;
+    }
+    if (link === "help") {
+      setSection("help");
+    }
+  });
+}
+
+if (workspaceSelect) {
+  workspaceSelect.addEventListener("change", () => {
+    setActiveWorkspaceId(workspaceSelect.value);
+    renderWorkspaces();
+  });
+}
+
+if (workspaceNewButton) {
+  workspaceNewButton.addEventListener("click", async () => {
+    const name = await promptModal({
+      title: "New workspace",
+      label: "Workspace name",
+      defaultValue: "New workspace",
+      confirmLabel: "Create",
+      cancelLabel: "Cancel",
+      required: true,
+    });
+    if (!name) return;
+    const workspace = createWorkspace(name);
+    upsertWorkspace(workspace);
+    setActiveWorkspaceId(workspace.id);
+    renderWorkspaces();
+    showToast("Workspace created");
+  });
+}
+
+if (workspaceRenameButton) {
+  workspaceRenameButton.addEventListener("click", async () => {
+    const activeId = getActiveWorkspaceId();
+    if (!activeId) return;
+    const workspace = getWorkspaceById(activeId);
+    if (!workspace) return;
+    const name = await promptModal({
+      title: "Rename workspace",
+      label: "Workspace name",
+      defaultValue: workspace.name || "Workspace",
+      confirmLabel: "Rename",
+      cancelLabel: "Cancel",
+      required: true,
+    });
+    if (!name) return;
+    workspace.name = name;
+    upsertWorkspace(workspace);
+    renderWorkspaces();
+    showToast("Workspace renamed");
+  });
+}
+
+if (workspaceDuplicateButton) {
+  workspaceDuplicateButton.addEventListener("click", () => {
+    const activeId = getActiveWorkspaceId();
+    if (!activeId) return;
+    const workspace = getWorkspaceById(activeId);
+    if (!workspace) return;
+    const copy = {
+      ...workspace,
+      id: generateWorkspaceId(),
+      name: `${workspace.name || "Workspace"} (copy)`,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    upsertWorkspace(copy);
+    setActiveWorkspaceId(copy.id);
+    renderWorkspaces();
+    showToast("Workspace duplicated");
+  });
+}
+
+if (workspaceDeleteButton) {
+  workspaceDeleteButton.addEventListener("click", async () => {
+    const activeId = getActiveWorkspaceId();
+    if (!activeId) return;
+    const workspace = getWorkspaceById(activeId);
+    if (!workspace) return;
+    const confirmDelete = await confirmModal({
+      title: "Delete workspace",
+      message: `Delete workspace "${workspace.name || "Workspace"}"?`,
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (!confirmDelete) return;
+    deleteWorkspace(activeId);
+    setActiveWorkspaceId("");
+    renderWorkspaces();
+    showToast("Workspace deleted");
+  });
+}
+
+if (workspaceAddTileButton) {
+  workspaceAddTileButton.addEventListener("click", () => {
+    openWorkspacePalette();
+  });
+}
+
+if (workspaceSaveButton) {
+  workspaceSaveButton.addEventListener("click", () => {
+    persistWorkspaceLayout();
+    showToast("Workspace layout saved");
+  });
+}
+
+if (workspaceExportButton) {
+  workspaceExportButton.addEventListener("click", () => {
+    const activeId = getActiveWorkspaceId();
+    if (!activeId) return;
+    const workspace = getWorkspaceById(activeId);
+    if (!workspace) return;
+    downloadJson(workspace, `workspace-${sanitizeFilename(workspace.name || "workspace")}.json`);
+  });
+}
+
+if (workspaceImportButton && workspaceImportFile) {
+  workspaceImportButton.addEventListener("click", () => workspaceImportFile.click());
+  workspaceImportFile.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data || typeof data !== "object") throw new Error("Invalid file");
+      const workspace = {
+        ...data,
+        id: data.id || generateWorkspaceId(),
+        name: data.name || "Imported workspace",
+        created_at: data.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        layout: data.layout || { order: [], spans: {} },
+        tiles: Array.isArray(data.tiles) ? data.tiles : [],
+      };
+      upsertWorkspace(workspace);
+      setActiveWorkspaceId(workspace.id);
+      renderWorkspaces();
+      showToast("Workspace imported");
+    } catch (err) {
+      showToast("Workspace import failed");
+    } finally {
+      workspaceImportFile.value = "";
+    }
   });
 }
 
@@ -16341,7 +21507,7 @@ document.querySelectorAll(".export-json").forEach((button) => {
 });
 
 document.querySelectorAll(".export-csv").forEach((button) => {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     const target = button.dataset.exportTarget;
     let payload = getExportPayload(target);
     if (!payload) {
@@ -16362,7 +21528,7 @@ document.querySelectorAll(".export-csv").forEach((button) => {
         filename = `reports-${sanitizeFilename(suffix)}.csv`;
       }
     } else {
-      rows = selectExportArray(payload);
+      rows = await selectExportArrayWithModal(payload);
     }
     if (rows === null) {
       if (payload && typeof payload === "object" && !Array.isArray(payload)) {
@@ -16392,8 +21558,14 @@ window.addEventListener("resize", () => {
   }
 });
 
-setSection("dashboard");
+const initialSection = resolveSectionFromPath();
+if (initialSection && initialSection !== "dashboard") {
+  setSection(initialSection);
+} else {
+  setSection("dashboard");
+}
 fetchStatus();
+fetchSystemStatusSummary();
 Object.keys(ACTIONS_UI).forEach((service) => populateRunner(service));
 fetchConfig();
 populateQuickActionEditor();
@@ -16407,8 +21579,14 @@ resetPresetBuilder();
 setQuickActionsEditing(false);
 decorateChips();
 setupOutputViews();
+draftSnapshots = loadDraftSnapshots();
+activeDraftId = getActiveDraftId();
+renderDraftSnapshots();
 initTileLayout();
+renderWorkspaces();
+setupWorkspacePinButtons();
 renderActionPacks();
+renderDeletedActionPacks();
 renderReportPresets();
 updateReportExportOptions(getExportPayload("reports"));
 renderActionPackHistory();
@@ -16421,10 +21599,12 @@ renderAuditServiceOptions();
 fetchAuditLogs();
 refreshSymptomTemplates();
 refreshSnapshotEntities().then(() => refreshSnapshotHistory());
+initHelpCenter();
 if (sshTerminalOutput) {
   setSshConnectionStatus("fail", "Disconnected");
 }
 renderIssues();
 renderIncidents();
+renderIncidentReportSelect();
 fetchTopologyHistory();
 refreshTopologyChangeViews();

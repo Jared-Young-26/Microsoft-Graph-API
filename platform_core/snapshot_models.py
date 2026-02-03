@@ -9,6 +9,7 @@ EVENT_SCHEMA = f"gas.event.{SCHEMA_VERSION}"
 EVIDENCE_SCHEMA = f"gas.evidence.{SCHEMA_VERSION}"
 PROBE_SCHEMA = f"gas.probe.{SCHEMA_VERSION}"
 INCIDENT_SCHEMA = f"gas.incident.{SCHEMA_VERSION}"
+REPORT_SCHEMA = f"gas.report.{SCHEMA_VERSION}"
 
 
 class SchemaModel(BaseModel):
@@ -124,3 +125,27 @@ class Incident(SchemaModel):
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
     subjects: List[IncidentSubject] = Field(default_factory=list)
+
+
+class IncidentReport(SchemaModel):
+    schema_id: str = Field(REPORT_SCHEMA)
+    incident_id: str
+    title: str
+    customer: Optional[str] = None
+    reported_by: Optional[str] = None
+    severity: Optional[str] = None
+    status: str = "open"
+    reported_at: Optional[str] = None
+    resolved_at: Optional[str] = None
+    summary_reported: Optional[str] = None
+    summary_actual: Optional[str] = None
+    root_cause: Optional[str] = None
+    resolution: Optional[str] = None
+    preventive_actions: Optional[str] = None
+    validation: Optional[str] = None
+    affected: Optional[str] = None
+    impact_window: Dict[str, Optional[str]] = Field(default_factory=dict)
+    timeline: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence_refs: List[Dict[str, Any]] = Field(default_factory=list)
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)
+    template_id: Optional[str] = None
