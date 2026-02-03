@@ -157,6 +157,22 @@ def assemble_lens(subject_kind: str, probe_results: Iterable[Any], registry: Opt
         for path in outputs_to:
             if not path:
                 continue
-            _apply_path(lens, path, data)
+            apply_value = data
+            if isinstance(data, dict):
+                parts = [part for part in path.split(".") if part]
+                if parts and parts[0] == "lens":
+                    parts = parts[1:]
+                if parts:
+                    leaf = parts[-1]
+                    template_value = _get_template_value(".".join(parts))
+                    if leaf in data:
+                        candidate = data.get(leaf)
+                        if isinstance(template_value, dict) and isinstance(candidate, dict):
+                            apply_value = candidate
+                        elif isinstance(template_value, list) and isinstance(candidate, list):
+                            apply_value = candidate
+                        elif template_value is None and not isinstance(candidate, (dict, list)):
+                            apply_value = candidate
+            _apply_path(lens, path, apply_value)
 
     return lens

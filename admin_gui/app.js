@@ -12776,10 +12776,12 @@ function listWorkspaceBlocks() {
 async function addWorkspaceTileFromBlock(block, options = {}) {
   if (!block) return;
   if (block.risk === "dangerous") {
-    const ok = await confirmModal("Add dangerous tile?", {
+    const ok = await confirmModal({
+      title: "Add dangerous tile?",
       message: "This tile can run risky or destructive actions. Add it to the workspace?",
-      confirmText: "Add anyway",
-      cancelText: "Cancel",
+      confirmLabel: "Add anyway",
+      cancelLabel: "Cancel",
+      danger: true,
     });
     if (!ok) return;
   }
@@ -13097,18 +13099,27 @@ function setupWorkspaceDragging() {
 }
 
 async function renderWorkspaceStatus(container) {
-  const data = await getSystemStatusSummaryData();
+  const payload = await getSystemStatusSummaryData();
   container.innerHTML = "";
-  if (!data || !data.ok) {
+  const data =
+    payload && typeof payload === "object" && payload.ok !== undefined && payload.data
+      ? payload.data
+      : payload;
+  if (!data || typeof data !== "object") {
     container.textContent = "Status summary unavailable.";
     return;
   }
   const grid = document.createElement("div");
   grid.classList.add("status-grid");
   const items = [
-    ["Completeness", data.completeness || "--"],
+    [
+      "Completeness",
+      data.completeness_percent !== null && data.completeness_percent !== undefined
+        ? `${data.completeness_percent}%`
+        : "--",
+    ],
     ["Warnings", data.warnings_count ?? 0],
-    ["Last snapshot", data.last_snapshot || "--"],
+    ["Last snapshot", formatRelativeTime(data.last_snapshot_at)],
     ["Graph readiness", data.graph_ready ? "Ready" : "Not ready"],
     ["PowerShell readiness", data.powershell_ready ? "Ready" : "Not ready"],
   ];
@@ -13840,10 +13851,12 @@ function openWorkspacePinModal(blockType, defaultTitle = "") {
       title: titleInput.value.trim() || null,
     };
     if (block.risk === "dangerous") {
-      const ok = await confirmModal("Pin dangerous tile?", {
+      const ok = await confirmModal({
+        title: "Pin dangerous tile?",
         message: "This tile can run risky or destructive actions. Pin it anyway?",
-        confirmText: "Pin anyway",
-        cancelText: "Cancel",
+        confirmLabel: "Pin anyway",
+        cancelLabel: "Cancel",
+        danger: true,
       });
       if (!ok) return;
     }
@@ -14024,6 +14037,17 @@ function buildCoverageLimitations(summary) {
 }
 
 function mapCoverageLimitation(probeId, message) {
+  const normalizeReason = (value) => {
+    if (typeof value !== "string") return "";
+    let reason = value.trim();
+    if (!reason) return "";
+    reason = reason
+      .replace(/Graph request handler not configured/gi, "Graph handler not configured")
+      .replace(/PowerShell \\(pwsh\\) not found/gi, "PowerShell not available");
+    if (!reason.endsWith(".")) reason = `${reason}.`;
+    return reason;
+  };
+
   const map = {
     "identity.user_core": {
       label: "Identity data unavailable",
@@ -14047,7 +14071,10 @@ function mapCoverageLimitation(probeId, message) {
     },
   };
   if (probeId && map[probeId]) {
-    return { probe: probeId, ...map[probeId] };
+    const reason = normalizeReason(message);
+    const label = reason ? `${map[probeId].label} (${reason})` : map[probeId].label;
+    const detail = reason ? `${map[probeId].detail} Reason: ${reason}` : map[probeId].detail;
+    return { probe: probeId, label, detail };
   }
   return {
     probe: probeId || "unknown",

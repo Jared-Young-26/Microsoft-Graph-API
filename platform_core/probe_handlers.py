@@ -1,10 +1,44 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from ipaddress import ip_address, ip_network
 from typing import Any, Dict, Optional
 
 from microsoft import is_powershell_envelope, unwrap_powershell_data
+
+
+def _get_graph(context: Dict[str, Any]):
+    graph = context.get("graph")
+    if not graph:
+        raise RuntimeError("Graph request handler not configured.")
+    return graph
+
+
+def _subject_value(subject: Any, alias_types: list[str]) -> Optional[str]:
+    aliases = getattr(subject, "aliases", None)
+    if isinstance(subject, dict):
+        aliases = subject.get("aliases")
+    if aliases:
+        for alias in aliases:
+            if isinstance(alias, dict):
+                alias_type = alias.get("type") or alias.get("alias_type")
+                alias_value = alias.get("value") or alias.get("alias_value")
+            else:
+                alias_type = getattr(alias, "type", None)
+                alias_value = getattr(alias, "value", None)
+            if alias_type in alias_types and alias_value:
+                return str(alias_value)
+
+    canonical_id = getattr(subject, "canonical_id", None)
+    kind = getattr(subject, "kind", None)
+    if isinstance(subject, dict):
+        canonical_id = subject.get("canonical_id")
+        kind = subject.get("kind") or subject.get("subject_kind")
+    if canonical_id and kind:
+        prefix = f"{kind}:"
+        if str(canonical_id).startswith(prefix):
+            return str(canonical_id).split(":", 1)[1]
+    return str(canonical_id) if canonical_id else None
 
 
 def _now_iso() -> str:
@@ -578,6 +612,277 @@ $results
     return _ps_run(context, script, parameters={"targets": targets, "port": port}, depth=6)
 
 
+def _looks_like_guid(value: str | None) -> bool:
+    if not value:
+        return False
+    value = str(value).strip()
+    return len(value) == 36 and value.count("-") == 4
+
+
+def user_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    graph = _get_graph(context)
+    user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
+    if not user_ref:
+        raise RuntimeError("User identifier missing.")
+    resp = graph.get(
+        f"/users/{user_ref}",
+        params={
+            "$select": ",".join(
+                [
+                    "id",
+                    "displayName",
+                    "userPrincipalName",
+                    "mail",
+                    "accountEnabled",
+                    "userType",
+                    "createdDateTime",
+                    "onPremisesSamAccountName",
+                    "onPremisesImmutableId",
+                ]
+            )
+        },
+    )
+    payload = resp.json() if resp is not None else {}
+    upn = payload.get("userPrincipalName") or payload.get("mail") or user_ref
+    return {
+        "primary_user_upn": upn,
+        "ids": {
+            "id": payload.get("id"),
+            "upn": payload.get("userPrincipalName"),
+            "mail": payload.get("mail"),
+            "display_name": payload.get("displayName"),
+            "account_enabled": payload.get("accountEnabled"),
+            "user_type": payload.get("userType"),
+            "created": payload.get("createdDateTime"),
+            "on_prem_sam": payload.get("onPremisesSamAccountName"),
+            "on_prem_immutable_id": payload.get("onPremisesImmutableId"),
+        },
+    }
+
+
+def user_groups_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    graph = _get_graph(context)
+    inputs = _read_inputs(options)
+    top = int(inputs.get("top") or 200)
+    user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
+    if not user_ref:
+        raise RuntimeError("User identifier missing.")
+    items = graph.paged_get(f"/users/{user_ref}/memberOf?$select=id,displayName,@odata.type")
+    groups = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        obj_id = item.get("id")
+        if not obj_id:
+            continue
+        groups.append(
+            {
+                "id": obj_id,
+                "displayName": item.get("displayName"),
+                "odata_type": item.get("@odata.type"),
+            }
+        )
+        if len(groups) >= top:
+            break
+    return groups
+
+
+def _get_sku_map(context: Dict[str, Any], graph) -> Dict[str, str]:
+    cached = context.get("_sku_map")
+    if isinstance(cached, dict):
+        return cached
+    mapping: Dict[str, str] = {}
+    try:
+        resp = graph.get("/subscribedSkus", params={"$select": "skuId,skuPartNumber"})
+        for item in (resp.json() or {}).get("value", []) if resp is not None else []:
+            if not isinstance(item, dict):
+                continue
+            sku_id = item.get("skuId")
+            part = item.get("skuPartNumber")
+            if sku_id and part:
+                mapping[str(sku_id)] = str(part)
+    except Exception:
+        mapping = {}
+    context["_sku_map"] = mapping
+    return mapping
+
+
+def user_licenses_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    graph = _get_graph(context)
+    user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
+    if not user_ref:
+        raise RuntimeError("User identifier missing.")
+    resp = graph.get(f"/users/{user_ref}", params={"$select": "id,userPrincipalName,assignedLicenses"})
+    payload = resp.json() if resp is not None else {}
+    sku_map = _get_sku_map(context, graph)
+    licenses = []
+    for lic in payload.get("assignedLicenses") or []:
+        if not isinstance(lic, dict):
+            continue
+        sku_id = lic.get("skuId")
+        entry = {
+            "skuId": sku_id,
+            "skuPartNumber": sku_map.get(str(sku_id)) if sku_id else None,
+            "disabledPlans": lic.get("disabledPlans") or [],
+        }
+        licenses.append(entry)
+    return licenses
+
+
+def _fetch_signins(graph, user_ref: str, lookback_hours: int, top: int) -> list[dict]:
+    start = datetime.now(timezone.utc) - timedelta(hours=int(lookback_hours or 24))
+    start_iso = start.isoformat().replace("+00:00", "Z")
+    filter_parts = [f"createdDateTime ge {start_iso}"]
+    if _looks_like_guid(user_ref):
+        filter_parts.append(f"userId eq '{user_ref}'")
+    else:
+        safe_upn = str(user_ref).replace("'", "''")
+        filter_parts.append(f"userPrincipalName eq '{safe_upn}'")
+    resp = graph.get(
+        "/auditLogs/signIns",
+        params={
+            "$top": int(top or 50),
+            "$orderby": "createdDateTime desc",
+            "$filter": " and ".join(filter_parts),
+        },
+    )
+    payload = resp.json() if resp is not None else {}
+    return [item for item in (payload.get("value") or []) if isinstance(item, dict)]
+
+
+def signin_summary_24h_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    graph = _get_graph(context)
+    inputs = _read_inputs(options)
+    lookback = int(inputs.get("lookback_hours") or 24)
+    top = int(inputs.get("top") or 50)
+    user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
+    if not user_ref:
+        raise RuntimeError("User identifier missing.")
+    signins = _fetch_signins(graph, user_ref, lookback, top)
+    failures = []
+    success = 0
+    ca_failures = 0
+    apps: Dict[str, int] = {}
+    for entry in signins:
+        status = entry.get("status") or {}
+        error_code = status.get("errorCode")
+        try:
+            is_failure = int(error_code or 0) != 0
+        except Exception:
+            is_failure = bool(error_code)
+        if is_failure:
+            failures.append(
+                {
+                    "createdDateTime": entry.get("createdDateTime"),
+                    "appDisplayName": entry.get("appDisplayName"),
+                    "resourceDisplayName": entry.get("resourceDisplayName"),
+                    "ipAddress": entry.get("ipAddress"),
+                    "status": status,
+                    "conditionalAccessStatus": entry.get("conditionalAccessStatus"),
+                }
+            )
+        else:
+            success += 1
+        app_name = entry.get("appDisplayName") or "Unknown"
+        apps[app_name] = apps.get(app_name, 0) + 1
+        if str(entry.get("conditionalAccessStatus") or "").lower() == "failure":
+            ca_failures += 1
+
+    summary = {
+        "total": len(signins),
+        "success": success,
+        "failure": len(failures),
+        "conditional_access_failures": ca_failures,
+        "top_apps": sorted(
+            [{"app": name, "count": count} for name, count in apps.items()],
+            key=lambda item: item["count"],
+            reverse=True,
+        )[:5],
+    }
+    return {"summary": summary, "recent_failures": failures[:10]}
+
+
+def ca_block_summary_24h_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    graph = _get_graph(context)
+    inputs = _read_inputs(options)
+    lookback = int(inputs.get("lookback_hours") or 24)
+    top = int(inputs.get("top") or 50)
+    user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
+    if not user_ref:
+        raise RuntimeError("User identifier missing.")
+    signins = _fetch_signins(graph, user_ref, lookback, top)
+    blocks = []
+    for entry in signins:
+        if str(entry.get("conditionalAccessStatus") or "").lower() != "failure":
+            continue
+        policies = []
+        for policy in entry.get("appliedConditionalAccessPolicies") or []:
+            if not isinstance(policy, dict):
+                continue
+            if str(policy.get("result") or "").lower() != "failure":
+                continue
+            policies.append(
+                {
+                    "id": policy.get("id"),
+                    "displayName": policy.get("displayName"),
+                    "result": policy.get("result"),
+                }
+            )
+        blocks.append(
+            {
+                "createdDateTime": entry.get("createdDateTime"),
+                "appDisplayName": entry.get("appDisplayName"),
+                "resourceDisplayName": entry.get("resourceDisplayName"),
+                "ipAddress": entry.get("ipAddress"),
+                "policies": policies,
+            }
+        )
+    return blocks
+
+
+def device_directory_record_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    graph = _get_graph(context)
+    device_ref = _subject_value(subject, ["entra_device_id", "objectId", "id", "fqdn", "hostname"])
+    if not device_ref:
+        raise RuntimeError("Device identifier missing.")
+    payload = None
+    safe_name = str(device_ref).replace("'", "''")
+    # Prefer direct ID lookup when we have a GUID.
+    if _looks_like_guid(device_ref):
+        resp = graph.get(
+            f"/devices/{device_ref}",
+            params={"$select": "id,deviceId,displayName,operatingSystem,operatingSystemVersion,accountEnabled,approximateLastSignInDateTime"},
+        )
+        payload = resp.json() if resp is not None else None
+    if payload is None:
+        resp = graph.get(
+            "/devices",
+            params={
+                "$top": 1,
+                "$select": "id,deviceId,displayName,operatingSystem,operatingSystemVersion,accountEnabled,approximateLastSignInDateTime",
+                "$filter": f"displayName eq '{safe_name}'",
+            },
+        )
+        items = (resp.json() or {}).get("value", []) if resp is not None else []
+        payload = items[0] if items else None
+    if not isinstance(payload, dict):
+        return {"join": {}, "ids": {}, "platform": {}}
+    return {
+        "join": {"provider": "entra"},
+        "ids": {
+            "id": payload.get("id"),
+            "device_id": payload.get("deviceId"),
+            "account_enabled": payload.get("accountEnabled"),
+        },
+        "platform": {
+            "display_name": payload.get("displayName"),
+            "operating_system": payload.get("operatingSystem"),
+            "operating_system_version": payload.get("operatingSystemVersion"),
+            "last_signin": payload.get("approximateLastSignInDateTime"),
+        },
+    }
+
+
 def process_inventory_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
     inputs = _read_inputs(options)
     include_command_line = bool(inputs.get("include_command_line", False))
@@ -853,6 +1158,12 @@ def build_probe_handlers() -> Dict[str, Any]:
         "connectivity.dns_resolve_external": dns_resolve_probe,
         "connectivity.port_probe_external": port_probe,
         "config.firewall_profiles_local": firewall_profiles_probe,
+        "identity.user_core": user_core_probe,
+        "authz.user_groups_core": user_groups_core_probe,
+        "authz.user_licenses_core": user_licenses_core_probe,
+        "authz.signin_summary_24h": signin_summary_24h_probe,
+        "authz.ca_block_summary_24h": ca_block_summary_24h_probe,
+        "identity.device_directory_record": device_directory_record_probe,
         "health.time.local_status": time_local_status_probe,
         "health.time.dc_offset": time_dc_offset_probe,
         "health.time.ntp_offset": time_ntp_offset_probe,
