@@ -66,8 +66,6 @@ def _has_upstream_artifacts(
         lowered = {str(k).lower(): v for k, v in raw_headers.items()}
         if lowered.get("request-id") or lowered.get("client-request-id"):
             return True
-    if raw_body_text is not None:
-        return True
     return False
 
 
@@ -86,12 +84,18 @@ def _classify_failure_source(
         return "dashboard_parse_error"
 
     # Authoritative rule: if we received any upstream artifacts, the source is Graph.
+    # Do this *before* honoring explicit failure_origin so retries/budgets don't mislabel
+    # upstream 5xx as "dashboard_retry_policy".
     if _has_upstream_artifacts(exc=exc, raw_headers=raw_headers, raw_body_text=raw_body_text):
         return "graph_upstream"
 
-    # Explicit dashboard-side source (legacy field: failure_origin).
-    if getattr(exc, "failure_origin", None):
-        return str(exc.failure_origin)
+    # If the caller provided an explicit origin, respect it for failures that occur
+    # *before* any Graph API call is made (e.g., token acquisition, local guardrails).
+    origin = getattr(exc, "failure_origin", None)
+    if origin:
+        origin_str = str(origin)
+        if origin_str.startswith("dashboard_") or origin_str == "graph_upstream":
+            return origin_str
 
     # Transport errors: no upstream response available.
     if exc.response is None and exc.status_code is None:
@@ -119,10 +123,11 @@ def _classify_failure_outcome(
         if "timed out" in lowered or "timeout" in lowered:
             return "timeout"
         return "retry_exhausted"
+    # Only call it "retry_exhausted" when retries were actually attempted/exhausted.
     if total_attempts and total_attempts > 1 and len(attempts) >= total_attempts:
         return "retry_exhausted"
     if status is not None:
-        return "retry_exhausted"
+        return "failed"
     return "retry_exhausted"
 
 
@@ -132,7 +137,14 @@ def build_graph_error_response(
     service: str | None = None,
     action: str | None = None,
 ) -> Dict[str, Any]:
+    # Some call sites may raise GraphAPIError with response attached but without explicitly
+    # setting status_code. Prefer the Response status when available.
     status = exc.status_code
+    if status is None and getattr(exc, "response", None) is not None:
+        try:
+            status = int(getattr(exc.response, "status_code", None))
+        except Exception:
+            status = None
     raw_headers: Dict[str, Any] = {}
     raw_body_text: str | None = None
     raw_body_json: Any = None
@@ -358,6 +370,7 @@ def build_graph_error_response(
         "failure_outcome": failure_outcome,
         "failure_origin": failure_source,
         "error_class": error_class,
+        "code": error_code,
         "error": str(exc),  # operator-friendly summary (never overwrites raw Graph fields)
         "normalized": {
             "error_summary": str(exc),

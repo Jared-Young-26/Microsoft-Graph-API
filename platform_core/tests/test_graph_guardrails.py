@@ -54,6 +54,67 @@ class TestGraphGuardrails(unittest.TestCase):
         graph.expires_at = 10**10
         return graph
 
+    def test_token_acquire_structured_error_wrapped_as_graph_api_error(self):
+        import microsoft
+        from microsoft import GraphSession, GraphAPIError
+        from platform_core.graph_error_transparency import build_graph_error_response
+
+        class _DummyMsalApp:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def acquire_token_for_client(self, scopes=None):
+                return {"error": "invalid_client", "error_description": "bad secret"}
+
+        with patch.object(microsoft.msal, "ConfidentialClientApplication", _DummyMsalApp):
+            graph = GraphSession(tenant_id="t", client_id="c", client_secret="s")
+
+        with self.assertRaises(GraphAPIError) as ctx:
+            graph.get_headers()
+
+        payload = build_graph_error_response(ctx.exception, service="system", action="graph_check")
+        self.assertEqual(payload.get("failure_source"), "dashboard_config_error")
+        self.assertEqual(payload.get("error_class"), "auth")
+        self.assertEqual(payload.get("code"), "invalid_client")
+
+    def test_token_acquire_exception_wrapped_as_graph_api_error(self):
+        import microsoft
+        from microsoft import GraphSession, GraphAPIError
+        from platform_core.graph_error_transparency import build_graph_error_response
+
+        class _DummyMsalApp:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def acquire_token_for_client(self, scopes=None):
+                raise RuntimeError("dns failure")
+
+        with patch.object(microsoft.msal, "ConfidentialClientApplication", _DummyMsalApp):
+            graph = GraphSession(tenant_id="t", client_id="c", client_secret="s")
+
+        with self.assertRaises(GraphAPIError) as ctx:
+            graph.get_headers()
+
+        payload = build_graph_error_response(ctx.exception, service="system", action="graph_check")
+        self.assertEqual(payload.get("failure_source"), "dashboard_http")
+        self.assertEqual(payload.get("error_class"), "network")
+
+    def test_msal_init_failure_wrapped_as_graph_api_error(self):
+        import microsoft
+        from microsoft import GraphSession, GraphAPIError
+        from platform_core.graph_error_transparency import build_graph_error_response
+
+        def _boom(*_args, **_kwargs):
+            raise RuntimeError("init failed")
+
+        with patch.object(microsoft.msal, "ConfidentialClientApplication", _boom):
+            with self.assertRaises(GraphAPIError) as ctx:
+                GraphSession(tenant_id="t", client_id="c", client_secret="s")
+
+        payload = build_graph_error_response(ctx.exception, service="system", action="graph_check")
+        self.assertEqual(payload.get("failure_source"), "dashboard_http")
+        self.assertEqual(payload.get("error_class"), "network")
+
     def test_concurrency_service_derived_from_route_group(self):
         import microsoft
         from microsoft import set_trace_context, reset_trace_context

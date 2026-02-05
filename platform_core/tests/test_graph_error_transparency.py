@@ -116,6 +116,29 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["error_class"], "transient_upstream_persistent")
         self.assertEqual(payload.get("route_group"), "onedrive.resolve_drive")
 
+    def test_upstream_artifacts_override_dashboard_retry_policy_origin(self):
+        body = json.dumps({"error": {"code": "UnknownError", "message": ""}})
+        resp = _response(
+            503,
+            body,
+            headers={"Content-Type": "application/json", "request-id": "req-upstream", "client-request-id": "cli-up"},
+        )
+        exc = GraphAPIError(
+            "Transient Graph Error 503",
+            status_code=503,
+            request_id="req-upstream",
+            response=resp,
+            failure_origin="dashboard_retry_policy",
+            total_attempts=2,
+            attempts=[
+                {"attempt": 1, "time": "t1", "status": 503, "wait_ms": 2000, "duration_ms": 120},
+                {"attempt": 2, "time": "t2", "status": 503, "wait_ms": None, "duration_ms": 140},
+            ],
+        )
+        payload = build_graph_error_response(exc, service="onedrive", action="get_user_drive_id")
+        # Even when the caller labels the "stop decision" as retry policy, upstream 5xx means Graph is the source.
+        self.assertEqual(payload["failure_source"], "graph_upstream")
+
     def test_circuit_open_is_dashboard_guardrail_and_has_no_raw_graph(self):
         exc = GraphAPIError(
             "Circuit breaker open for route group 'onedrive.resolve_drive'.",

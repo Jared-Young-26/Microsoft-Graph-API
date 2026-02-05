@@ -363,11 +363,97 @@ class GraphSession:
         self.scope = ["https://graph.microsoft.com/.default"]
         authority = f"https://login.microsoftonline.com/{self.tenant_id}"
         self.graph_base = "https://graph.microsoft.com/v1.0"
-        self.app = msal.ConfidentialClientApplication(
-            client_id=self.client_id,
-            authority=authority,
-            client_credential=self.client_secret,
-        )
+        try:
+            # MSAL performs tenant discovery during initialization which can raise network/config exceptions.
+            self.app = msal.ConfidentialClientApplication(
+                client_id=self.client_id,
+                authority=authority,
+                client_credential=self.client_secret,
+            )
+        except Exception as exc:
+            trace_ctx = get_trace_context() or {}
+            ui_request_id = trace_ctx.get("ui_request_id")
+            trace_service = trace_ctx.get("service") or "graph"
+            started_at = datetime.now(timezone.utc).isoformat()
+            duration_ms = 0
+            try:
+                duration_ms = int(round(0))
+            except Exception:
+                duration_ms = 0
+
+            def emit_trace(trace):
+                hook = trace_ctx.get("trace_hook")
+                if callable(hook):
+                    try:
+                        hook(trace)
+                    except Exception:
+                        pass
+
+            discovery_url = f"{authority}/v2.0/.well-known/openid-configuration"
+            lowered = str(exc).lower()
+            failure_origin = "dashboard_http"
+            error_class = "network"
+            if "invalid_client" in lowered or "unauthorized_client" in lowered or "client_secret" in lowered:
+                failure_origin = "dashboard_config_error"
+                error_class = "auth"
+
+            attempts = [
+                {
+                    "attempt": 1,
+                    "time": datetime.now(timezone.utc).isoformat(),
+                    "status": None,
+                    "wait_ms": None,
+                    "new_connection_used": False,
+                    "duration_ms": duration_ms,
+                    "error": str(exc),
+                    "error_type": exc.__class__.__name__,
+                }
+            ]
+            trace = {
+                "ui_request_id": ui_request_id,
+                "tenant_id": self.tenant_id,
+                "service": trace_service,
+                "method": "GET",
+                "url": discovery_url,
+                "path": "/v2.0/.well-known/openid-configuration",
+                "params": {},
+                "request_headers": {},
+                "started_at": started_at,
+                "ended_at": datetime.now(timezone.utc).isoformat(),
+                "duration_ms": duration_ms,
+                "attempts": attempts,
+                "queue_wait_ms": 0,
+                "failure_origin": failure_origin,
+                "failure_outcome": "failed",
+                "raw_graph": None,
+                "error_class": error_class,
+            }
+            emit_trace(trace)
+            raise GraphAPIError(
+                f"Failed to initialize Microsoft Graph auth client: {exc}",
+                status_code=None,
+                request_id=None,
+                response=None,
+                code="msal_init_failed",
+                retry_after=None,
+                failure_origin=failure_origin,
+                method="GET",
+                url=discovery_url,
+                path="/v2.0/.well-known/openid-configuration",
+                params={},
+                request_headers={},
+                response_headers=None,
+                response_body=None,
+                attempts=attempts,
+                duration_ms=duration_ms,
+                ui_request_id=ui_request_id,
+                correlation_id=str(ui_request_id) if ui_request_id else None,
+                error_class=error_class,
+                total_attempts=1,
+                tenant_id=self.tenant_id,
+                queue_wait_ms=0,
+                failure_outcome="failed",
+            ) from exc
         self._thread_local = threading.local()
         self.token = None
         self.expires_at = 0
@@ -992,13 +1078,173 @@ class GraphSession:
         return None
 
     def get_graph_token(self):
-        result = self.app.acquire_token_for_client(scopes=self.scope)
+        trace_ctx = get_trace_context() or {}
+        ui_request_id = trace_ctx.get("ui_request_id")
+        trace_service = trace_ctx.get("service")
+        started_at = datetime.now(timezone.utc).isoformat()
+        start_perf = time.perf_counter()
+
+        def emit_trace(trace):
+            hook = trace_ctx.get("trace_hook")
+            if callable(hook):
+                try:
+                    hook(trace)
+                except Exception:
+                    pass
+
+        token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
+        safe_request_headers = {}
+        service_for_trace = trace_service or "graph"
+
+        try:
+            result = self.app.acquire_token_for_client(scopes=self.scope)
+        except Exception as exc:
+            duration_ms = int(round((time.perf_counter() - start_perf) * 1000))
+            attempt_time = datetime.now(timezone.utc).isoformat()
+            attempts = [
+                {
+                    "attempt": 1,
+                    "time": attempt_time,
+                    "status": None,
+                    "wait_ms": None,
+                    "new_connection_used": False,
+                    "duration_ms": duration_ms,
+                    "error": str(exc),
+                    "error_type": exc.__class__.__name__,
+                }
+            ]
+            trace = {
+                "ui_request_id": ui_request_id,
+                "tenant_id": self.tenant_id,
+                "service": service_for_trace,
+                "method": "POST",
+                "url": token_url,
+                "path": "/oauth2/v2.0/token",
+                "params": {},
+                "request_headers": safe_request_headers,
+                "started_at": started_at,
+                "ended_at": datetime.now(timezone.utc).isoformat(),
+                "duration_ms": duration_ms,
+                "attempts": attempts,
+                "queue_wait_ms": 0,
+                "failure_origin": "dashboard_http",
+                "failure_outcome": "failed",
+                "raw_graph": None,
+                "error_class": "network",
+            }
+            emit_trace(trace)
+            raise GraphAPIError(
+                f"Failed to acquire Microsoft Graph token: {exc}",
+                status_code=None,
+                request_id=None,
+                response=None,
+                code="token_acquire_failed",
+                retry_after=None,
+                failure_origin="dashboard_http",
+                method="POST",
+                url=token_url,
+                path="/oauth2/v2.0/token",
+                params={},
+                request_headers=safe_request_headers,
+                response_headers=None,
+                response_body=None,
+                attempts=attempts,
+                duration_ms=duration_ms,
+                ui_request_id=ui_request_id,
+                correlation_id=str(ui_request_id) if ui_request_id else None,
+                error_class="network",
+                total_attempts=1,
+                tenant_id=self.tenant_id,
+                queue_wait_ms=0,
+                failure_outcome="failed",
+            ) from exc
 
         if "access_token" not in result:
-            raise RuntimeError(f"Could not acquire Microsoft Graph token: {result}")
-        
+            # MSAL can return a structured error payload instead of raising.
+            error = str(result.get("error") or "token_acquire_failed")
+            description = str(result.get("error_description") or result.get("error_description") or "").strip()
+            correlation_id = str(result.get("correlation_id") or "").strip() or None
+
+            lowered = error.lower()
+            status_code = None
+            if lowered in ("invalid_client", "unauthorized_client"):
+                status_code = 401
+            error_class = "auth"
+            failure_origin = "dashboard_config_error"
+
+            message = "Could not acquire Microsoft Graph token."
+            if error:
+                message = f"{message} [{error}]"
+            if description:
+                message = f"{message}: {description}"
+
+            duration_ms = int(round((time.perf_counter() - start_perf) * 1000))
+            attempt_time = datetime.now(timezone.utc).isoformat()
+            attempts = [
+                {
+                    "attempt": 1,
+                    "time": attempt_time,
+                    "status": status_code,
+                    "wait_ms": None,
+                    "new_connection_used": False,
+                    "duration_ms": duration_ms,
+                    "error": description or error,
+                    "error_type": "msal_error",
+                }
+            ]
+            trace = {
+                "ui_request_id": ui_request_id,
+                "tenant_id": self.tenant_id,
+                "service": service_for_trace,
+                "method": "POST",
+                "url": token_url,
+                "path": "/oauth2/v2.0/token",
+                "params": {},
+                "request_headers": safe_request_headers,
+                "started_at": started_at,
+                "ended_at": datetime.now(timezone.utc).isoformat(),
+                "duration_ms": duration_ms,
+                "attempts": attempts,
+                "queue_wait_ms": 0,
+                "failure_origin": failure_origin,
+                "failure_outcome": "failed",
+                "raw_graph": {
+                    "status": status_code,
+                    "headers": {},
+                    "body": None,
+                    "body_json": _redact_payload(dict(result)),
+                },
+                "error_class": error_class,
+            }
+            emit_trace(trace)
+            raise GraphAPIError(
+                message,
+                status_code=status_code,
+                request_id=None,
+                response=None,
+                code=error,
+                retry_after=None,
+                failure_origin=failure_origin,
+                method="POST",
+                url=token_url,
+                path="/oauth2/v2.0/token",
+                params={},
+                request_headers=safe_request_headers,
+                response_headers=None,
+                response_body=json.dumps(_redact_payload(dict(result))),
+                attempts=attempts,
+                duration_ms=duration_ms,
+                ui_request_id=ui_request_id,
+                correlation_id=correlation_id or (str(ui_request_id) if ui_request_id else None),
+                error_class=error_class,
+                total_attempts=1,
+                tenant_id=self.tenant_id,
+                queue_wait_ms=0,
+                failure_outcome="failed",
+            )
+
         self.token = result["access_token"]
-        self.expires_at = time.time() + int(result["expires_in"])
+        self.expires_at = time.time() + int(result.get("expires_in") or 0)
         self._log(f"Token acquired. Expires at: {self.token_expiry_human()}")
         return self.token
 

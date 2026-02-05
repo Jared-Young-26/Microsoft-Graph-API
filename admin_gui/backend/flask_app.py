@@ -175,7 +175,23 @@ def run_task():
         if response.get("error_class") == "missing_permission":
             hint = "App permission missing or admin consent not granted. Add the permission in Entra and grant admin consent."
         response["hint"] = hint
-        status_code = exc.status_code or 400
+        # Use an operator-meaningful HTTP status (avoid returning 400 for upstream/network failures).
+        status_code = exc.status_code
+        if status_code is None:
+            status_code = response.get("status_code")
+        if status_code is None:
+            failure_source = response.get("failure_source") or response.get("failure_origin")
+            failure_outcome = response.get("failure_outcome")
+            if failure_source == "dashboard_config_error":
+                status_code = 400
+            elif failure_source == "dashboard_http":
+                status_code = 504 if failure_outcome == "timeout" else 502
+            elif failure_source == "dashboard_parse_error":
+                status_code = 502
+            elif failure_source in ("dashboard_guardrail", "dashboard_retry_policy") and failure_outcome == "circuit_open":
+                status_code = 503
+            else:
+                status_code = 502
         return jsonify(response), status_code
     except sqlite3.Error as exc:
         # Surface SQLite/schema issues as a 500 so operators don't confuse them with Graph failures.
@@ -201,6 +217,9 @@ def run_task():
     except Exception as exc:
         message = str(exc)
         lowered = message.lower()
+        # Treat validation / parameter issues as client errors.
+        if isinstance(exc, ValueError):
+            return jsonify({"ok": False, "error": message, "status_code": 400}), 400
         if "missing microsoft configuration variables" in lowered or "missing graph" in lowered:
             return (
                 jsonify(
@@ -236,7 +255,24 @@ def run_task():
                 ),
                 400,
             )
-        return jsonify({"ok": False, "error": message}), 400
+        # Anything else is an internal error. Return JSON (not an HTML debug page) so the UI can render it.
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "failure_source": "dashboard_internal_error",
+                    "failure_outcome": "error",
+                    "error_class": "dashboard_internal_error",
+                    "error": message,
+                    "detail": {"type": exc.__class__.__name__},
+                    "status_code": 500,
+                    "service": service,
+                    "action": action,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ),
+            500,
+        )
     finally:
         if token is not None:
             reset_trace_context(token)

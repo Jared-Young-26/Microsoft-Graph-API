@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 import asyncio
 import json
 import os
+import sqlite3
 import subprocess
 try:
     import pty
@@ -233,13 +235,47 @@ def run_task(task: TaskRequest):
         if response.get("error_class") == "missing_permission":
             hint = "App permission missing or admin consent not granted. Add the permission in Entra and grant admin consent."
         response["hint"] = hint
-        status_code = exc.status_code or 400
+        status_code = exc.status_code
+        if status_code is None:
+            status_code = response.get("status_code")
+        if status_code is None:
+            failure_source = response.get("failure_source") or response.get("failure_origin")
+            failure_outcome = response.get("failure_outcome")
+            if failure_source == "dashboard_config_error":
+                status_code = 400
+            elif failure_source == "dashboard_http":
+                status_code = 504 if failure_outcome == "timeout" else 502
+            elif failure_source == "dashboard_parse_error":
+                status_code = 502
+            elif failure_source in ("dashboard_guardrail", "dashboard_retry_policy") and failure_outcome == "circuit_open":
+                status_code = 503
+            else:
+                status_code = 502
         return JSONResponse(status_code=status_code, content=response)
+    except sqlite3.Error as exc:
+        # Surface SQLite/schema issues as a 500 so operators don't confuse them with Graph failures.
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "failure_source": "dashboard_internal_error",
+                "failure_outcome": "error",
+                "error_class": "db_schema",
+                "error": "Cache schema out of date; migration required.",
+                "detail": {"message": str(exc)},
+                "status_code": 500,
+                "service": task.service,
+                "action": task.action,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
     except PowerShellCommandError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "detail": exc.output})
     except Exception as exc:
         message = str(exc)
         lowered = message.lower()
+        if isinstance(exc, ValueError):
+            return JSONResponse(status_code=400, content={"ok": False, "error": message, "status_code": 400})
         if "missing microsoft configuration variables" in lowered or "missing graph" in lowered:
             return JSONResponse(
                 status_code=400,
@@ -270,7 +306,21 @@ def run_task(task: TaskRequest):
                     "action": task.action,
                 },
             )
-        return JSONResponse(status_code=400, content={"ok": False, "error": message})
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "failure_source": "dashboard_internal_error",
+                "failure_outcome": "error",
+                "error_class": "dashboard_internal_error",
+                "error": message,
+                "detail": {"type": exc.__class__.__name__},
+                "status_code": 500,
+                "service": task.service,
+                "action": task.action,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
     finally:
         if token is not None:
             reset_trace_context(token)

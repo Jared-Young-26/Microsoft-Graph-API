@@ -14064,14 +14064,17 @@ async function fetchStatus() {
   try {
     const res = await fetch("/api/status");
     const data = await res.json();
+    statusBadge.classList.remove("ok", "warn");
     if (data.graph_configured) {
-      statusBadge.textContent = "Graph ready";
+      // Configured != authenticated; use health check for a full readiness report.
+      statusBadge.textContent = "Graph configured";
       statusBadge.classList.add("ok");
     } else {
       statusBadge.textContent = "Graph missing env";
       statusBadge.classList.add("warn");
     }
   } catch (err) {
+    statusBadge.classList.remove("ok", "warn");
     statusBadge.textContent = "API offline";
     statusBadge.classList.add("warn");
   }
@@ -14181,7 +14184,8 @@ function renderSystemStatusSummary(summary) {
     statusLastSnapshot.textContent = formatRelativeTime(summary.last_snapshot_at);
   }
   if (statusGraphReady) {
-    statusGraphReady.textContent = summary.graph_ready ? "Ready" : "Not configured";
+    // "Ready" implies successful auth/control calls; this is a config-level indicator.
+    statusGraphReady.textContent = summary.graph_ready ? "Configured" : "Not configured";
   }
   if (statusPsReady) {
     statusPsReady.textContent = summary.powershell_ready ? "Ready" : "Missing modules";
