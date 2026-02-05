@@ -2,36 +2,45 @@ from microsoft import ServiceClient, PowerShellModuleClient
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 class ExchangeClient(ServiceClient):
+    """Client for Exchange operations."""
     def __init__(self, graph_session, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         super().__init__(graph_session)
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = ExchangePowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def shared_mailbox_sent_items_commands(self, shared_mailbox):
+        """Run shared mailbox sent items commands."""
         return ExchangePowerShellClient.shared_mailbox_sent_items_commands(shared_mailbox)
 
     def shared_mailbox_sent_items_status_command(self, shared_mailbox):
+        """Run shared mailbox sent items status command."""
         return ExchangePowerShellClient.shared_mailbox_sent_items_status_command(shared_mailbox)
 
     def enable_shared_mailbox_sent_items(self, shared_mailbox, execute=False, **powershell_options):
+        """Run enable shared mailbox sent items."""
         commands = self.shared_mailbox_sent_items_commands(shared_mailbox)
         if not execute:
             return "\n".join(commands)
@@ -39,6 +48,7 @@ class ExchangeClient(ServiceClient):
         return ps.enable_shared_mailbox_sent_items(shared_mailbox)
 
     def get_shared_mailbox_sent_items_settings(self, shared_mailbox, execute=False, **powershell_options):
+        """Get shared mailbox sent items settings."""
         command = self.shared_mailbox_sent_items_status_command(shared_mailbox)
         if not execute:
             return command
@@ -46,44 +56,54 @@ class ExchangeClient(ServiceClient):
         return ps.run(command)
 
     def list_mailbox_permissions(self, shared_mailbox, **powershell_options):
+        """List mailbox permissions."""
         ps = self._get_powershell(**powershell_options)
         return ps.list_mailbox_permissions(shared_mailbox)
 
     def add_mailbox_permission(
         self, shared_mailbox, user_id, access_rights="FullAccess", automapping=True, **powershell_options
     ):
+        """Add mailbox permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.add_mailbox_permission(shared_mailbox, user_id, access_rights=access_rights, automapping=automapping)
 
     def remove_mailbox_permission(self, shared_mailbox, user_id, access_rights="FullAccess", **powershell_options):
+        """Remove mailbox permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.remove_mailbox_permission(shared_mailbox, user_id, access_rights=access_rights)
 
     def list_send_as_permissions(self, shared_mailbox, **powershell_options):
+        """List send as permissions."""
         ps = self._get_powershell(**powershell_options)
         return ps.list_send_as_permissions(shared_mailbox)
 
     def add_send_as_permission(self, shared_mailbox, user_id, **powershell_options):
+        """Add send as permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.add_send_as_permission(shared_mailbox, user_id)
 
     def remove_send_as_permission(self, shared_mailbox, user_id, **powershell_options):
+        """Remove send as permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.remove_send_as_permission(shared_mailbox, user_id)
 
     def list_send_on_behalf(self, shared_mailbox, **powershell_options):
+        """List send on behalf."""
         ps = self._get_powershell(**powershell_options)
         return ps.list_send_on_behalf(shared_mailbox)
 
     def add_send_on_behalf(self, shared_mailbox, user_id, **powershell_options):
+        """Add send on behalf."""
         ps = self._get_powershell(**powershell_options)
         return ps.add_send_on_behalf(shared_mailbox, user_id)
 
     def remove_send_on_behalf(self, shared_mailbox, user_id, **powershell_options):
+        """Remove send on behalf."""
         ps = self._get_powershell(**powershell_options)
         return ps.remove_send_on_behalf(shared_mailbox, user_id)
 
     def list_mailbox_folder_permissions(self, shared_mailbox, folder_path="Calendar", **powershell_options):
+        """List mailbox folder permissions."""
         ps = self._get_powershell(**powershell_options)
         return ps.list_mailbox_folder_permissions(shared_mailbox, folder_path)
 
@@ -96,6 +116,7 @@ class ExchangeClient(ServiceClient):
         delegate=False,
         **powershell_options,
     ):
+        """Add mailbox folder permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.add_mailbox_folder_permission(
             shared_mailbox,
@@ -114,6 +135,7 @@ class ExchangeClient(ServiceClient):
         delegate=False,
         **powershell_options,
     ):
+        """Update mailbox folder permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.update_mailbox_folder_permission(
             shared_mailbox,
@@ -124,10 +146,12 @@ class ExchangeClient(ServiceClient):
         )
 
     def remove_mailbox_folder_permission(self, shared_mailbox, folder_path, user_id, **powershell_options):
+        """Remove mailbox folder permission."""
         ps = self._get_powershell(**powershell_options)
         return ps.remove_mailbox_folder_permission(shared_mailbox, folder_path, user_id)
 
     def list_mail_folders(self, user_id="me", include_hidden=False, top=100):
+        """List mail folders."""
         params = {"$top": top}
         if include_hidden:
             params["includeHiddenFolders"] = "true"
@@ -136,11 +160,13 @@ class ExchangeClient(ServiceClient):
         return response.json().get("value", [])
 
     def get_mail_folder(self, folder_id, user_id="me"):
+        """Get mail folder."""
         url = f"/users/{user_id}/mailFolders/{folder_id}" if user_id != "me" else f"/me/mailFolders/{folder_id}"
         response = self.get(url)
         return response.json()
 
     def create_mail_folder(self, display_name, parent_folder_id=None, user_id="me"):
+        """Create mail folder."""
         if parent_folder_id:
             url = f"/users/{user_id}/mailFolders/{parent_folder_id}/childFolders" if user_id != "me" else f"/me/mailFolders/{parent_folder_id}/childFolders"
         else:
@@ -150,6 +176,7 @@ class ExchangeClient(ServiceClient):
         return response.json()
 
     def list_messages(self, user_id="me", top=10, select=None, order_by="receivedDateTime desc"):
+        """List messages."""
         params = {"$top": top, "$orderBy": order_by}
         if select:
             params["$select"] = ",".join(select) if isinstance(select, (list, tuple)) else select
@@ -158,6 +185,7 @@ class ExchangeClient(ServiceClient):
         return response.json().get("value", [])
 
     def list_messages_in_folder(self, folder_id, user_id="me", top=25, select=None, order_by="receivedDateTime desc", filter_query=None, search=None):
+        """List messages in folder."""
         params = {"$top": top, "$orderBy": order_by}
         headers = None
         if select:
@@ -173,39 +201,47 @@ class ExchangeClient(ServiceClient):
         return response.json().get("value", [])
 
     def get_message(self, message_id, user_id="me"):
+        """Get message."""
         url = f"/users/{user_id}/messages/{message_id}" if user_id != "me" else f"/me/messages/{message_id}"
         response = self.get(url)
         return response.json()
 
     def move_message(self, message_id, destination_folder_id, user_id="me"):
+        """Run move message."""
         url = f"/users/{user_id}/messages/{message_id}/move" if user_id != "me" else f"/me/messages/{message_id}/move"
         payload = {"destinationId": destination_folder_id}
         response = self.post(url, json=payload)
         return response.json()
 
     def copy_message(self, message_id, destination_folder_id, user_id="me"):
+        """Run copy message."""
         url = f"/users/{user_id}/messages/{message_id}/copy" if user_id != "me" else f"/me/messages/{message_id}/copy"
         payload = {"destinationId": destination_folder_id}
         response = self.post(url, json=payload)
         return response.json()
 
     def delete_message(self, message_id, user_id="me"):
+        """Delete message."""
         url = f"/users/{user_id}/messages/{message_id}" if user_id != "me" else f"/me/messages/{message_id}"
         self.delete(url)
         return True
 
     def list_message_attachments(self, message_id, user_id="me"):
+        """List message attachments."""
         url = f"/users/{user_id}/messages/{message_id}/attachments" if user_id != "me" else f"/me/messages/{message_id}/attachments"
         response = self.get(url)
         return response.json().get("value", [])
 
     def get_attachment(self, message_id, attachment_id, user_id="me"):
+        """Get attachment."""
         url = f"/users/{user_id}/messages/{message_id}/attachments/{attachment_id}" if user_id != "me" else f"/me/messages/{message_id}/attachments/{attachment_id}"
         response = self.get(url)
         return response.json()
 
     def send_mail(self, subject, body, to_recipients, cc_recipients=None, bcc_recipients=None, user_id="me"):
+        """Run send mail."""
         def _format_recipients(recipients):
+            """Internal helper for format recipients."""
             return [{"emailAddress": {"address": r}} for r in recipients]
 
         message = {
@@ -233,7 +269,9 @@ class ExchangeClient(ServiceClient):
         bcc_recipients=None,
         reply_to=None,
     ):
+        """Run send mail from shared mailbox."""
         def _format_recipients(recipients):
+            """Internal helper for format recipients."""
             return [{"emailAddress": {"address": r}} for r in recipients]
 
         message = {
@@ -262,16 +300,19 @@ class ExchangeClient(ServiceClient):
         return True
 
     def list_calendars(self, user_id="me"):
+        """List calendars."""
         url = f"/users/{user_id}/calendars" if user_id != "me" else "/me/calendars"
         response = self.get(url)
         return response.json().get("value", [])
 
     def get_calendar(self, calendar_id, user_id="me"):
+        """Get calendar."""
         url = f"/users/{user_id}/calendars/{calendar_id}" if user_id != "me" else f"/me/calendars/{calendar_id}"
         response = self.get(url)
         return response.json()
 
     def create_calendar(self, name, color=None, user_id="me"):
+        """Create calendar."""
         payload = {"name": name}
         if color:
             payload["color"] = color
@@ -280,16 +321,19 @@ class ExchangeClient(ServiceClient):
         return response.json()
 
     def update_calendar(self, calendar_id, updates, user_id="me"):
+        """Update calendar."""
         url = f"/users/{user_id}/calendars/{calendar_id}" if user_id != "me" else f"/me/calendars/{calendar_id}"
         response = self.patch(url, json=updates)
         return response.json()
 
     def delete_calendar(self, calendar_id, user_id="me"):
+        """Delete calendar."""
         url = f"/users/{user_id}/calendars/{calendar_id}" if user_id != "me" else f"/me/calendars/{calendar_id}"
         self.delete(url)
         return True
 
     def list_events(self, user_id="me", start_iso=None, end_iso=None, top=25, select=None, order_by=None):
+        """List events."""
         params = {"$top": top}
         if select:
             params["$select"] = ",".join(select) if isinstance(select, (list, tuple)) else select
@@ -306,6 +350,7 @@ class ExchangeClient(ServiceClient):
         return response.json().get("value", [])
 
     def list_calendar_events(self, calendar_id, user_id="me", start_iso=None, end_iso=None, top=25, select=None, order_by=None):
+        """List calendar events."""
         params = {"$top": top}
         if select:
             params["$select"] = ",".join(select) if isinstance(select, (list, tuple)) else select
@@ -322,6 +367,7 @@ class ExchangeClient(ServiceClient):
         return response.json().get("value", [])
 
     def create_calendar_event(self, subject, start_iso, end_iso, time_zone="UTC", attendees=None, user_id="me"):
+        """Create calendar event."""
         event = {
             "subject": subject,
             "start": {"dateTime": start_iso, "timeZone": time_zone},
@@ -335,33 +381,39 @@ class ExchangeClient(ServiceClient):
         return response.json()
 
     def get_event(self, event_id, user_id="me"):
+        """Get event."""
         url = f"/users/{user_id}/events/{event_id}" if user_id != "me" else f"/me/events/{event_id}"
         response = self.get(url)
         return response.json()
 
     def get_event_instances(self, event_id, start_iso, end_iso, user_id="me"):
+        """Get event instances."""
         params = {"startDateTime": start_iso, "endDateTime": end_iso}
         url = f"/users/{user_id}/events/{event_id}/instances" if user_id != "me" else f"/me/events/{event_id}/instances"
         response = self.get(url, params=params)
         return response.json().get("value", [])
 
     def update_event(self, event_id, updates, user_id="me"):
+        """Update event."""
         url = f"/users/{user_id}/events/{event_id}" if user_id != "me" else f"/me/events/{event_id}"
         response = self.patch(url, json=updates)
         return response.json()
 
     def delete_event(self, event_id, user_id="me"):
+        """Delete event."""
         url = f"/users/{user_id}/events/{event_id}" if user_id != "me" else f"/me/events/{event_id}"
         self.delete(url)
         return True
 
     def cancel_event(self, event_id, comment=None, user_id="me"):
+        """Run cancel event."""
         payload = {"comment": comment} if comment else {}
         url = f"/users/{user_id}/events/{event_id}/cancel" if user_id != "me" else f"/me/events/{event_id}/cancel"
         self.post(url, json=payload)
         return True
 
     def respond_to_event(self, event_id, response="accept", comment=None, send_response=True, user_id="me"):
+        """Run respond to event."""
         action = {
             "accept": "accept",
             "tentative": "tentativelyAccept",
@@ -377,17 +429,20 @@ class ExchangeClient(ServiceClient):
         return True
 
     def list_event_attachments(self, event_id, user_id="me"):
+        """List event attachments."""
         url = f"/users/{user_id}/events/{event_id}/attachments" if user_id != "me" else f"/me/events/{event_id}/attachments"
         response = self.get(url)
         return response.json().get("value", [])
 
     def add_event_attachment(self, event_id, attachment, user_id="me"):
+        """Add event attachment."""
         url = f"/users/{user_id}/events/{event_id}/attachments" if user_id != "me" else f"/me/events/{event_id}/attachments"
         response = self.post(url, json=attachment)
         return response.json()
 
 
 class ExchangePowerShellClient(PowerShellModuleClient):
+    """Client for Exchange Power Shell operations."""
     def __init__(
         self,
         session=None,
@@ -397,6 +452,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         show_banner=False,
         pwsh_path="pwsh",
     ):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.auth_mode = auth_mode
         self.user_principal_name = user_principal_name
@@ -405,6 +461,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
 
     @staticmethod
     def shared_mailbox_sent_items_commands(shared_mailbox):
+        """Run shared mailbox sent items commands."""
         mailbox = _ps_quote(shared_mailbox)
         return [
             f"Set-Mailbox -Identity '{mailbox}' -MessageCopyForSentAsEnabled $true",
@@ -413,6 +470,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
 
     @staticmethod
     def shared_mailbox_sent_items_status_command(shared_mailbox):
+        """Run shared mailbox sent items status command."""
         mailbox = _ps_quote(shared_mailbox)
         return (
             "Get-Mailbox "
@@ -421,6 +479,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         )
 
     def list_mailbox_permissions(self, shared_mailbox):
+        """List mailbox permissions."""
         mailbox = _ps_quote(shared_mailbox)
         cmd = (
             "Get-MailboxPermission "
@@ -430,6 +489,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run_json(cmd)
 
     def add_mailbox_permission(self, shared_mailbox, user_id, access_rights="FullAccess", automapping=True):
+        """Add mailbox permission."""
         mailbox = _ps_quote(shared_mailbox)
         user = _ps_quote(user_id)
         rights = access_rights or "FullAccess"
@@ -442,6 +502,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def remove_mailbox_permission(self, shared_mailbox, user_id, access_rights="FullAccess"):
+        """Remove mailbox permission."""
         mailbox = _ps_quote(shared_mailbox)
         user = _ps_quote(user_id)
         rights = access_rights or "FullAccess"
@@ -453,6 +514,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def list_send_as_permissions(self, shared_mailbox):
+        """List send as permissions."""
         mailbox = _ps_quote(shared_mailbox)
         cmd = (
             "Get-RecipientPermission "
@@ -462,6 +524,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run_json(cmd)
 
     def add_send_as_permission(self, shared_mailbox, user_id):
+        """Add send as permission."""
         mailbox = _ps_quote(shared_mailbox)
         user = _ps_quote(user_id)
         cmd = (
@@ -472,6 +535,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def remove_send_as_permission(self, shared_mailbox, user_id):
+        """Remove send as permission."""
         mailbox = _ps_quote(shared_mailbox)
         user = _ps_quote(user_id)
         cmd = (
@@ -482,6 +546,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def list_send_on_behalf(self, shared_mailbox):
+        """List send on behalf."""
         mailbox = _ps_quote(shared_mailbox)
         cmd = (
             "Get-Mailbox "
@@ -491,6 +556,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run_json(cmd)
 
     def add_send_on_behalf(self, shared_mailbox, user_id):
+        """Add send on behalf."""
         mailbox = _ps_quote(shared_mailbox)
         user = _ps_quote(user_id)
         cmd = (
@@ -501,6 +567,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def remove_send_on_behalf(self, shared_mailbox, user_id):
+        """Remove send on behalf."""
         mailbox = _ps_quote(shared_mailbox)
         user = _ps_quote(user_id)
         cmd = (
@@ -511,11 +578,13 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def _folder_identity(self, mailbox, folder_path):
+        """Internal helper for folder identity."""
         folder = (folder_path or "Calendar").strip()
         folder = folder.lstrip("\\/")
         return f"{mailbox}:\\{folder}"
 
     def list_mailbox_folder_permissions(self, shared_mailbox, folder_path="Calendar"):
+        """List mailbox folder permissions."""
         identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
         cmd = (
             "Get-MailboxFolderPermission "
@@ -527,6 +596,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
     def add_mailbox_folder_permission(
         self, shared_mailbox, folder_path, user_id, access_rights="Editor", delegate=False
     ):
+        """Add mailbox folder permission."""
         identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
         user = _ps_quote(user_id)
         rights = access_rights or "Editor"
@@ -541,6 +611,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
     def update_mailbox_folder_permission(
         self, shared_mailbox, folder_path, user_id, access_rights="Editor", delegate=False
     ):
+        """Update mailbox folder permission."""
         identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
         user = _ps_quote(user_id)
         rights = access_rights or "Editor"
@@ -553,6 +624,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def remove_mailbox_folder_permission(self, shared_mailbox, folder_path, user_id):
+        """Remove mailbox folder permission."""
         identity = _ps_quote(self._folder_identity(shared_mailbox, folder_path))
         user = _ps_quote(user_id)
         cmd = (
@@ -562,6 +634,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return self.run(cmd)
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         parts = ["Import-Module ExchangeOnlineManagement"]
         cmd = "Connect-ExchangeOnline"
         if self.auth_mode == "device":
@@ -576,14 +649,17 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return ";\n".join(parts)
 
     def enable_shared_mailbox_sent_items(self, shared_mailbox):
+        """Run enable shared mailbox sent items."""
         commands = self.shared_mailbox_sent_items_commands(shared_mailbox)
         script = ";\n".join(commands)
         return self.run(script)
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return "Disconnect-ExchangeOnline -Confirm:$false"
 
     def list_contacts(self, user_id="me", top=25, select=None):
+        """List contacts."""
         params = {"$top": top}
         if select:
             params["$select"] = ",".join(select) if isinstance(select, (list, tuple)) else select
@@ -592,6 +668,7 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return response.json().get("value", [])
 
     def create_contact(self, given_name, surname, email, user_id="me", **extra_fields):
+        """Create contact."""
         payload = {
             "givenName": given_name,
             "surname": surname,
@@ -603,11 +680,13 @@ class ExchangePowerShellClient(PowerShellModuleClient):
         return response.json()
 
     def update_contact(self, contact_id, updates, user_id="me"):
+        """Update contact."""
         url = f"/users/{user_id}/contacts/{contact_id}" if user_id != "me" else f"/me/contacts/{contact_id}"
         response = self.patch(url, json=updates)
         return response.json()
 
     def delete_contact(self, contact_id, user_id="me"):
+        """Delete contact."""
         url = f"/users/{user_id}/contacts/{contact_id}" if user_id != "me" else f"/me/contacts/{contact_id}"
         self.delete(url)
         return True

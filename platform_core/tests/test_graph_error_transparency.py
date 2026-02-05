@@ -8,6 +8,7 @@ from platform_core.graph_error_transparency import build_graph_error_response
 
 
 def _response(status: int, body: str, headers: dict | None = None) -> requests.Response:
+    """Internal helper for response."""
     resp = requests.Response()
     resp.status_code = status
     resp._content = body.encode("utf-8")
@@ -19,7 +20,9 @@ def _response(status: int, body: str, headers: dict | None = None) -> requests.R
 
 
 class GraphErrorTransparencyTests(unittest.TestCase):
+    """Graph Error Transparency Tests."""
     def test_503_unknown_error_empty_message_preserved(self):
+        """Run test 503 unknown error empty message preserved."""
         body = json.dumps(
             {
                 "error": {
@@ -53,6 +56,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["failure_source"], "graph_upstream")
 
     def test_403_classified_missing_permission(self):
+        """Run test 403 classified missing permission."""
         body = json.dumps(
             {
                 "error": {
@@ -73,6 +77,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["failure_source"], "graph_upstream")
 
     def test_401_classified_auth(self):
+        """Run test 401 classified auth."""
         body = json.dumps({"error": {"code": "InvalidAuthenticationToken", "message": "Access token is empty."}})
         resp = _response(401, body, headers={"Content-Type": "application/json"})
         exc = GraphAPIError("Graph request failed (401)", status_code=401, response=resp, code="InvalidAuthenticationToken")
@@ -80,6 +85,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["error_class"], "auth")
 
     def test_429_retry_after_suggested_wait(self):
+        """Run test 429 retry after suggested wait."""
         body = json.dumps({"error": {"code": "TooManyRequests", "message": "Too many requests."}})
         resp = _response(429, body, headers={"Content-Type": "application/json", "Retry-After": "7"})
         exc = GraphAPIError("Transient Graph Error 429", status_code=429, response=resp, code="TooManyRequests")
@@ -88,6 +94,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["error_class"], "throttling")
 
     def test_malformed_json_body_classified_parse_error(self):
+        """Run test malformed json body classified parse error."""
         resp = _response(503, "{not-json", headers={"Content-Type": "application/json"})
         exc = GraphAPIError("Transient Graph Error 503", status_code=503, response=resp)
         payload = build_graph_error_response(exc)
@@ -95,6 +102,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertIsNone(payload["raw_graph"]["body_json"])
 
     def test_503_retry_exhausted_is_graph_upstream(self):
+        """Run test 503 retry exhausted is graph upstream."""
         body = json.dumps({"error": {"code": "UnknownError", "message": ""}})
         resp = _response(503, body, headers={"Content-Type": "application/json", "request-id": "req-503"})
         exc = GraphAPIError(
@@ -117,6 +125,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload.get("route_group"), "onedrive.resolve_drive")
 
     def test_upstream_artifacts_override_dashboard_retry_policy_origin(self):
+        """Run test upstream artifacts override dashboard retry policy origin."""
         body = json.dumps({"error": {"code": "UnknownError", "message": ""}})
         resp = _response(
             503,
@@ -140,6 +149,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["failure_source"], "graph_upstream")
 
     def test_circuit_open_is_dashboard_guardrail_and_has_no_raw_graph(self):
+        """Run test circuit open is dashboard guardrail and has no raw graph."""
         exc = GraphAPIError(
             "Circuit breaker open for route group 'onedrive.resolve_drive'.",
             status_code=503,
@@ -161,8 +171,33 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["failure_outcome"], "circuit_open")
         self.assertEqual(payload["error_class"], "circuit_open")
         self.assertIsNone(payload.get("raw_graph"))
+        # Circuit breaker guardrails should not look like an upstream Graph 503 response.
+        self.assertIsNone(payload.get("status_code"))
+        self.assertEqual(payload.get("synthetic_status"), 503)
+
+    def test_license_gated_error_classified_tenant_license_required(self):
+        """Run test license gated error classified tenant license required."""
+        body = json.dumps(
+            {
+                "error": {
+                    "code": "Authentication_RequestFromNonPremiumTenantOrB2CTenant",
+                    "message": "Tenant doesn't have premium license",
+                }
+            }
+        )
+        resp = _response(403, body, headers={"Content-Type": "application/json"})
+        exc = GraphAPIError(
+            "Graph request failed (403) [Authentication_RequestFromNonPremiumTenantOrB2CTenant]: Tenant doesn't have premium license",
+            status_code=403,
+            response=resp,
+            code="Authentication_RequestFromNonPremiumTenantOrB2CTenant",
+        )
+        payload = build_graph_error_response(exc, service="entra", action="sign_in_summary")
+        self.assertEqual(payload["error_class"], "tenant_license_required")
+        self.assertEqual(payload["failure_source"], "graph_upstream")
 
     def test_config_error_source_classification(self):
+        """Run test config error source classification."""
         exc = GraphAPIError(
             "Graph handler not configured",
             status_code=None,
@@ -173,6 +208,7 @@ class GraphErrorTransparencyTests(unittest.TestCase):
         self.assertEqual(payload["failure_source"], "dashboard_config_error")
 
     def test_parse_error_source_when_status_200(self):
+        """Run test parse error source when status 200."""
         resp = _response(200, "{not-json", headers={"Content-Type": "application/json"})
         exc = GraphAPIError("Parse error", status_code=200, response=resp)
         payload = build_graph_error_response(exc, service="system", action="graph_check")

@@ -6,7 +6,9 @@ from platform_core.signal_providers import VISION_U_EYE_PROVIDER, attach_signal
 
 
 class TestVisualSignalIntegration(unittest.TestCase):
+    """Test Visual Signal Integration."""
     def test_golden_payload(self) -> None:
+        """Run test golden payload."""
         repo_root = Path(__file__).resolve().parents[2]
         sample_path = repo_root / "contracts" / "examples" / "vision_u_eye.sample.json"
         payload = json.loads(sample_path.read_text(encoding="utf-8"))

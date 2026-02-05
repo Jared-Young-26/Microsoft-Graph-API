@@ -20,14 +20,17 @@ PROFILE_ORDER = {"core": 0, "troubleshoot": 1, "deep": 2}
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _profile_allows(profile: str, minimum: str) -> bool:
+    """Internal helper for profile allows."""
     return PROFILE_ORDER.get(profile, 0) >= PROFILE_ORDER.get(minimum, 0)
 
 
 def _extract_kind(subject: Any) -> str:
+    """Internal helper for extract kind."""
     if isinstance(subject, Subject):
         return subject.kind
     if isinstance(subject, dict):
@@ -36,6 +39,7 @@ def _extract_kind(subject: Any) -> str:
 
 
 def _resolve_subject(resolver: EntityResolver, subject: Any) -> Subject:
+    """Resolve subject."""
     if isinstance(subject, Subject):
         resolver.store.upsert_entity(subject.canonical_id, subject.kind, display_name=subject.display_name)
         for alias in subject.aliases:
@@ -87,6 +91,7 @@ def _resolve_subject(resolver: EntityResolver, subject: Any) -> Subject:
 
 
 def _select_probes(subject_kind: str, profile: str, registry: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Internal helper for select probes."""
     selected = []
     for entry in registry:
         if subject_kind not in (entry.get("subject_kinds") or []):
@@ -98,6 +103,7 @@ def _select_probes(subject_kind: str, profile: str, registry: Iterable[Dict[str,
 
 
 def _probe_runner(tool: str):
+    """Internal helper for probe runner."""
     if tool == "graph":
         return run_graph_probe
     if tool == "powershell":
@@ -108,6 +114,7 @@ def _probe_runner(tool: str):
 
 
 def _infer_relationships(subject: Subject, lens: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Internal helper for infer relationships."""
     relationships: List[Dict[str, Any]] = []
     if subject.kind == "user":
         groups = ((lens.get("authz") or {}).get("access") or {}).get("group_memberships") or []
@@ -182,6 +189,7 @@ def _emit_time_signals(
     lens: Dict[str, Any],
     context: Dict[str, Any],
 ) -> None:
+    """Internal helper for emit time signals."""
     health = lens.get("health") or {}
     time_info = health.get("time") or {}
     thresholds = context.get("time_thresholds") or {}
@@ -240,11 +248,13 @@ def _emit_time_signals(
 
 @dataclass
 class SnapshotEngine:
+    """Snapshot Engine."""
     store: SnapshotSqlStore
     resolver: EntityResolver
     registry: Iterable[Dict[str, Any]] = tuple(PROBE_REGISTRY)
 
     def capture_snapshot(self, subject: Any, profile: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Capture snapshot."""
         resolved_subject = _resolve_subject(self.resolver, subject)
         subject_kind = resolved_subject.kind
         probes = _select_probes(subject_kind, profile, self.registry)

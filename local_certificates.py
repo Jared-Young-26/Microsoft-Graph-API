@@ -3,20 +3,25 @@ from microsoft import is_powershell_envelope
 
 
 def _unwrap(result):
+    """Internal helper for unwrap."""
     if is_powershell_envelope(result):
         return result.get("data")
     return result
 
 
 class LocalCertificateClient:
+    """Client for Local Certificate operations."""
     def __init__(self, powershell=None, config=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._config = config or {}
 
     def _context(self):
+        """Internal helper for context."""
         return {"powershell": self._powershell}
 
     def list_machine_certificates(self, stores=None, expiring_days=None):
+        """List machine certificates."""
         if stores is None:
             stores = self._config.get("cert_stores") or ["My", "Root", "CA"]
         if expiring_days is None:
@@ -30,6 +35,7 @@ class LocalCertificateClient:
         return _unwrap(result)
 
     def tls_probe(self, targets=None, port=443):
+        """Run tls probe."""
         if targets is None:
             targets = self._config.get("tls_endpoints") or [
                 "graph.microsoft.com",

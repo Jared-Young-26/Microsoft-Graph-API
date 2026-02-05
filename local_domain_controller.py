@@ -4,10 +4,12 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _ps_value(value):
+    """Internal helper for ps value."""
     if isinstance(value, bool):
         return "$true" if value else "$false"
     if value is None:
@@ -20,6 +22,7 @@ def _ps_value(value):
 
 
 def _ps_params(params):
+    """Internal helper for ps params."""
     parts = []
     for key, value in (params or {}).items():
         if value is None:
@@ -29,6 +32,7 @@ def _ps_params(params):
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -39,31 +43,39 @@ def _wrap_envelope(result, payload_builder):
 
 
 class LocalDomainControllerClient:
+    """Client for Local Domain Controller operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalDomainControllerPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def _parse_replsummary(self, text):
+        """Parse replsummary."""
         lines = str(text or "").splitlines()
         rows = []
         for line in lines:
@@ -97,6 +109,7 @@ class LocalDomainControllerClient:
         return rows
 
     def _parse_fsmo_output(self, text):
+        """Parse fsmo output."""
         lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
         role_map = {}
         ordered_roles = [
@@ -119,6 +132,7 @@ class LocalDomainControllerClient:
         return role_map
 
     def _parse_nltest_dclist(self, text):
+        """Parse nltest dclist."""
         controllers = []
         for line in str(text or "").splitlines():
             stripped = line.strip()
@@ -149,6 +163,7 @@ class LocalDomainControllerClient:
         return controllers
 
     def _normalize_dc_inventory(self, data):
+        """Normalize dc inventory."""
         if data is None:
             return []
         rows = data if isinstance(data, list) else [data]
@@ -179,6 +194,7 @@ class LocalDomainControllerClient:
         return normalized
 
     def _parse_dcdiag_output(self, text):
+        """Parse dcdiag output."""
         findings = []
         current_test = None
         for line in str(text or "").splitlines():
@@ -211,6 +227,7 @@ class LocalDomainControllerClient:
         return findings
 
     def _parse_w32tm_status(self, text):
+        """Parse w32tm status."""
         data = {}
         for line in str(text or "").splitlines():
             if ":" not in line:
@@ -234,6 +251,7 @@ class LocalDomainControllerClient:
         return data
 
     def _parse_w32tm_monitor(self, text):
+        """Parse w32tm monitor."""
         entries = []
         for line in str(text or "").splitlines():
             stripped = line.strip()
@@ -273,6 +291,7 @@ class LocalDomainControllerClient:
         return entries
 
     def _evaluate_time_sync_flags(self, status, monitor):
+        """Internal helper for evaluate time sync flags."""
         flags = {"level": "ok", "skew_seconds": None, "anomalies": []}
         offsets = []
         status_offset = status.get("_offset_seconds") if isinstance(status, dict) else None
@@ -304,6 +323,7 @@ class LocalDomainControllerClient:
         return flags
 
     def _recommend_dcdiag_followups(self, message, test_name=None):
+        """Internal helper for recommend dcdiag followups."""
         text = f"{test_name or ''} {message or ''}".lower()
         recommendations = []
         if "dns" in text:
@@ -358,9 +378,11 @@ class LocalDomainControllerClient:
         return deduped
 
     def _normalize_key(self, key):
+        """Normalize key."""
         return re.sub(r"[^a-z0-9]+", "", str(key or "").lower())
 
     def _extract_error_code(self, value):
+        """Internal helper for extract error code."""
         if value is None:
             return None
         text = str(value)
@@ -376,6 +398,7 @@ class LocalDomainControllerClient:
         return None
 
     def _normalize_showrepl_rows(self, rows):
+        """Normalize showrepl rows."""
         if not rows:
             return []
         normalized = []
@@ -385,6 +408,7 @@ class LocalDomainControllerClient:
             normalized_row = {self._normalize_key(k): v for k, v in row.items()}
 
             def pick(*keys):
+                """Run pick."""
                 for key in keys:
                     value = normalized_row.get(self._normalize_key(key))
                     if value not in (None, ""):
@@ -420,6 +444,7 @@ class LocalDomainControllerClient:
         return normalized
 
     def _parse_showrepl_text(self, text):
+        """Parse showrepl text."""
         entries = []
         current_context = None
         current = None
@@ -709,62 +734,82 @@ class LocalDomainControllerClient:
 
     # Backwards-compatible aliases.
     def replication_summary(self):
+        """Run replication summary."""
         return self.get_replication_health_summary()
 
     def show_replication(self, dc):
+        """Run show replication."""
         return self.get_replication_partners_for_dc(dc)
 
     def replication_queue(self, dc):
+        """Run replication queue."""
         return self.get_replication_queue_for_dc(dc)
 
     def replication_sync_all(self, dc, flags="AdeP"):
+        """Run replication sync all."""
         return self.force_replication_sync_all(dc, flags=flags, execute=True)
 
     def dc_health_check(self):
+        """Run dc health check."""
         return self.run_dc_health_checks(verbose=True)
 
     def nltest_list_dcs(self, domain):
+        """Run nltest list dcs."""
         return self.list_domain_controllers_via_nltest(domain)
 
     def nltest_get_dc(self, domain):
+        """Run nltest get dc."""
         return self.get_current_dc_for_domain(domain)
 
     def replication_partner_metadata(self, dc=None):
+        """Run replication partner metadata."""
         return self.get_replication_partner_metadata(dc=dc)
 
     def replication_failures(self, dc=None):
+        """Run replication failures."""
         return self.get_replication_failures(dc=dc)
 
     def replication_queue_ops(self, dc=None):
+        """Run replication queue ops."""
         return self.get_replication_queue_operations(dc=dc)
 
     def get_forest_info(self):
+        """Get forest info."""
         return self.get_forest_facts()
 
     def get_domain_info(self):
+        """Get domain info."""
         return self.get_domain_facts()
 
     def query_fsmo_roles(self):
+        """Run query fsmo roles."""
         return self.list_fsmo_role_holders()
 
     def sysvol_migration_state(self):
+        """Run sysvol migration state."""
         return self.get_sysvol_migration_state()
 
     def time_status(self):
+        """Run time status."""
         return self.get_time_sync_status()
 
     def time_monitor(self, domain=None):
+        """Run time monitor."""
         return self.monitor_time_sync(domain=domain)
 
 
 class LocalDomainControllerPowerShellClient(PowerShellModuleClient):
+    """Client for Local Domain Controller Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         return self.connect_script
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

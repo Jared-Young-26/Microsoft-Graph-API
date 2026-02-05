@@ -7,6 +7,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def load_fixture(probe_id: str):
+    """Run load fixture."""
     if not probe_id:
         return None
     filename = f"{probe_id}.json"

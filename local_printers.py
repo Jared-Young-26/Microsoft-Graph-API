@@ -4,10 +4,12 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _unwrap_or_error(result):
+    """Internal helper for unwrap or error."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return None, result
@@ -16,31 +18,39 @@ def _unwrap_or_error(result):
 
 
 class LocalPrinterClient:
+    """Client for Local Printer operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalPrinterPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def list_printers(self, name=None, include_configuration=False):
+        """List printers."""
         name_filter = _ps_quote(name or "")
         include_flag = "$true" if include_configuration else "$false"
         script = f"""
@@ -73,6 +83,7 @@ class LocalPrinterClient:
         return self._get_powershell().run_json(script)
 
     def list_gpo_printer_mappings(self, name=None, include_empty=False):
+        """List gpo printer mappings."""
         name_filter = _ps_quote(name or "")
         include_flag = "$true" if include_empty else "$false"
         script = f"""
@@ -108,10 +119,12 @@ class LocalPrinterClient:
         return self._get_powershell().run_json(script)
 
     def cross_reference_printers_gpo(self, name=None, include_unmapped=True):
+        """Run cross reference printers gpo."""
         printers = self.list_printers(name=name, include_configuration=False)
         gpo_mappings = self.list_gpo_printer_mappings()
 
         def _ensure_list(value):
+            """Ensure list."""
             if value is None:
                 return []
             if isinstance(value, list):
@@ -218,15 +231,19 @@ class LocalPrinterClient:
 
 
 class LocalPrinterPowerShellClient(PowerShellModuleClient):
+    """Client for Local Printer Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         if self.connect_script:
             return self.connect_script
         return "Import-Module PrintManagement; Import-Module GroupPolicy"
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

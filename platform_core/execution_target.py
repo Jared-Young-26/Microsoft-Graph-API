@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExecutionTarget(BaseModel):
+    """Execution Target."""
     model_config = ConfigDict(extra="allow")
 
     type: str = "local"
@@ -17,6 +18,7 @@ class ExecutionTarget(BaseModel):
     name: Optional[str] = None
 
     def label(self) -> str:
+        """Run label."""
         if self.type == "local":
             return "local"
         if self.type == "graph":

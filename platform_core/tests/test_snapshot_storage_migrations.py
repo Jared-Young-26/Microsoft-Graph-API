@@ -8,17 +8,21 @@ from platform_core.snapshot_storage import SnapshotSqlStore
 
 
 def _now_iso():
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 class TestSnapshotStorageMigrations(unittest.TestCase):
+    """Test Snapshot Storage Migrations."""
     def _db_path(self) -> Path:
+        """Internal helper for db path."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return Path(tmp.name) / "snapshots.sqlite"
 
     def _create_legacy_onedrive_cache(self, path: Path) -> None:
         # Legacy schema: missing user_object_id, drive_type, source.
+        """Create legacy onedrive cache."""
         with sqlite3.connect(str(path)) as conn:
             conn.execute(
                 """
@@ -51,6 +55,7 @@ class TestSnapshotStorageMigrations(unittest.TestCase):
 
     def _create_legacy_onedrive_pending(self, path: Path) -> None:
         # Legacy schema: missing paused/last_error_class/last_error_at, next_run_at may be NULL.
+        """Create legacy onedrive pending."""
         with sqlite3.connect(str(path)) as conn:
             conn.execute(
                 """
@@ -75,6 +80,7 @@ class TestSnapshotStorageMigrations(unittest.TestCase):
             conn.commit()
 
     def test_migrate_onedrive_cache_adds_user_object_id(self):
+        """Run test migrate onedrive cache adds user object id."""
         path = self._db_path()
         self._create_legacy_onedrive_cache(path)
 
@@ -112,6 +118,7 @@ class TestSnapshotStorageMigrations(unittest.TestCase):
             self.assertTrue(row[2] in ("primary", "fallback"))
 
     def test_onedrive_cache_table_created_when_missing(self):
+        """Run test onedrive cache table created when missing."""
         path = self._db_path()
         store = SnapshotSqlStore(path)
 
@@ -136,6 +143,7 @@ class TestSnapshotStorageMigrations(unittest.TestCase):
             self.assertIn("source", cols)
 
     def test_migration_is_idempotent(self):
+        """Run test migration is idempotent."""
         path = self._db_path()
         self._create_legacy_onedrive_cache(path)
 
@@ -147,6 +155,7 @@ class TestSnapshotStorageMigrations(unittest.TestCase):
         store2.get_onedrive_drive_cache(tenant_id="tenant-1", user_upn="alice@contoso.com", allow_expired=True)
 
     def test_migrate_onedrive_pending_backfills_next_run_and_paused(self):
+        """Run test migrate onedrive pending backfills next run and paused."""
         path = self._db_path()
         self._create_legacy_onedrive_pending(path)
 

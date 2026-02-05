@@ -15,19 +15,23 @@ from .snapshot_storage import SnapshotSqlStore
 
 
 def _now() -> datetime:
+    """Internal helper for now."""
     return datetime.now(timezone.utc)
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return _now().isoformat()
 
 
 def _is_probably_upn(value: str) -> bool:
+    """Return True if probably upn."""
     text = str(value or "").strip()
     return "@" in text and " " not in text
 
 
 def _cache_keys(user_upn_or_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """Internal helper for cache keys."""
     value = str(user_upn_or_id or "").strip()
     if not value:
         return None, None
@@ -48,6 +52,7 @@ def _encode_personal_token(value: str) -> str:
 
 
 def _personal_site_segment_from_upn(upn: str) -> str | None:
+    """Internal helper for personal site segment from upn."""
     upn = str(upn or "").strip()
     if not _is_probably_upn(upn):
         return None
@@ -60,6 +65,7 @@ def _personal_site_segment_from_upn(upn: str) -> str | None:
 
 
 def _derive_personal_host(spo_admin_url: str | None) -> str | None:
+    """Internal helper for derive personal host."""
     if not spo_admin_url:
         return None
     raw = str(spo_admin_url).strip()
@@ -89,6 +95,7 @@ def _derive_personal_host(spo_admin_url: str | None) -> str | None:
 
 @dataclass(frozen=True)
 class DriveIdResolution:
+    """Drive Id Resolution."""
     drive_id: str
     web_url: Optional[str] = None
     drive_type: Optional[str] = None
@@ -103,6 +110,7 @@ class DriveIdResolution:
     source: str = "primary"
 
     def to_payload(self) -> Dict[str, Any]:
+        """Run to payload."""
         return {
             "id": self.drive_id,
             "drive_id": self.drive_id,
@@ -261,6 +269,7 @@ def resolve_onedrive_drive_id(
             }
 
     def _suggest_pending_delay_seconds(exc: GraphAPIError) -> int:
+        """Internal helper for suggest pending delay seconds."""
         circuit = getattr(exc, "circuit", None)
         if isinstance(circuit, dict):
             remaining = circuit.get("remaining_seconds") or circuit.get("remainingSeconds")
@@ -289,6 +298,7 @@ def resolve_onedrive_drive_id(
         return 120
 
     def _enqueue_pending(identifier: str, exc: GraphAPIError) -> Dict[str, Any]:
+        """Internal helper for enqueue pending."""
         identifier = str(identifier or "").strip().lower()
         if not identifier:
             return {"enqueued": False, "error": "missing_identifier"}
@@ -303,6 +313,7 @@ def resolve_onedrive_drive_id(
         )
 
     def _build_pending_payload(identifier: str, exc: GraphAPIError) -> Dict[str, Any]:
+        """Build pending payload."""
         pending = _enqueue_pending(identifier, exc)
         if isinstance(pending, dict):
             pending.setdefault("max_attempts", int(pending_max_attempts or 10))
@@ -334,6 +345,7 @@ def resolve_onedrive_drive_id(
         }
 
     def _fetch_user_object_id(*, upn: str, budget_s: int) -> Tuple[str, str]:
+        """Internal helper for fetch user object id."""
         safe_upn = quote(str(upn), safe="")
         response = graph.get(
             f"/users/{safe_upn}",
@@ -350,6 +362,7 @@ def resolve_onedrive_drive_id(
         return str(obj_id), str(resolved).strip().lower()
 
     def _fetch_drive(*, object_id: str, budget_s: int) -> Dict[str, Any]:
+        """Internal helper for fetch drive."""
         safe_id = quote(str(object_id), safe="")
         response = graph.get(
             f"/users/{safe_id}/drive",

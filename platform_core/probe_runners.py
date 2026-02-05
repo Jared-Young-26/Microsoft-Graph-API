@@ -17,14 +17,17 @@ except Exception:  # pragma: no cover - optional import for non-graph contexts
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _duration_ms(start: float) -> int:
+    """Internal helper for duration ms."""
     return int((time.monotonic() - start) * 1000)
 
 
 def _severity_for(ok: bool, data: Any, error_class: str | None = None) -> str:
+    """Internal helper for severity for."""
     if ok:
         if isinstance(data, dict):
             if data.get("missing") or data.get("partial") or data.get("errors"):
@@ -33,6 +36,8 @@ def _severity_for(ok: bool, data: Any, error_class: str | None = None) -> str:
     if error_class in (
         "missing_module",
         "missing_permission",
+        "tenant_license_required",
+        "dashboard_config_error",
         "throttling",
         "transient_upstream",
         "transient_upstream_persistent",
@@ -44,9 +49,14 @@ def _severity_for(ok: bool, data: Any, error_class: str | None = None) -> str:
 
 
 def _classify_error_message(message: str) -> str:
+    """Classify error message."""
     if not message:
         return "unknown"
     lowered = message.lower()
+    if "graph request handler not configured" in lowered:
+        return "dashboard_config_error"
+    if "premium license" in lowered or "nonpremiumtenant" in lowered:
+        return "tenant_license_required"
     if "pwsh" in lowered and ("not found" in lowered or "no such file" in lowered or "not recognized" in lowered):
         return "missing_module"
     if "module" in lowered and ("not found" in lowered or "missing" in lowered or "not recognized" in lowered):
@@ -65,13 +75,14 @@ def _classify_error_message(message: str) -> str:
 
 
 def _classify_graph_error(exc: Exception) -> str:
+    """Classify graph error."""
     if isinstance(exc, GraphAPIError):
         status = getattr(exc, "status_code", None)
         code = str(getattr(exc, "code", "") or "").lower()
         message = str(exc)
         if "authentication_requestfromnonpremiumtenantorb2ctenant" in code:
             # Sign-in logs / CA details are often gated by tenant licensing; treat as a coverage gap.
-            return "missing_permission"
+            return "tenant_license_required"
         if status == 401:
             return "auth"
         if status == 403:
@@ -89,6 +100,7 @@ def _classify_graph_error(exc: Exception) -> str:
 
 
 def _build_meta(source: str, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build meta."""
     meta = {
         "source": source,
         "host": socket.gethostname(),
@@ -105,6 +117,7 @@ def _resolve_handler(
     options: Dict[str, Any],
     tool: str,
 ) -> Optional[Callable[..., Any]]:
+    """Resolve handler."""
     handler = options.get("handler")
     if callable(handler):
         return handler
@@ -118,6 +131,7 @@ def _resolve_handler(
 
 
 def run_graph_probe(probe_id: str, subject: Any, context: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> ProbeResult:
+    """Run graph probe."""
     options = options or {}
     start = time.monotonic()
     collected_at = _now_iso()
@@ -194,6 +208,7 @@ def run_graph_probe(probe_id: str, subject: Any, context: Dict[str, Any], option
 
 
 def run_powershell_probe(probe_id: str, subject: Any, context: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> ProbeResult:
+    """Run powershell probe."""
     options = options or {}
     start = time.monotonic()
     collected_at = _now_iso()
@@ -268,6 +283,7 @@ def run_powershell_probe(probe_id: str, subject: Any, context: Dict[str, Any], o
 
 
 def run_local_probe(probe_id: str, subject: Any, context: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> ProbeResult:
+    """Run local probe."""
     options = options or {}
     start = time.monotonic()
     collected_at = _now_iso()

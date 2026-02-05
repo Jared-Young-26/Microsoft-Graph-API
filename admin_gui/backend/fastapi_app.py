@@ -79,6 +79,7 @@ app.add_middleware(
 
 
 class TaskRequest(BaseModel):
+    """Task Request."""
     service: str
     action: str
     params: dict | None = None
@@ -86,6 +87,7 @@ class TaskRequest(BaseModel):
 
 
 class ConfigUpdate(BaseModel):
+    """Config Update."""
     tenant_id: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
@@ -103,32 +105,38 @@ class ConfigUpdate(BaseModel):
 
 
 class ConfigExportRequest(BaseModel):
+    """Config Export Request."""
     passphrase: str | None = None
     use_keychain: bool | None = False
 
 
 class ConfigImportRequest(BaseModel):
+    """Config Import Request."""
     passphrase: str | None = None
     payload: dict | None = None
 
 
 @app.get("/api/status")
 def status():
+    """Run status."""
     return STATE.status()
 
 
 @app.get("/api/status/summary")
 def status_summary():
+    """Run status summary."""
     return _system_status_summary()
 
 
 @app.get("/api/config")
 def get_config():
+    """Get config."""
     return STATE.get_config_public()
 
 
 @app.post("/api/config")
 def update_config(config: ConfigUpdate):
+    """Update config."""
     payload = config.model_dump()
     reload_flag = payload.pop("reload", False)
     try:
@@ -142,6 +150,7 @@ def update_config(config: ConfigUpdate):
 
 @app.post("/api/config/reload")
 def reload_config():
+    """Run reload config."""
     STATE.reload()
     return {"ok": True, "data": STATE.get_config_public()}
 
@@ -158,6 +167,7 @@ def get_audit(
     limit: int | None = 200,
     offset: int | None = 0,
 ):
+    """Get audit."""
     data = _read_audit_log(
         service=service,
         action=action,
@@ -174,6 +184,7 @@ def get_audit(
 
 @app.get("/api/artifacts/{filename}")
 def get_artifact(filename: str):
+    """Get artifact."""
     path = ARTIFACTS_DIR / filename
     if not path.exists():
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -182,6 +193,7 @@ def get_artifact(filename: str):
 
 @app.post("/api/config/export")
 def export_config(payload: ConfigExportRequest):
+    """Export config."""
     data = payload.model_dump()
     try:
         blob = STATE.export_config_encrypted(passphrase=data.get("passphrase"), use_keychain=bool(data.get("use_keychain")))
@@ -192,6 +204,7 @@ def export_config(payload: ConfigExportRequest):
 
 @app.post("/api/config/import")
 def import_config(payload: ConfigImportRequest):
+    """Import config."""
     data = payload.model_dump()
     try:
         blob = data.get("payload") or {}
@@ -203,6 +216,7 @@ def import_config(payload: ConfigImportRequest):
 
 @app.post("/api/task")
 def run_task(task: TaskRequest):
+    """Run task."""
     params = dict(task.params or {})
     ui_request_id = None
     if "_ui_request_id" in params:
@@ -328,6 +342,7 @@ def run_task(task: TaskRequest):
 
 @app.post("/ingest/perception")
 def ingest_vision_u_eye_perception(payload: dict):
+    """Ingest vision u eye perception."""
     try:
         data = _ingest_vision_u_eye_visual_signal(payload)
         return data
@@ -337,6 +352,7 @@ def ingest_vision_u_eye_perception(payload: dict):
 
 @app.post("/api/signals/visual")
 def ingest_visual_signal_api(payload: dict):
+    """Ingest visual signal api."""
     try:
         data = _ingest_vision_u_eye_visual_signal(payload)
         return data
@@ -353,6 +369,7 @@ def list_visual_signals_api(
     until: str | None = None,
     limit: int = 50,
 ):
+    """List visual signals api."""
     try:
         data = _list_vision_u_eye_visual_signals(
             endpoint_id=endpoint_id,
@@ -373,6 +390,7 @@ def debug_traces(
     ui_request_id: str | None = None,
     request_id: str | None = None,
 ):
+    """Run debug traces."""
     try:
         data = list_graph_traces(limit=limit, ui_request_id=ui_request_id, request_id=request_id)
         return {"ok": True, "data": data}
@@ -382,6 +400,7 @@ def debug_traces(
 
 @app.get("/api/debug/traces/{ui_request_id}")
 def debug_traces_by_ui(ui_request_id: str, limit: int = 200):
+    """Run debug traces by ui."""
     try:
         data = list_graph_traces(limit=limit, ui_request_id=ui_request_id, request_id=None)
         return {"ok": True, "data": data}
@@ -391,6 +410,7 @@ def debug_traces_by_ui(ui_request_id: str, limit: int = 200):
 
 @app.get("/api/debug/traces/by-graph-request/{request_id}")
 def debug_traces_by_graph_request(request_id: str, limit: int = 200):
+    """Run debug traces by graph request."""
     try:
         data = list_graph_traces(limit=limit, ui_request_id=None, request_id=request_id)
         return {"ok": True, "data": data}
@@ -400,6 +420,7 @@ def debug_traces_by_graph_request(request_id: str, limit: int = 200):
 
 @app.get("/api/debug/graph-reliability")
 def debug_graph_reliability():
+    """Run debug graph reliability."""
     try:
         data = graph_reliability_summary()
         return {"ok": True, "data": data}
@@ -409,6 +430,7 @@ def debug_graph_reliability():
 
 @app.get("/api/topology/history")
 def get_topology_history(limit: int | None = None):
+    """Get topology history."""
     try:
         data = STATE.get_topology_history(limit=limit)
         return {"ok": True, "data": data}
@@ -424,12 +446,14 @@ def list_snapshots(
     action: str | None = None,
     limit: int | None = 50,
 ):
+    """List snapshots."""
     data = _list_action_snapshots(snapshot_type=type, target=target, prefix=prefix, action=action, limit=limit)
     return {"ok": True, "data": data}
 
 
 @app.get("/api/snapshots/{snapshot_id}")
 def get_snapshot(snapshot_id: str):
+    """Get snapshot."""
     data = _get_action_snapshot(snapshot_id)
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshot not found"})
@@ -438,12 +462,14 @@ def get_snapshot(snapshot_id: str):
 
 @app.get("/api/snapshots/history")
 def get_snapshot_history(canonical_id: str | None = None, limit: int | None = 20):
+    """Get snapshot history."""
     data = _list_engine_snapshots(canonical_id=canonical_id, limit=limit or 20)
     return {"ok": True, "data": data}
 
 
 @app.get("/api/snapshots/engine/{snapshot_id}")
 def get_engine_snapshot(snapshot_id: str):
+    """Get engine snapshot."""
     data = _get_engine_snapshot(snapshot_id)
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Snapshot not found"})
@@ -452,12 +478,14 @@ def get_engine_snapshot(snapshot_id: str):
 
 @app.get("/api/snapshots/entities")
 def list_snapshot_entities(limit: int | None = 200):
+    """List snapshot entities."""
     data = _list_snapshot_entities(limit=limit or 200)
     return {"ok": True, "data": data}
 
 
 @app.get("/api/snapshots/engine/diff")
 def diff_engine_snapshots(snapshot_a: str | None = None, snapshot_b: str | None = None, a: str | None = None, b: str | None = None):
+    """Diff engine snapshots."""
     left = snapshot_a or a
     right = snapshot_b or b
     data = _diff_engine_snapshots(left, right)
@@ -468,12 +496,14 @@ def diff_engine_snapshots(snapshot_a: str | None = None, snapshot_b: str | None 
 
 @app.get("/api/snapshots/golden")
 def list_golden_snapshots():
+    """List golden snapshots."""
     data = _list_golden_snapshots()
     return {"ok": True, "data": data}
 
 
 @app.post("/api/snapshots/golden")
 def set_golden_snapshot(payload: dict):
+    """Set golden snapshot."""
     try:
         kind = payload.get("kind")
         snapshot_id = payload.get("snapshot_id")
@@ -486,6 +516,7 @@ def set_golden_snapshot(payload: dict):
 
 @app.delete("/api/snapshots/golden/{kind}")
 def clear_golden_snapshot(kind: str):
+    """Run clear golden snapshot."""
     try:
         data = _clear_golden_snapshot(kind)
         return {"ok": True, "data": data}
@@ -495,6 +526,7 @@ def clear_golden_snapshot(kind: str):
 
 @app.get("/api/snapshots/golden/diff")
 def diff_golden_snapshot(snapshot_id: str):
+    """Diff golden snapshot."""
     try:
         data = _diff_golden_snapshot(snapshot_id)
         return {"ok": True, "data": data}
@@ -504,6 +536,7 @@ def diff_golden_snapshot(snapshot_id: str):
 
 @app.get("/api/snapshots/resolve")
 def resolve_snapshot_subject(alias_type: str | None = None, alias_value: str | None = None):
+    """Resolve snapshot subject."""
     data = _resolve_snapshot_subject(alias_type, alias_value)
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "No matching subject"})
@@ -512,6 +545,7 @@ def resolve_snapshot_subject(alias_type: str | None = None, alias_value: str | N
 
 @app.get("/api/snapshots/events")
 def list_snapshot_events(canonical_ids: str | None = None, limit: int | None = 50):
+    """List snapshot events."""
     ids = [cid for cid in (canonical_ids or "").split(",") if cid]
     data = _list_snapshot_events(canonical_ids=ids, limit=limit or 50)
     return {"ok": True, "data": data}
@@ -519,11 +553,13 @@ def list_snapshot_events(canonical_ids: str | None = None, limit: int | None = 5
 
 @app.get("/api/symptoms")
 def list_symptoms():
+    """List symptoms."""
     return {"ok": True, "data": _list_symptom_templates()}
 
 
 @app.get("/api/symptoms/{symptom_id}")
 def get_symptom(symptom_id: str):
+    """Get symptom."""
     data = _get_symptom_template(symptom_id)
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Symptom template not found"})
@@ -532,12 +568,14 @@ def get_symptom(symptom_id: str):
 
 @app.get("/api/incidents")
 def list_incidents(limit: int | None = 50):
+    """List incidents."""
     data = _list_incidents(limit=limit or 50)
     return {"ok": True, "data": data}
 
 
 @app.post("/api/incidents")
 def create_incident(payload: dict):
+    """Create incident."""
     try:
         data = _create_incident(payload)
         return {"ok": True, "data": data}
@@ -547,6 +585,7 @@ def create_incident(payload: dict):
 
 @app.get("/api/incidents/{incident_id}")
 def get_incident(incident_id: str):
+    """Get incident."""
     data = _get_incident(incident_id)
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Incident not found"})
@@ -555,6 +594,7 @@ def get_incident(incident_id: str):
 
 @app.put("/api/incidents/{incident_id}")
 def update_incident(incident_id: str, payload: dict):
+    """Update incident."""
     try:
         data = _update_incident(incident_id, payload)
         return {"ok": True, "data": data}
@@ -564,6 +604,7 @@ def update_incident(incident_id: str, payload: dict):
 
 @app.post("/api/incidents/{incident_id}/snapshots")
 def link_incident_snapshot(incident_id: str, payload: dict):
+    """Run link incident snapshot."""
     try:
         data = _link_incident_snapshot(incident_id, payload.get("snapshot_id"))
         return {"ok": True, "data": data}
@@ -573,6 +614,7 @@ def link_incident_snapshot(incident_id: str, payload: dict):
 
 @app.post("/api/incidents/{incident_id}/events")
 def link_incident_event(incident_id: str, payload: dict):
+    """Run link incident event."""
     try:
         data = _link_incident_event(incident_id, payload.get("event_id"))
         return {"ok": True, "data": data}
@@ -582,6 +624,7 @@ def link_incident_event(incident_id: str, payload: dict):
 
 @app.get("/api/incidents/{incident_id}/graph")
 def incident_graph(incident_id: str):
+    """Run incident graph."""
     try:
         data = _build_incident_graph(incident_id)
         return {"ok": True, "data": data}
@@ -591,6 +634,7 @@ def incident_graph(incident_id: str):
 
 @app.get("/api/incidents/{incident_id}/timeline")
 def incident_timeline(incident_id: str):
+    """Run incident timeline."""
     try:
         data = _build_incident_timeline(incident_id)
         return {"ok": True, "data": data}
@@ -600,6 +644,7 @@ def incident_timeline(incident_id: str):
 
 @app.get("/api/incidents/{incident_id}/report")
 def get_incident_report(incident_id: str):
+    """Get incident report."""
     try:
         data = _get_incident_report(incident_id) or {}
         return {"ok": True, "data": data}
@@ -609,6 +654,7 @@ def get_incident_report(incident_id: str):
 
 @app.post("/api/incidents/{incident_id}/report")
 def save_incident_report(incident_id: str, payload: dict):
+    """Run save incident report."""
     report = payload.get("report") if isinstance(payload, dict) else payload
     try:
         data = _update_incident_report(incident_id, report)
@@ -619,6 +665,7 @@ def save_incident_report(incident_id: str, payload: dict):
 
 @app.post("/api/incidents/{incident_id}/report/render")
 def render_incident_report(incident_id: str, payload: dict):
+    """Render incident report."""
     fmt = payload.get("format") or "markdown"
     redaction = payload.get("redaction") or "internal"
     report = payload.get("report")
@@ -631,6 +678,7 @@ def render_incident_report(incident_id: str, payload: dict):
 
 @app.post("/api/snapshots/capture")
 def capture_snapshot(payload: dict):
+    """Capture snapshot."""
     try:
         data = _capture_snapshots(payload)
         return {"ok": True, "data": data}
@@ -640,6 +688,7 @@ def capture_snapshot(payload: dict):
 
 @app.post("/api/snapshots/finalize")
 def finalize_snapshot(payload: dict):
+    """Finalize snapshot."""
     try:
         data = _finalize_draft_snapshot(payload)
         return {"ok": True, "data": data}
@@ -649,6 +698,7 @@ def finalize_snapshot(payload: dict):
 
 @app.get("/api/snapshots/diff")
 def diff_snapshots(snapshot_a: str | None = None, snapshot_b: str | None = None, a: str | None = None, b: str | None = None):
+    """Diff snapshots."""
     left = snapshot_a or a
     right = snapshot_b or b
     data = _diff_action_snapshots(left, right)
@@ -659,6 +709,7 @@ def diff_snapshots(snapshot_a: str | None = None, snapshot_b: str | None = None,
 
 @app.post("/api/topology/history")
 def add_topology_history(payload: dict):
+    """Add topology history."""
     snapshot = payload.get("snapshot") or payload.get("data") or payload
     limit = payload.get("limit")
     try:
@@ -671,11 +722,13 @@ def add_topology_history(payload: dict):
 @app.get("/help")
 @app.get("/help/{path:path}")
 def help_page(path: str = ""):
+    """Run help page."""
     return FileResponse(ROOT / "index.html")
 
 
 @app.get("/{path:path}")
 def spa_fallback(path: str):
+    """Run spa fallback."""
     if path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
     candidate = ROOT / path
@@ -688,6 +741,7 @@ app.mount("/static", StaticFiles(directory=ROOT, html=True), name="static")
 
 
 def _build_ssh_command(payload):
+    """Build ssh command."""
     host = payload.get("host")
     if not host:
         raise RuntimeError("Host is required.")
@@ -709,6 +763,7 @@ def _build_ssh_command(payload):
 
 @app.websocket("/ws/ssh")
 async def ssh_terminal(websocket: WebSocket):
+    """Run ssh terminal."""
     await websocket.accept()
     master_fd = None
     proc = None
@@ -725,6 +780,7 @@ async def ssh_terminal(websocket: WebSocket):
         loop = asyncio.get_running_loop()
 
         async def read_pty():
+            """Run read pty."""
             while True:
                 data = await loop.run_in_executor(None, os.read, master_fd, 1024)
                 if not data:
@@ -732,6 +788,7 @@ async def ssh_terminal(websocket: WebSocket):
                 await websocket.send_bytes(data)
 
         async def write_pty():
+            """Run write pty."""
             while True:
                 msg = await websocket.receive()
                 if msg.get("type") == "websocket.disconnect":
@@ -768,6 +825,7 @@ async def ssh_terminal(websocket: WebSocket):
 
 @app.get("/api/signals/visual/{endpoint_id}/{episode_id}")
 def visual_signal_timeline(endpoint_id: str, episode_id: str, limit: int | None = 200):
+    """Run visual signal timeline."""
     try:
         events = STATE.snapshot_store.list_signal_timeline(
             signal_name="visual",

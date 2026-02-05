@@ -7,15 +7,18 @@ import re
 
 @dataclass
 class JsonSchemaValidationError(ValueError):
+    """Exception type: Json Schema Validation Error."""
     path: str
     message: str
 
     def __str__(self) -> str:  # pragma: no cover - trivial
+        """Return the human-readable string representation of the object."""
         prefix = self.path or "/"
         return f"{prefix}: {self.message}"
 
 
 def _type_name(value: Any) -> str:
+    """Internal helper for type name."""
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -34,6 +37,7 @@ def _type_name(value: Any) -> str:
 
 
 def _as_list(value: Any) -> List[Any]:
+    """Internal helper for as list."""
     if value is None:
         return []
     if isinstance(value, list):
@@ -42,12 +46,14 @@ def _as_list(value: Any) -> List[Any]:
 
 
 def _join(path: str, key: str) -> str:
+    """Internal helper for join."""
     if not path:
         return f"/{key}"
     return f"{path}/{key}"
 
 
 def _validate_type(schema_type: Any, value: Any) -> bool:
+    """Validate type."""
     allowed = _as_list(schema_type)
     if not allowed:
         return True
@@ -78,6 +84,7 @@ def validate_schema(schema: Dict[str, Any], payload: Any) -> None:
 
     def walk(node_schema: Dict[str, Any], value: Any, path: str) -> None:
         # Type
+        """Run walk."""
         if "type" in node_schema and not _validate_type(node_schema.get("type"), value):
             raise JsonSchemaValidationError(
                 path=path,

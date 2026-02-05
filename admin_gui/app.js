@@ -14467,6 +14467,9 @@ function getExportPayload(service) {
 function extractErrorMeta(data) {
   if (!data || typeof data !== "object") return null;
   let status = data.status_code || data.status || data.statusCode;
+  if (!status && data.synthetic_status) {
+    status = data.synthetic_status;
+  }
   let requestId = data.request_id || data.requestId;
   const failureSource = data.failure_source || data.failureSource || data.failure_origin || data.failureOrigin || null;
   const failureOutcome = data.failure_outcome || data.failureOutcome || null;
@@ -14589,6 +14592,12 @@ function buildTriage(meta) {
   const code = String(meta.code || "");
   const message = String(meta.message || "");
   const errorText = extractErrorText(meta);
+  const errorClass = String(meta.errorClass || "");
+  const codeLower = code.toLowerCase();
+  const isLicenseGate =
+    errorClass === "tenant_license_required" ||
+    codeLower.includes("authentication_requestfromnonpremiumtenantorb2ctenant") ||
+    errorText.includes("premium license");
 
   if (meta.hint) {
     recommendations.push(meta.hint);
@@ -14597,7 +14606,15 @@ function buildTriage(meta) {
   if (status === 401) {
     recommendations.push("Check client secret/tenant ID and ensure the app has a valid token.");
   }
-  if (status === 403 || code.includes("Insufficient") || code.includes("Authorization_RequestDenied")) {
+  if (isLicenseGate) {
+    recommendations.push(
+      "This endpoint is tenant-license gated (commonly Entra ID Premium P1/P2). Permissions alone will not enable it."
+    );
+    recommendations.push(
+      "Treat this as a coverage limitation unless you enable the required tenant licensing."
+    );
+  }
+  if (!isLicenseGate && (status === 403 || code.includes("Insufficient") || code.includes("Authorization_RequestDenied"))) {
     recommendations.push("Grant the required Graph application permissions and admin consent in Entra.");
   }
   if (status === 404 || code.includes("Request_ResourceNotFound")) {
@@ -18885,7 +18902,7 @@ function buildGraphSupportBundle(errorPayload) {
     path: errorPayload.path || null,
     url: errorPayload.url || null,
     timestamp: errorPayload.timestamp || null,
-    status_code: errorPayload.status_code || errorPayload.status || null,
+    status_code: errorPayload.status_code || errorPayload.status || errorPayload.synthetic_status || null,
     request_id: errorPayload.request_id || null,
     correlation_id: errorPayload.correlation_id || null,
     ui_request_id: errorPayload.ui_request_id || null,

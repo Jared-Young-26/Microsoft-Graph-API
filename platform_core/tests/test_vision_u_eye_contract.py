@@ -6,7 +6,9 @@ from platform_core.signal_providers import VisionUEyeProvider, attach_signal_to_
 
 
 class VisionUEyeContractTests(unittest.TestCase):
+    """Vision U Eye Contract Tests."""
     def test_sample_payload_validates_and_embeds_without_rename(self):
+        """Run test sample payload validates and embeds without rename."""
         root = Path(__file__).resolve().parents[2]
         sample_path = root / "contracts" / "examples" / "vision_u_eye.sample.json"
         self.assertTrue(sample_path.exists(), "Missing contract sample file")

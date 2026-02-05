@@ -13,6 +13,7 @@ REPORT_SCHEMA = f"gas.report.{SCHEMA_VERSION}"
 
 
 class SchemaModel(BaseModel):
+    """Schema Model."""
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     schema_id: str
@@ -20,6 +21,7 @@ class SchemaModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _coerce_schema(cls, values):
+        """Internal helper for coerce schema."""
         if isinstance(values, dict) and "schema" in values and "schema_id" not in values:
             values = dict(values)
             values["schema_id"] = values.pop("schema")
@@ -27,6 +29,7 @@ class SchemaModel(BaseModel):
 
     @model_serializer(mode="wrap")
     def _serialize_schema(self, serializer):
+        """Internal helper for serialize schema."""
         data = serializer(self)
         if "schema_id" in data:
             data["schema"] = data.pop("schema_id")
@@ -34,6 +37,7 @@ class SchemaModel(BaseModel):
 
 
 class Alias(BaseModel):
+    """Alias."""
     model_config = ConfigDict(extra="allow")
 
     type: str
@@ -42,6 +46,7 @@ class Alias(BaseModel):
 
 
 class Subject(BaseModel):
+    """Subject."""
     model_config = ConfigDict(extra="allow")
 
     subject_type: str
@@ -52,6 +57,7 @@ class Subject(BaseModel):
 
 
 class SubjectRef(BaseModel):
+    """Subject Ref."""
     model_config = ConfigDict(extra="allow")
 
     subject_type: str
@@ -61,6 +67,7 @@ class SubjectRef(BaseModel):
 
 
 class ProbeResult(SchemaModel):
+    """Probe Result."""
     schema_id: str = Field(PROBE_SCHEMA)
     probe: str
     ok: bool
@@ -74,6 +81,7 @@ class ProbeResult(SchemaModel):
 
 
 class Snapshot(SchemaModel):
+    """Snapshot."""
     schema_id: str = Field(SNAPSHOT_SCHEMA)
     snapshot_id: str
     captured_at: str
@@ -87,6 +95,7 @@ class Snapshot(SchemaModel):
 
 
 class Event(SchemaModel):
+    """Event."""
     schema_id: str = Field(EVENT_SCHEMA)
     event_id: str
     emitted_at: str
@@ -96,6 +105,7 @@ class Event(SchemaModel):
 
 
 class Evidence(SchemaModel):
+    """Evidence."""
     schema_id: str = Field(EVIDENCE_SCHEMA)
     evidence_id: str
     captured_at: str
@@ -107,6 +117,7 @@ class Evidence(SchemaModel):
 
 
 class IncidentSubject(BaseModel):
+    """Incident Subject."""
     model_config = ConfigDict(extra="allow")
 
     canonical_id: str
@@ -115,6 +126,7 @@ class IncidentSubject(BaseModel):
 
 
 class Incident(SchemaModel):
+    """Incident."""
     schema_id: str = Field(INCIDENT_SCHEMA)
     incident_id: str
     created_at: str
@@ -128,6 +140,7 @@ class Incident(SchemaModel):
 
 
 class IncidentReport(SchemaModel):
+    """Incident Report."""
     schema_id: str = Field(REPORT_SCHEMA)
     incident_id: str
     title: str

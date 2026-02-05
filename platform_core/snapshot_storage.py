@@ -10,10 +10,12 @@ import sqlite3
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _json_dumps(value: Any) -> str:
+    """Internal helper for json dumps."""
     return json.dumps(value, default=str)
 
 
@@ -31,10 +33,12 @@ def _stable_jitter_seconds(key: str, *, max_jitter_s: int = 15) -> int:
 
 @dataclass
 class SnapshotSqlStore:
+    """Snapshot Sql Store."""
     path: Path
     _initialized: bool = field(default=False, init=False)
 
     def _connect(self) -> sqlite3.Connection:
+        """Internal helper for connect."""
         if not self.path.parent.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self.path))
@@ -43,6 +47,7 @@ class SnapshotSqlStore:
         return conn
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
+        """Internal helper for init schema."""
         if self._initialized:
             return
         try:
@@ -210,6 +215,7 @@ class SnapshotSqlStore:
             raise
 
     def _table_columns(self, conn: sqlite3.Connection, table_name: str) -> set[str]:
+        """Internal helper for table columns."""
         try:
             rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
         except Exception:
@@ -232,11 +238,13 @@ class SnapshotSqlStore:
         now_iso = _now_iso()
 
         def _parse_iso(value: Any) -> str:
+            """Parse iso."""
             text = str(value or "").strip()
             # Keep as ISO-ish string; lexical sort works for UTC ISO formats.
             return text or now_iso
 
         def _dedupe(keys: list[str]) -> None:
+            """Internal helper for dedupe."""
             order_cols = []
             if "last_verified_at" in cols:
                 order_cols.append("last_verified_at DESC")
@@ -492,6 +500,7 @@ class SnapshotSqlStore:
         conn.commit()
 
     def upsert_entity(self, canonical_id: str, kind: str, display_name: Optional[str] = None, created_at: Optional[str] = None) -> None:
+        """Run upsert entity."""
         if not canonical_id:
             return
         created_at = created_at or _now_iso()
@@ -516,6 +525,7 @@ class SnapshotSqlStore:
         confidence: Optional[float] = None,
         last_seen: Optional[str] = None,
     ) -> None:
+        """Add alias."""
         if not canonical_id or not alias_type or not alias_value:
             return
         last_seen = last_seen or _now_iso()
@@ -530,6 +540,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def resolve_alias(self, alias_type: str, alias_value: str) -> Optional[str]:
+        """Resolve alias."""
         if not alias_type or not alias_value:
             return None
         with self._connect() as conn:
@@ -556,6 +567,7 @@ class SnapshotSqlStore:
         captured_at: str,
         snapshot: Dict[str, Any],
     ) -> None:
+        """Add snapshot."""
         if not snapshot_id:
             return
         with self._connect() as conn:
@@ -583,6 +595,7 @@ class SnapshotSqlStore:
         allow_expired: bool = False,
         now_iso: str | None = None,
     ) -> Optional[Dict[str, Any]]:
+        """Get sharepoint sites cache."""
         tenant_id = str(tenant_id or "").strip()
         term = str(search_term or "").strip()
         if not tenant_id or not term:
@@ -628,6 +641,7 @@ class SnapshotSqlStore:
         last_verified_at: str,
         expires_at: str,
     ) -> None:
+        """Run upsert sharepoint sites cache."""
         tenant_id = str(tenant_id or "").strip()
         term = str(search_term or "").strip()
         if not tenant_id or not term:
@@ -656,6 +670,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def get_latest_snapshot_id(self, canonical_id: str) -> Optional[str]:
+        """Get latest snapshot id."""
         if not canonical_id:
             return None
         with self._connect() as conn:
@@ -674,6 +689,7 @@ class SnapshotSqlStore:
         return row["snapshot_id"]
 
     def list_snapshots(self, canonical_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """List snapshots."""
         params: List[Any] = []
         clause = ""
         if canonical_id:
@@ -694,6 +710,7 @@ class SnapshotSqlStore:
         return snapshots
 
     def get_snapshot(self, snapshot_id: str) -> Optional[Dict[str, Any]]:
+        """Get snapshot."""
         if not snapshot_id:
             return None
         with self._connect() as conn:
@@ -709,6 +726,7 @@ class SnapshotSqlStore:
             return None
 
     def list_entities(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """List entities."""
         params: List[Any] = []
         sql = "SELECT canonical_id, kind, display_name, created_at FROM entities ORDER BY created_at DESC"
         if limit and limit > 0:
@@ -729,6 +747,7 @@ class SnapshotSqlStore:
         return results
 
     def get_entity(self, canonical_id: str) -> Optional[Dict[str, Any]]:
+        """Get entity."""
         if not canonical_id:
             return None
         with self._connect() as conn:
@@ -746,6 +765,7 @@ class SnapshotSqlStore:
         }
 
     def list_events(self, canonical_ids: Optional[List[str]] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """List events."""
         params: List[Any] = []
         sql = "SELECT event_json FROM events"
         if canonical_ids:
@@ -776,6 +796,7 @@ class SnapshotSqlStore:
         until: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
+        """List events by signal."""
         if not signal_name:
             return []
         params: List[Any] = [signal_name]
@@ -814,6 +835,7 @@ class SnapshotSqlStore:
         canonical_ids: Iterable[str],
         event: Dict[str, Any],
     ) -> None:
+        """Add event."""
         if not event_id:
             return
         canonical_ids_json = _json_dumps(list(canonical_ids or []))
@@ -872,6 +894,7 @@ class SnapshotSqlStore:
             return cur.rowcount > 0
 
     def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Get event."""
         if not event_id:
             return None
         with self._connect() as conn:
@@ -896,6 +919,7 @@ class SnapshotSqlStore:
         redaction: Optional[Dict[str, Any]],
         meta: Optional[Dict[str, Any]],
     ) -> None:
+        """Add evidence."""
         if not evidence_id:
             return
         with self._connect() as conn:
@@ -917,6 +941,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def set_golden_snapshot(self, kind: str, snapshot_id: str, label: Optional[str] = None) -> None:
+        """Set golden snapshot."""
         if not kind or not snapshot_id:
             return
         created_at = _now_iso()
@@ -935,6 +960,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def get_golden_snapshot(self, kind: str) -> Optional[Dict[str, Any]]:
+        """Get golden snapshot."""
         if not kind:
             return None
         with self._connect() as conn:
@@ -952,6 +978,7 @@ class SnapshotSqlStore:
         }
 
     def list_golden_snapshots(self, limit: int = 200) -> List[Dict[str, Any]]:
+        """List golden snapshots."""
         params: List[Any] = []
         sql = "SELECT kind, snapshot_id, label, created_at FROM golden_snapshots ORDER BY created_at DESC"
         if limit and limit > 0:
@@ -972,6 +999,7 @@ class SnapshotSqlStore:
         return results
 
     def clear_golden_snapshot(self, kind: str) -> None:
+        """Run clear golden snapshot."""
         if not kind:
             return
         with self._connect() as conn:
@@ -989,6 +1017,7 @@ class SnapshotSqlStore:
         time_window_start: Optional[str] = None,
         time_window_end: Optional[str] = None,
     ) -> None:
+        """Create incident."""
         if not incident_id:
             return
         with self._connect() as conn:
@@ -1019,6 +1048,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def update_incident(self, incident_id: str, updates: Dict[str, Any]) -> None:
+        """Update incident."""
         if not incident_id or not updates:
             return
         fields = []
@@ -1045,6 +1075,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def get_incident_report(self, incident_id: str) -> Optional[Dict[str, Any]]:
+        """Get incident report."""
         if not incident_id:
             return None
         with self._connect() as conn:
@@ -1060,6 +1091,7 @@ class SnapshotSqlStore:
             return None
 
     def upsert_incident_report(self, incident_id: str, report: Dict[str, Any]) -> None:
+        """Run upsert incident report."""
         if not incident_id:
             return
         now = _now_iso()
@@ -1078,6 +1110,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def get_incident(self, incident_id: str) -> Optional[Dict[str, Any]]:
+        """Get incident."""
         if not incident_id:
             return None
         with self._connect() as conn:
@@ -1090,6 +1123,7 @@ class SnapshotSqlStore:
         return dict(row)
 
     def list_incidents(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List incidents."""
         params: List[Any] = []
         sql = "SELECT * FROM incidents ORDER BY created_at DESC"
         if limit and limit > 0:
@@ -1100,6 +1134,7 @@ class SnapshotSqlStore:
         return [dict(row) for row in rows]
 
     def add_incident_subject(self, incident_id: str, canonical_id: str, role: str, kind: str) -> None:
+        """Add incident subject."""
         if not incident_id or not canonical_id:
             return
         with self._connect() as conn:
@@ -1113,6 +1148,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def list_incident_subjects(self, incident_id: str) -> List[Dict[str, Any]]:
+        """List incident subjects."""
         if not incident_id:
             return []
         with self._connect() as conn:
@@ -1123,6 +1159,7 @@ class SnapshotSqlStore:
         return [dict(row) for row in rows]
 
     def link_incident_snapshot(self, incident_id: str, snapshot_id: str) -> None:
+        """Run link incident snapshot."""
         if not incident_id or not snapshot_id:
             return
         with self._connect() as conn:
@@ -1136,6 +1173,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def list_incident_snapshots(self, incident_id: str) -> List[str]:
+        """List incident snapshots."""
         if not incident_id:
             return []
         with self._connect() as conn:
@@ -1146,6 +1184,7 @@ class SnapshotSqlStore:
         return [row["snapshot_id"] for row in rows]
 
     def link_incident_event(self, incident_id: str, event_id: str) -> None:
+        """Run link incident event."""
         if not incident_id or not event_id:
             return
         with self._connect() as conn:
@@ -1159,6 +1198,7 @@ class SnapshotSqlStore:
             conn.commit()
 
     def list_incident_events(self, incident_id: str) -> List[str]:
+        """List incident events."""
         if not incident_id:
             return []
         with self._connect() as conn:
@@ -1177,6 +1217,7 @@ class SnapshotSqlStore:
         provider_version: str,
         payload: Dict[str, Any],
     ) -> None:
+        """Run upsert snapshot signal."""
         if not snapshot_id or not signal_name or not isinstance(payload, dict):
             return
         event_id = payload.get("event_id")
@@ -1227,6 +1268,7 @@ class SnapshotSqlStore:
         episode_id: str,
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
+        """List signal timeline."""
         if not signal_name or not endpoint_id or not episode_id:
             return []
         with self._connect() as conn:
@@ -1264,6 +1306,7 @@ class SnapshotSqlStore:
             return None
 
         def _parse_iso(value: Any) -> Optional[datetime]:
+            """Parse iso."""
             if not value:
                 return None
             try:
@@ -1342,6 +1385,7 @@ class SnapshotSqlStore:
         expires_at: Optional[str] = None,
         source: str = "primary",
     ) -> None:
+        """Run upsert onedrive drive cache."""
         if not tenant_id or not drive_id:
             return
         last_verified_at = last_verified_at or _now_iso()
@@ -1462,6 +1506,7 @@ class SnapshotSqlStore:
         tenant_id: str,
         stale_window_days: int = 30,
     ) -> Dict[str, Any]:
+        """Get onedrive drive cache stats."""
         if not tenant_id:
             return {"total": 0, "valid": 0, "stale": 0, "expired": 0, "manual": 0, "by_source": {}}
         now_iso = _now_iso()
@@ -1530,6 +1575,7 @@ class SnapshotSqlStore:
         }
 
     def get_onedrive_drive_pending(self, *, tenant_id: str, user_upn: str) -> Optional[Dict[str, Any]]:
+        """Get onedrive drive pending."""
         tenant_id = str(tenant_id or "").strip()
         user_upn = str(user_upn or "").strip().lower()
         if not tenant_id or not user_upn:
@@ -1557,6 +1603,7 @@ class SnapshotSqlStore:
         }
 
     def get_onedrive_drive_pending_stats(self, *, tenant_id: str) -> Dict[str, Any]:
+        """Get onedrive drive pending stats."""
         if not tenant_id:
             return {"total": 0, "due": 0, "paused": 0, "stopped": 0}
         now_iso = _now_iso()
@@ -1606,6 +1653,7 @@ class SnapshotSqlStore:
         max_attempts: int = 10,
         paused_cooldown_seconds: int = 21600,
     ) -> Dict[str, Any]:
+        """Run enqueue onedrive drive pending."""
         tenant_id = str(tenant_id or "").strip()
         user_upn = str(user_upn or "").strip().lower()
         if not tenant_id or not user_upn:
@@ -1713,6 +1761,7 @@ class SnapshotSqlStore:
         limit: int = 50,
         max_attempts: int = 10,
     ) -> List[Dict[str, Any]]:
+        """Run claim due onedrive drive pending."""
         tenant_id = str(tenant_id or "").strip()
         if not tenant_id:
             return []
@@ -1760,6 +1809,7 @@ class SnapshotSqlStore:
         return out
 
     def clear_onedrive_drive_pending(self, *, tenant_id: str, user_upn: str) -> None:
+        """Run clear onedrive drive pending."""
         tenant_id = str(tenant_id or "").strip()
         user_upn = str(user_upn or "").strip().lower()
         if not tenant_id or not user_upn:
@@ -1778,6 +1828,7 @@ class SnapshotSqlStore:
         user_upn: str,
         delay_seconds: int = 5,
     ) -> Dict[str, Any]:
+        """Run requeue onedrive drive pending."""
         tenant_id = str(tenant_id or "").strip()
         user_upn = str(user_upn or "").strip().lower()
         if not tenant_id or not user_upn:
@@ -1826,6 +1877,7 @@ class SnapshotSqlStore:
         return {"ok": True, "requeued": True, "pending": pending, "updated_at": now_iso}
 
     def list_onedrive_drive_cache_upns(self, *, tenant_id: str, limit: int = 50) -> List[str]:
+        """List onedrive drive cache upns."""
         if not tenant_id:
             return []
         with self._connect() as conn:

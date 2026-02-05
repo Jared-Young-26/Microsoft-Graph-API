@@ -10,10 +10,12 @@ import uuid
 
 
 def _json_dumps(value: Any) -> str:
+    """Internal helper for json dumps."""
     return json.dumps(value, default=str)
 
 
 def _json_loads(value: str | None) -> Any:
+    """Internal helper for json loads."""
     if not value:
         return None
     try:
@@ -23,6 +25,7 @@ def _json_loads(value: str | None) -> Any:
 
 
 def _coerce_ok(value: Any) -> Optional[bool]:
+    """Internal helper for coerce ok."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -34,6 +37,7 @@ def _coerce_ok(value: Any) -> Optional[bool]:
 
 
 def _get_diff_key(item: Any) -> Any:
+    """Get diff key."""
     if not isinstance(item, dict):
         return None
     return (
@@ -54,6 +58,7 @@ def _get_diff_key(item: Any) -> Any:
 
 
 def diff_json(a: Any, b: Any, path: str = "", depth: int = 0, max_depth: int = 4) -> Dict[str, List[Dict[str, Any]]]:
+    """Diff json."""
     diff = {"added": [], "removed": [], "changed": []}
     if depth > max_depth:
         if json.dumps(a, default=str) != json.dumps(b, default=str):
@@ -120,15 +125,18 @@ def diff_json(a: Any, b: Any, path: str = "", depth: int = 0, max_depth: int = 4
 
 @dataclass
 class SnapshotStore:
+    """Snapshot Store."""
     path: Path
     legacy_path: Optional[Path] = None
     _initialized: bool = field(default=False, init=False)
 
     def _ensure_parent(self) -> None:
+        """Ensure parent."""
         if not self.path.parent.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def _connect(self) -> sqlite3.Connection:
+        """Internal helper for connect."""
         self._ensure_parent()
         conn = sqlite3.connect(str(self.path))
         conn.row_factory = sqlite3.Row
@@ -137,6 +145,7 @@ class SnapshotStore:
         return conn
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
+        """Internal helper for init schema."""
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS action_snapshots (
@@ -160,6 +169,7 @@ class SnapshotStore:
         )
 
     def _maybe_migrate(self, conn: sqlite3.Connection) -> None:
+        """Internal helper for maybe migrate."""
         if self._initialized:
             return
         self._initialized = True
@@ -184,6 +194,7 @@ class SnapshotStore:
             return
 
     def _insert_record(self, conn: sqlite3.Connection, record: Dict[str, Any]) -> None:
+        """Internal helper for insert record."""
         snapshot_type = record.get("type")
         target = record.get("target")
         collected_at = record.get("collected_at")
@@ -230,6 +241,7 @@ class SnapshotStore:
         action: Optional[str] = None,
         ok: Optional[bool] = None,
     ) -> Dict[str, Any]:
+        """Run put."""
         entry = {
             "id": uuid.uuid4().hex,
             "type": snapshot_type,
@@ -272,6 +284,7 @@ class SnapshotStore:
         return entry
 
     def _row_to_entry(self, row: sqlite3.Row) -> Dict[str, Any]:
+        """Internal helper for row to entry."""
         payload = _json_loads(row["payload_json"]) if row["payload_json"] else None
         entry = {
             "id": row["id"],
@@ -297,6 +310,7 @@ class SnapshotStore:
         prefix: Optional[str] = None,
         action: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """Run list."""
         clauses = []
         params: List[Any] = []
         if snapshot_type:
@@ -325,6 +339,7 @@ class SnapshotStore:
         return [self._row_to_entry(row) for row in rows]
 
     def get(self, snapshot_id: str) -> Optional[Dict[str, Any]]:
+        """Run get."""
         if not snapshot_id:
             return None
         with self._connect() as conn:

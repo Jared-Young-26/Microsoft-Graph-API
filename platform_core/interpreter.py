@@ -245,6 +245,7 @@ ENTITY_FIELDS = {
 
 
 def _get_value(record: Dict[str, Any], keys: Iterable[str]) -> Any:
+    """Get value."""
     for key in keys:
         if key in record:
             return record.get(key)
@@ -257,6 +258,7 @@ def _get_value(record: Dict[str, Any], keys: Iterable[str]) -> Any:
 
 
 def _guess_entity(service: str, action: str) -> Optional[str]:
+    """Internal helper for guess entity."""
     override = ENTITY_OVERRIDES.get((service, action))
     if override:
         return override
@@ -270,6 +272,7 @@ def _guess_entity(service: str, action: str) -> Optional[str]:
 
 
 def _extract_items(payload: Any) -> List[Any]:
+    """Internal helper for extract items."""
     if payload is None:
         return []
     if isinstance(payload, list):
@@ -284,6 +287,7 @@ def _extract_items(payload: Any) -> List[Any]:
 
 
 def _coerce_record(value: Any) -> Dict[str, Any]:
+    """Internal helper for coerce record."""
     if isinstance(value, dict):
         return value
     return {"value": value}
@@ -297,6 +301,7 @@ def _normalize_record(
     action: str,
     include_raw: bool,
 ) -> Dict[str, Any]:
+    """Normalize record."""
     fields = ENTITY_FIELDS.get(entity, {})
     id_value = _get_value(record, fields.get("id", COMMON_ID_KEYS))
     name_value = _get_value(record, fields.get("display_name", COMMON_NAME_KEYS))
@@ -348,6 +353,7 @@ def interpret_response(
     source: str = "graph",
     include_raw: bool = False,
 ) -> Dict[str, Any]:
+    """Run interpret response."""
     entity = _guess_entity(service, action) or "record"
     items = []
     for entry in _extract_items(payload):

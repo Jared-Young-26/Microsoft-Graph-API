@@ -2,10 +2,12 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _ps_value(value):
+    """Internal helper for ps value."""
     if isinstance(value, bool):
         return "$true" if value else "$false"
     if value is None:
@@ -18,6 +20,7 @@ def _ps_value(value):
 
 
 def _ps_params(params):
+    """Internal helper for ps params."""
     parts = []
     for key, value in params.items():
         if value is None:
@@ -27,6 +30,7 @@ def _ps_params(params):
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -37,55 +41,69 @@ def _wrap_envelope(result, payload_builder):
 
 
 class LocalNetworkClient:
+    """Client for Local Network operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalNetworkPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def list_adapters(self, name=None, include_hidden=False):
+        """List adapters."""
         cmd = "Get-NetAdapter" + _ps_params({"Name": name, "IncludeHidden": include_hidden})
         return self._get_powershell().run_json(cmd)
 
     def get_adapter_config(self, name):
+        """Get adapter config."""
         cmd = "Get-NetIPConfiguration" + _ps_params({"InterfaceAlias": name})
         return self._get_powershell().run_json(cmd)
 
     def enable_adapter(self, name):
+        """Run enable adapter."""
         cmd = "Enable-NetAdapter" + _ps_params({"Name": name, "Confirm": False})
         return self._get_powershell().run(cmd)
 
     def disable_adapter(self, name):
+        """Run disable adapter."""
         cmd = "Disable-NetAdapter" + _ps_params({"Name": name, "Confirm": False})
         return self._get_powershell().run(cmd)
 
     def rename_adapter(self, name, new_name):
+        """Run rename adapter."""
         cmd = "Rename-NetAdapter" + _ps_params({"Name": name, "NewName": new_name})
         return self._get_powershell().run(cmd)
 
     def set_dhcp(self, name, enabled=True):
+        """Set dhcp."""
         cmd = "Set-NetIPInterface" + _ps_params({"InterfaceAlias": name, "Dhcp": "Enabled" if enabled else "Disabled"})
         return self._get_powershell().run(cmd)
 
     def set_static_ipv4(self, name, ip_address, prefix_length, gateway=None, dns_servers=None, remove_existing=False):
+        """Set static ipv4."""
         remove_flag = "$true" if remove_existing else "$false"
         dns_list = dns_servers or []
         script = f"""
@@ -100,6 +118,7 @@ class LocalNetworkClient:
         return self._get_powershell().run(script)
 
     def set_dns_servers(self, name, servers=None, reset=False):
+        """Set dns servers."""
         if reset:
             cmd = "Set-DnsClientServerAddress" + _ps_params({"InterfaceAlias": name, "ResetServerAddresses": True})
             return self._get_powershell().run(cmd)
@@ -109,18 +128,21 @@ class LocalNetworkClient:
         return self._get_powershell().run(cmd)
 
     def set_interface_metric(self, name, metric, address_family="IPv4"):
+        """Set interface metric."""
         cmd = "Set-NetIPInterface" + _ps_params(
             {"InterfaceAlias": name, "InterfaceMetric": int(metric), "AddressFamily": address_family}
         )
         return self._get_powershell().run(cmd)
 
     def set_mtu(self, name, mtu, address_family="IPv4"):
+        """Set mtu."""
         cmd = "Set-NetIPInterface" + _ps_params(
             {"InterfaceAlias": name, "NlMtuBytes": int(mtu), "AddressFamily": address_family}
         )
         return self._get_powershell().run(cmd)
 
     def ping_host(self, host=None, hosts=None, count=4, timeout_seconds=2, ipv6=False, parallel=True, throttle=8):
+        """Run ping host."""
         targets = []
         if hosts:
             if isinstance(hosts, (list, tuple, set)):
@@ -196,6 +218,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def resolve_dns_name(self, name, record_type="A", server=None):
+        """Resolve dns name."""
         if not name:
             raise ValueError("Name is required.")
         params = {"Name": name, "Type": record_type or "A", "ErrorAction": "Stop"}
@@ -236,6 +259,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def list_dns_server_records(self, zone, record_type=None, server=None, name_pattern=None, max_results=500):
+        """List dns server records."""
         if not zone:
             raise ValueError("Zone is required.")
         script = f"""
@@ -318,6 +342,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def get_dns_client_server_addresses(self, interface_alias=None, address_family=None):
+        """Get dns client server addresses."""
         params = {"ErrorAction": "Stop"}
         if interface_alias:
             params["InterfaceAlias"] = interface_alias
@@ -328,6 +353,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(cmd)
 
     def get_dns_client_cache(self, name_pattern=None, max_results=1000):
+        """Get dns client cache."""
         script = f"""
         $pattern = {_ps_value(name_pattern)}
         $maxResults = {int(max_results) if max_results else 1000}
@@ -436,6 +462,7 @@ class LocalNetworkClient:
         return result
 
     def get_dns_cache_display(self):
+        """Get dns cache display."""
         script = r"""
         $raw = ipconfig /displaydns 2>&1 | Out-String
         $lines = $raw -split "`r?`n"
@@ -487,6 +514,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def test_port(self, host, port, information_level="Detailed"):
+        """Run test port."""
         if not host or port is None:
             raise ValueError("Host and port are required.")
         level = information_level or "Detailed"
@@ -530,6 +558,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def trace_route(self, host, max_hops=30, timeout_ms=3000, resolve_names=False):
+        """Run trace route."""
         if not host:
             raise ValueError("Host is required.")
         resolve_names = bool(resolve_names)
@@ -608,6 +637,7 @@ class LocalNetworkClient:
         return result
 
     def pathping_analysis(self, host, max_hops=30, timeout_ms=1000, query_count=1):
+        """Run pathping analysis."""
         if not host:
             raise ValueError("Host is required.")
         script = f"""
@@ -643,6 +673,7 @@ class LocalNetworkClient:
         return result
 
     def get_netstat_connections(self):
+        """Get netstat connections."""
         script = r"""
         $raw = netstat -ano 2>&1 | Out-String
         function Split-Address([string]$value) {
@@ -689,6 +720,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def get_net_tcp_connections(self, state=None, local_port=None, remote_port=None):
+        """Get net tcp connections."""
         script = f"""
         $state = {_ps_value(state)}
         $localPort = {_ps_value(local_port)}
@@ -708,6 +740,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def list_routes(self, interface_alias=None, address_family=None):
+        """List routes."""
         params = {"ErrorAction": "Stop"}
         if interface_alias:
             params["InterfaceAlias"] = interface_alias
@@ -733,10 +766,12 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def route_print(self):
+        """Run route print."""
         result = self._get_powershell().run("route print")
         return _wrap_envelope(result, lambda output: {"raw_text": output})
 
     def list_ip_configurations(self, interface_alias=None):
+        """List ip configurations."""
         params = {}
         if interface_alias:
             params["InterfaceAlias"] = interface_alias
@@ -745,6 +780,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(cmd)
 
     def list_ip_interfaces(self, interface_alias=None, address_family=None):
+        """List ip interfaces."""
         params = {"ErrorAction": "Stop"}
         if interface_alias:
             params["InterfaceAlias"] = interface_alias
@@ -809,6 +845,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def get_adapter_advanced_properties(self, name=None):
+        """Get adapter advanced properties."""
         params = {}
         if name:
             params["Name"] = name
@@ -817,6 +854,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(cmd)
 
     def list_net_neighbors(self, interface_alias=None, address_family=None):
+        """List net neighbors."""
         params = {}
         if interface_alias:
             params["InterfaceAlias"] = interface_alias
@@ -844,6 +882,7 @@ class LocalNetworkClient:
         return result
 
     def get_arp_table(self):
+        """Get arp table."""
         script = r"""
         $raw = arp -a 2>&1 | Out-String
         $rows = @()
@@ -871,10 +910,12 @@ class LocalNetworkClient:
         return result
 
     def get_firewall_profiles(self):
+        """Get firewall profiles."""
         cmd = "Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction,NotifyOnListen"
         return self._get_powershell().run_json(cmd)
 
     def get_firewall_rules(self, name_pattern=None, direction=None, action=None, enabled=None, profile=None):
+        """Get firewall rules."""
         script = f"""
         $pattern = {_ps_value(name_pattern)}
         $direction = {_ps_value(direction)}
@@ -902,6 +943,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def get_firewall_port_filters(self, local_port=None, remote_port=None, protocol=None):
+        """Get firewall port filters."""
         script = f"""
         $localPort = {_ps_value(local_port)}
         $remotePort = {_ps_value(remote_port)}
@@ -921,10 +963,12 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def get_firewall_settings(self):
+        """Get firewall settings."""
         cmd = "Get-NetFirewallSetting | Select-Object *"
         return self._get_powershell().run_json(cmd)
 
     def firewall_quick_check(self, local_port=None, program=None, direction=None, profile=None):
+        """Run firewall quick check."""
         script = f"""
         $localPort = {_ps_value(local_port)}
         $program = {_ps_value(program)}
@@ -1016,6 +1060,7 @@ class LocalNetworkClient:
         return result
 
     def test_smb_path(self, unc_path):
+        """Run test smb path."""
         if not unc_path:
             raise ValueError("UNC path is required.")
         script = f"""
@@ -1026,10 +1071,12 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(script)
 
     def get_smb_connections(self):
+        """Get smb connections."""
         cmd = "Get-SmbConnection | Select-Object ServerName,ShareName,UserName,Credential,NumOpens,Dialect,ContinuouslyAvailable"
         return self._get_powershell().run_json(cmd)
 
     def get_smb_sessions(self, server=None):
+        """Get smb sessions."""
         params = {}
         if server:
             params["ComputerName"] = server
@@ -1038,6 +1085,7 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(cmd)
 
     def get_smb_open_files(self, server=None):
+        """Get smb open files."""
         params = {}
         if server:
             params["ComputerName"] = server
@@ -1046,10 +1094,12 @@ class LocalNetworkClient:
         return self._get_powershell().run_json(cmd)
 
     def get_smb_client_configuration(self):
+        """Get smb client configuration."""
         cmd = "Get-SmbClientConfiguration | Select-Object EnableSMB1Protocol,EnableSMB2Protocol,EnableSecuritySignature,RequireSecuritySignature,ConnectionCountPerRssNetworkInterface"
         return self._get_powershell().run_json(cmd)
 
     def smb_status(self, server=None):
+        """Run smb status."""
         script = f"""
         $server = {_ps_value(server)}
         $connections = Get-SmbConnection | Select-Object ServerName,ShareName,UserName,Credential,NumOpens,Dialect,ContinuouslyAvailable,SessionId
@@ -1127,21 +1177,26 @@ class LocalNetworkClient:
         return result
 
     def list_net_use(self):
+        """List net use."""
         result = self._get_powershell().run("net use")
         return _wrap_envelope(result, lambda output: {"raw_text": output})
 
     def list_kerberos_tickets(self):
+        """List kerberos tickets."""
         result = self._get_powershell().run("klist")
         return _wrap_envelope(result, lambda output: {"raw_text": output})
 
 
 class LocalNetworkPowerShellClient(PowerShellModuleClient):
+    """Client for Local Network Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         if self.connect_script:
             return self.connect_script
         return (
@@ -1153,4 +1208,5 @@ class LocalNetworkPowerShellClient(PowerShellModuleClient):
         )
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

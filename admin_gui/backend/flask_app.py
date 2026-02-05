@@ -61,21 +61,25 @@ ensure_onedrive_cache_warmup_scheduler()
 
 @app.get("/api/status")
 def status():
+    """Run status."""
     return jsonify(STATE.status())
 
 
 @app.get("/api/status/summary")
 def status_summary():
+    """Run status summary."""
     return jsonify(_system_status_summary())
 
 
 @app.get("/api/config")
 def get_config():
+    """Get config."""
     return jsonify(STATE.get_config_public())
 
 
 @app.post("/api/config")
 def update_config():
+    """Update config."""
     payload = request.get_json(silent=True) or {}
     reload_flag = payload.pop("reload", False)
     try:
@@ -89,12 +93,14 @@ def update_config():
 
 @app.post("/api/config/reload")
 def reload_config():
+    """Run reload config."""
     STATE.reload()
     return jsonify({"ok": True, "data": STATE.get_config_public()})
 
 
 @app.get("/api/audit")
 def get_audit():
+    """Get audit."""
     params = {
         "service": request.args.get("service") or None,
         "action": request.args.get("action") or None,
@@ -112,6 +118,7 @@ def get_audit():
 
 @app.get("/api/artifacts/<path:filename>")
 def get_artifact(filename):
+    """Get artifact."""
     try:
         return send_from_directory(ARTIFACTS_DIR, filename, as_attachment=True)
     except FileNotFoundError:
@@ -120,6 +127,7 @@ def get_artifact(filename):
 
 @app.post("/api/config/export")
 def export_config():
+    """Export config."""
     payload = request.get_json(silent=True) or {}
     passphrase = payload.get("passphrase") or None
     use_keychain = bool(payload.get("use_keychain"))
@@ -132,6 +140,7 @@ def export_config():
 
 @app.post("/api/config/import")
 def import_config():
+    """Import config."""
     payload = request.get_json(silent=True) or {}
     passphrase = payload.get("passphrase") or None
     blob = payload.get("payload") or payload.get("data")
@@ -144,10 +153,29 @@ def import_config():
 
 @app.post("/api/task")
 def run_task():
+    """Run task."""
     payload = request.get_json(silent=True) or {}
     service = payload.get("service")
     action = payload.get("action")
     params = payload.get("params") or {}
+    # Guard against malformed requests so we don't throw 500s from internal routing code.
+    if not isinstance(service, str) or not service.strip() or not isinstance(action, str) or not action.strip():
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "failure_source": "dashboard_request_validation",
+                    "failure_outcome": "error",
+                    "error_class": "validation",
+                    "error": "Missing required fields: service and action",
+                    "status_code": 400,
+                    "service": service,
+                    "action": action,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ),
+            400,
+        )
     ui_request_id = None
     if isinstance(params, dict) and "_ui_request_id" in params:
         ui_request_id = str(params.pop("_ui_request_id"))
@@ -213,13 +241,44 @@ def run_task():
             500,
         )
     except PowerShellCommandError as exc:
-        return jsonify({"ok": False, "error": str(exc), "detail": exc.output}), 400
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "failure_source": "powershell",
+                    "failure_outcome": "failed",
+                    "error_class": "powershell_error",
+                    "error": str(exc),
+                    "detail": exc.output,
+                    "status_code": 400,
+                    "service": service,
+                    "action": action,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ),
+            400,
+        )
     except Exception as exc:
         message = str(exc)
         lowered = message.lower()
         # Treat validation / parameter issues as client errors.
         if isinstance(exc, ValueError):
-            return jsonify({"ok": False, "error": message, "status_code": 400}), 400
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "failure_source": "dashboard_request_validation",
+                        "failure_outcome": "error",
+                        "error_class": "validation",
+                        "error": message,
+                        "status_code": 400,
+                        "service": service,
+                        "action": action,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ),
+                400,
+            )
         if "missing microsoft configuration variables" in lowered or "missing graph" in lowered:
             return (
                 jsonify(
@@ -280,6 +339,7 @@ def run_task():
 
 @app.post("/ingest/perception")
 def ingest_vision_u_eye_perception():
+    """Ingest vision u eye perception."""
     payload = request.get_json(silent=True) or {}
     try:
         data = _ingest_vision_u_eye_visual_signal(payload)
@@ -290,6 +350,7 @@ def ingest_vision_u_eye_perception():
 
 @app.get("/api/debug/traces")
 def debug_traces():
+    """Run debug traces."""
     limit = request.args.get("limit", type=int) or 50
     ui_request_id = request.args.get("ui_request_id") or None
     request_id = request.args.get("request_id") or None
@@ -298,23 +359,27 @@ def debug_traces():
 
 @app.get("/api/debug/traces/<ui_request_id>")
 def debug_traces_by_ui(ui_request_id):
+    """Run debug traces by ui."""
     limit = request.args.get("limit", type=int) or 200
     return jsonify({"ok": True, "data": list_graph_traces(limit=limit, ui_request_id=ui_request_id)})
 
 
 @app.get("/api/debug/traces/by-graph-request/<request_id>")
 def debug_traces_by_graph_request(request_id):
+    """Run debug traces by graph request."""
     limit = request.args.get("limit", type=int) or 200
     return jsonify({"ok": True, "data": list_graph_traces(limit=limit, request_id=request_id)})
 
 
 @app.get("/api/debug/graph-reliability")
 def graph_reliability():
+    """Run graph reliability."""
     return jsonify({"ok": True, "data": graph_reliability_summary()})
 
 
 @app.post("/api/signals/visual")
 def ingest_visual_signal_api():
+    """Ingest visual signal api."""
     payload = request.get_json(silent=True) or {}
     try:
         data = _ingest_vision_u_eye_visual_signal(payload)
@@ -325,6 +390,7 @@ def ingest_visual_signal_api():
 
 @app.get("/api/signals/visual")
 def list_visual_signals_api():
+    """List visual signals api."""
     endpoint_id = request.args.get("endpoint_id") or None
     session_id = request.args.get("session_id") or None
     canonical_id = request.args.get("canonical_id") or None
@@ -347,6 +413,7 @@ def list_visual_signals_api():
 
 @app.get("/api/topology/history")
 def get_topology_history():
+    """Get topology history."""
     limit = request.args.get("limit", type=int)
     try:
         data = STATE.get_topology_history(limit=limit)
@@ -357,6 +424,7 @@ def get_topology_history():
 
 @app.get("/api/snapshots")
 def list_snapshots():
+    """List snapshots."""
     snapshot_type = request.args.get("type") or None
     target = request.args.get("target") or None
     prefix = request.args.get("prefix") or None
@@ -368,6 +436,7 @@ def list_snapshots():
 
 @app.get("/api/snapshots/diff")
 def diff_snapshots():
+    """Diff snapshots."""
     snapshot_a = request.args.get("a") or request.args.get("snapshot_a")
     snapshot_b = request.args.get("b") or request.args.get("snapshot_b")
     data = _diff_action_snapshots(snapshot_a, snapshot_b)
@@ -378,6 +447,7 @@ def diff_snapshots():
 
 @app.get("/api/snapshots/<snapshot_id>")
 def get_snapshot(snapshot_id):
+    """Get snapshot."""
     data = _get_action_snapshot(snapshot_id)
     if not data:
         return jsonify({"ok": False, "error": "Snapshot not found"}), 404
@@ -386,6 +456,7 @@ def get_snapshot(snapshot_id):
 
 @app.get("/api/snapshots/history")
 def get_snapshot_history():
+    """Get snapshot history."""
     canonical_id = request.args.get("canonical_id") or None
     limit = request.args.get("limit", type=int) or 20
     data = _list_engine_snapshots(canonical_id=canonical_id, limit=limit)
@@ -394,6 +465,7 @@ def get_snapshot_history():
 
 @app.get("/api/snapshots/engine/<snapshot_id>")
 def get_engine_snapshot(snapshot_id):
+    """Get engine snapshot."""
     data = _get_engine_snapshot(snapshot_id)
     if not data:
         return jsonify({"ok": False, "error": "Snapshot not found"}), 404
@@ -402,6 +474,7 @@ def get_engine_snapshot(snapshot_id):
 
 @app.get("/api/snapshots/entities")
 def list_snapshot_entities():
+    """List snapshot entities."""
     limit = request.args.get("limit", type=int) or 200
     data = _list_snapshot_entities(limit=limit)
     return jsonify({"ok": True, "data": data})
@@ -409,6 +482,7 @@ def list_snapshot_entities():
 
 @app.get("/api/snapshots/engine/diff")
 def diff_engine_snapshots():
+    """Diff engine snapshots."""
     snapshot_a = request.args.get("a") or request.args.get("snapshot_a")
     snapshot_b = request.args.get("b") or request.args.get("snapshot_b")
     data = _diff_engine_snapshots(snapshot_a, snapshot_b)
@@ -419,12 +493,14 @@ def diff_engine_snapshots():
 
 @app.get("/api/snapshots/golden")
 def list_golden_snapshots():
+    """List golden snapshots."""
     data = _list_golden_snapshots()
     return jsonify({"ok": True, "data": data})
 
 
 @app.post("/api/snapshots/golden")
 def set_golden_snapshot():
+    """Set golden snapshot."""
     payload = request.get_json(silent=True) or {}
     try:
         kind = payload.get("kind")
@@ -438,6 +514,7 @@ def set_golden_snapshot():
 
 @app.delete("/api/snapshots/golden/<kind>")
 def clear_golden_snapshot(kind):
+    """Run clear golden snapshot."""
     try:
         data = _clear_golden_snapshot(kind)
         return jsonify({"ok": True, "data": data})
@@ -447,6 +524,7 @@ def clear_golden_snapshot(kind):
 
 @app.get("/api/snapshots/golden/diff")
 def diff_golden_snapshot():
+    """Diff golden snapshot."""
     snapshot_id = request.args.get("snapshot_id")
     try:
         data = _diff_golden_snapshot(snapshot_id)
@@ -457,6 +535,7 @@ def diff_golden_snapshot():
 
 @app.get("/api/snapshots/resolve")
 def resolve_snapshot_subject():
+    """Resolve snapshot subject."""
     alias_type = request.args.get("alias_type") or None
     alias_value = request.args.get("alias_value") or None
     data = _resolve_snapshot_subject(alias_type, alias_value)
@@ -467,6 +546,7 @@ def resolve_snapshot_subject():
 
 @app.get("/api/snapshots/events")
 def list_snapshot_events():
+    """List snapshot events."""
     canonical_ids = request.args.get("canonical_ids") or ""
     ids = [cid for cid in canonical_ids.split(",") if cid]
     limit = request.args.get("limit", type=int) or 50
@@ -476,11 +556,13 @@ def list_snapshot_events():
 
 @app.get("/api/symptoms")
 def list_symptoms():
+    """List symptoms."""
     return jsonify({"ok": True, "data": _list_symptom_templates()})
 
 
 @app.get("/api/symptoms/<symptom_id>")
 def get_symptom(symptom_id):
+    """Get symptom."""
     data = _get_symptom_template(symptom_id)
     if not data:
         return jsonify({"ok": False, "error": "Symptom template not found"}), 404
@@ -489,6 +571,7 @@ def get_symptom(symptom_id):
 
 @app.get("/api/incidents")
 def list_incidents():
+    """List incidents."""
     limit = request.args.get("limit", type=int) or 50
     data = _list_incidents(limit=limit)
     return jsonify({"ok": True, "data": data})
@@ -496,6 +579,7 @@ def list_incidents():
 
 @app.post("/api/incidents")
 def create_incident():
+    """Create incident."""
     payload = request.get_json(silent=True) or {}
     try:
         data = _create_incident(payload)
@@ -506,6 +590,7 @@ def create_incident():
 
 @app.get("/api/incidents/<incident_id>")
 def get_incident(incident_id):
+    """Get incident."""
     data = _get_incident(incident_id)
     if not data:
         return jsonify({"ok": False, "error": "Incident not found"}), 404
@@ -514,6 +599,7 @@ def get_incident(incident_id):
 
 @app.put("/api/incidents/<incident_id>")
 def update_incident(incident_id):
+    """Update incident."""
     payload = request.get_json(silent=True) or {}
     try:
         data = _update_incident(incident_id, payload)
@@ -524,6 +610,7 @@ def update_incident(incident_id):
 
 @app.post("/api/incidents/<incident_id>/snapshots")
 def link_incident_snapshot(incident_id):
+    """Run link incident snapshot."""
     payload = request.get_json(silent=True) or {}
     snapshot_id = payload.get("snapshot_id")
     try:
@@ -535,6 +622,7 @@ def link_incident_snapshot(incident_id):
 
 @app.post("/api/incidents/<incident_id>/events")
 def link_incident_event(incident_id):
+    """Run link incident event."""
     payload = request.get_json(silent=True) or {}
     event_id = payload.get("event_id")
     try:
@@ -546,6 +634,7 @@ def link_incident_event(incident_id):
 
 @app.get("/api/incidents/<incident_id>/graph")
 def incident_graph(incident_id):
+    """Run incident graph."""
     try:
         data = _build_incident_graph(incident_id)
         return jsonify({"ok": True, "data": data})
@@ -555,6 +644,7 @@ def incident_graph(incident_id):
 
 @app.get("/api/incidents/<incident_id>/timeline")
 def incident_timeline(incident_id):
+    """Run incident timeline."""
     try:
         data = _build_incident_timeline(incident_id)
         return jsonify({"ok": True, "data": data})
@@ -564,6 +654,7 @@ def incident_timeline(incident_id):
 
 @app.get("/api/incidents/<incident_id>/report")
 def get_incident_report(incident_id):
+    """Get incident report."""
     try:
         data = _get_incident_report(incident_id) or {}
         return jsonify({"ok": True, "data": data})
@@ -573,6 +664,7 @@ def get_incident_report(incident_id):
 
 @app.post("/api/incidents/<incident_id>/report")
 def save_incident_report(incident_id):
+    """Run save incident report."""
     payload = request.get_json(silent=True) or {}
     report = payload.get("report") or payload
     try:
@@ -584,6 +676,7 @@ def save_incident_report(incident_id):
 
 @app.post("/api/incidents/<incident_id>/report/render")
 def render_incident_report(incident_id):
+    """Render incident report."""
     payload = request.get_json(silent=True) or {}
     fmt = payload.get("format") or "markdown"
     redaction = payload.get("redaction") or "internal"
@@ -597,6 +690,7 @@ def render_incident_report(incident_id):
 
 @app.post("/api/snapshots/capture")
 def capture_snapshot():
+    """Capture snapshot."""
     payload = request.get_json(silent=True) or {}
     try:
         data = _capture_snapshots(payload)
@@ -607,6 +701,7 @@ def capture_snapshot():
 
 @app.post("/api/snapshots/finalize")
 def finalize_snapshot():
+    """Finalize snapshot."""
     payload = request.get_json(silent=True) or {}
     try:
         data = _finalize_draft_snapshot(payload)
@@ -617,6 +712,7 @@ def finalize_snapshot():
 
 @app.post("/api/topology/history")
 def add_topology_history():
+    """Add topology history."""
     payload = request.get_json(silent=True) or {}
     limit = payload.get("limit")
     snapshot = payload.get("snapshot") or payload.get("data") or payload
@@ -629,17 +725,20 @@ def add_topology_history():
 
 @app.get("/")
 def index():
+    """Run index."""
     return send_from_directory(str(ROOT), "index.html")
 
 
 @app.get("/help")
 @app.get("/help/<path:_path>")
 def help_page(_path=None):
+    """Run help page."""
     return send_from_directory(str(ROOT), "index.html")
 
 
 @app.get("/<path:path>")
 def spa_fallback(path):
+    """Run spa fallback."""
     if path.startswith("api/"):
         return jsonify({"ok": False, "error": "Not found"}), 404
     candidate = ROOT / path

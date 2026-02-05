@@ -76,24 +76,28 @@ CONFIG_EXPORT_VERSION = 1
 
 
 def _keychain_key(tenant_id, client_id):
+    """Internal helper for keychain key."""
     tenant = tenant_id or "tenant"
     client = client_id or "client"
     return f"{tenant}:{client}"
 
 
 def _get_keychain_secret(tenant_id, client_id):
+    """Get keychain secret."""
     if not keyring:
         return None
     return keyring.get_password(KEYCHAIN_SERVICE, _keychain_key(tenant_id, client_id))
 
 
 def _set_keychain_secret(tenant_id, client_id, secret):
+    """Set keychain secret."""
     if not keyring:
         raise RuntimeError("Keychain integration not available. Install keyring to enable it.")
     keyring.set_password(KEYCHAIN_SERVICE, _keychain_key(tenant_id, client_id), secret)
 
 
 def _delete_keychain_secret(tenant_id, client_id):
+    """Delete keychain secret."""
     if not keyring:
         return
     try:
@@ -103,24 +107,28 @@ def _delete_keychain_secret(tenant_id, client_id):
 
 
 def _export_keychain_key(tenant_id, client_id):
+    """Export keychain key."""
     tenant = tenant_id or "tenant"
     client = client_id or "client"
     return f"{EXPORT_KEYCHAIN_PREFIX}:{tenant}:{client}"
 
 
 def _get_export_key(tenant_id, client_id):
+    """Get export key."""
     if not keyring:
         return None
     return keyring.get_password(KEYCHAIN_SERVICE, _export_keychain_key(tenant_id, client_id))
 
 
 def _set_export_key(tenant_id, client_id, secret):
+    """Set export key."""
     if not keyring:
         raise RuntimeError("Keychain integration not available. Install keyring to enable it.")
     keyring.set_password(KEYCHAIN_SERVICE, _export_keychain_key(tenant_id, client_id), secret)
 
 
 def _get_or_create_export_key(tenant_id, client_id):
+    """Get or create export key."""
     existing = _get_export_key(tenant_id, client_id)
     if existing:
         return existing
@@ -132,6 +140,7 @@ def _get_or_create_export_key(tenant_id, client_id):
 
 
 def _derive_key(passphrase, salt):
+    """Internal helper for derive key."""
     if Fernet is None or PBKDF2HMAC is None or hashes is None:
         raise RuntimeError("cryptography is required for secure exports.")
     kdf = PBKDF2HMAC(
@@ -144,6 +153,7 @@ def _derive_key(passphrase, salt):
 
 
 def _encrypt_payload(payload, passphrase=None, use_keychain=False, tenant_id=None, client_id=None):
+    """Internal helper for encrypt payload."""
     if Fernet is None:
         raise RuntimeError("cryptography is required for secure exports.")
     passphrase = passphrase or None
@@ -171,6 +181,7 @@ def _encrypt_payload(payload, passphrase=None, use_keychain=False, tenant_id=Non
 
 
 def _decrypt_payload(blob, passphrase=None, tenant_id=None, client_id=None):
+    """Internal helper for decrypt payload."""
     if Fernet is None:
         raise RuntimeError("cryptography is required for secure imports.")
     if not isinstance(blob, dict):
@@ -250,6 +261,7 @@ GRAPH_RELIABILITY = {
 
 
 def _route_group(path: str | None) -> str:
+    """Internal helper for route group."""
     if not path:
         return "unknown"
     value = str(path)
@@ -278,6 +290,7 @@ def _route_group(path: str | None) -> str:
 
 
 def record_graph_trace(trace: dict) -> None:
+    """Record graph trace."""
     if not isinstance(trace, dict):
         return
     GRAPH_TRACE_RING.append(trace)
@@ -343,11 +356,13 @@ def record_graph_trace(trace: dict) -> None:
 
 
 def list_graph_traces(*, limit: int = 50, ui_request_id: str | None = None, request_id: str | None = None) -> list[dict]:
+    """List graph traces."""
     items = list(GRAPH_TRACE_RING)
     if ui_request_id:
         items = [t for t in items if isinstance(t, dict) and str(t.get("ui_request_id") or "") == str(ui_request_id)]
     if request_id:
         def _has_request_id(trace: dict) -> bool:
+            """Return True if request id."""
             attempts = trace.get("attempts") if isinstance(trace.get("attempts"), list) else []
             for entry in attempts:
                 if not isinstance(entry, dict):
@@ -369,6 +384,7 @@ def list_graph_traces(*, limit: int = 50, ui_request_id: str | None = None, requ
 
 
 def graph_reliability_summary(limit_failures: int = 20) -> dict:
+    """Run graph reliability summary."""
     failures = [t for t in reversed(GRAPH_TRACE_RING) if isinstance(t, dict) and t.get("failure_origin")]
     recent_failures = failures[: int(limit_failures)]
     retry_total = GRAPH_RELIABILITY["totals"]["retries"] or 0
@@ -389,6 +405,7 @@ def graph_reliability_summary(limit_failures: int = 20) -> dict:
 
 
 def _read_config_file():
+    """Internal helper for read config file."""
     if not CONFIG_PATH.exists():
         return {}
     try:
@@ -398,16 +415,19 @@ def _read_config_file():
 
 
 def _write_config_file(data):
+    """Internal helper for write config file."""
     cleaned = {k: v for k, v in data.items() if v not in ("", None)}
     CONFIG_PATH.write_text(json.dumps(cleaned, indent=2))
 
 
 def _read_snapshot_catalog():
+    """Internal helper for read snapshot catalog."""
     data = _read_config_file()
     return data.get("snapshot_catalog") or {}
 
 
 def _normalize_catalog_entries(entries):
+    """Normalize catalog entries."""
     if not entries:
         return []
     if isinstance(entries, str):
@@ -418,6 +438,7 @@ def _normalize_catalog_entries(entries):
 
 
 def _read_registry_watchlists():
+    """Internal helper for read registry watchlists."""
     data = _read_config_file()
     stored = data.get("registry_watchlists")
     watchlists = {}
@@ -437,6 +458,7 @@ def _read_registry_watchlists():
 
 
 def _read_ssh_targets():
+    """Internal helper for read ssh targets."""
     data = _read_config_file()
     targets = data.get("ssh_targets") or []
     if isinstance(targets, dict):
@@ -455,6 +477,7 @@ def _read_ssh_targets():
 
 
 def _normalize_execution_target(target: dict | None):
+    """Normalize execution target."""
     if not target:
         return ExecutionTarget(type="local")
     if isinstance(target, str):
@@ -471,6 +494,7 @@ def _normalize_execution_target(target: dict | None):
 
 
 def _normalize_watchlist_payload(payload):
+    """Normalize watchlist payload."""
     if not isinstance(payload, dict):
         raise ValueError("Watchlist payload must be an object.")
     watchlist_id = payload.get("watchlist_id") or payload.get("id")
@@ -489,11 +513,13 @@ def _normalize_watchlist_payload(payload):
 
 
 def _list_registry_watchlists():
+    """List registry watchlists."""
     watchlists = _read_registry_watchlists()
     return {"watchlists": list(watchlists.values())}
 
 
 def _save_registry_watchlist(payload):
+    """Internal helper for save registry watchlist."""
     watchlist = _normalize_watchlist_payload(payload)
     data = _read_config_file()
     existing = data.get("registry_watchlists")
@@ -511,6 +537,7 @@ def _save_registry_watchlist(payload):
 
 
 def _delete_registry_watchlist(watchlist_id: str):
+    """Delete registry watchlist."""
     if not watchlist_id:
         raise ValueError("watchlist_id is required.")
     data = _read_config_file()
@@ -525,6 +552,7 @@ def _delete_registry_watchlist(watchlist_id: str):
 
 
 def _is_ip_address(value: str) -> bool:
+    """Return True if ip address."""
     try:
         parts = str(value).split(".")
         if len(parts) != 4:
@@ -541,6 +569,7 @@ def _is_ip_address(value: str) -> bool:
 
 
 def _build_snapshot_context(extra=None):
+    """Build snapshot context."""
     config = _read_config_file()
     time_thresholds = config.get("time_thresholds") or {"warn_ms": 300, "high_ms": 5000}
     mock_mode = bool(config.get("mock_mode", False))
@@ -597,6 +626,15 @@ def _build_snapshot_context(extra=None):
         "registry_watchlists": registry_watchlists,
         "mock_mode": mock_mode,
     }
+    # Provide default handlers for probes. If Graph/PowerShell are unavailable, probe runners
+    # should surface coverage limitations rather than crashing the snapshot engine.
+    if not mock_mode and STATE.status().get("graph_configured"):
+        try:
+            context.setdefault("graph", STATE.get_graph())
+        except Exception:
+            # Keep context usable for local-only / mock probes.
+            pass
+    context.setdefault("powershell", STATE.powershell)
     if isinstance(extra, dict):
         context.update(extra)
     return context
@@ -614,6 +652,7 @@ ROLE_KIND_MAP = {
 
 
 def _subjects_from_roles(roles, issue, catalog):
+    """Internal helper for subjects from roles."""
     subjects = []
     if not roles:
         return subjects
@@ -650,6 +689,7 @@ def _subjects_from_roles(roles, issue, catalog):
 
 
 def _derive_subjects_from_issue(issue, template=None):
+    """Internal helper for derive subjects from issue."""
     if not isinstance(issue, dict):
         return []
     subjects = []
@@ -681,6 +721,7 @@ def _derive_subjects_from_issue(issue, template=None):
             subjects.append({"kind": "device", "identifiers": {alias_type: device}})
 
     def add_catalog_subjects(kind, key, alias_type="hostname"):
+        """Add catalog subjects."""
         for entry in _normalize_catalog_entries(catalog.get(key)):
             subjects.append({"kind": kind, "identifiers": {alias_type: entry}})
 
@@ -722,14 +763,17 @@ ACTION_SNAPSHOT_STORE = ActionSnapshotStore(ACTION_SNAPSHOT_PATH, legacy_path=AC
 
 
 def _read_topology_history(limit=None):
+    """Internal helper for read topology history."""
     return TOPOLOGY_STORE.load(limit=limit)
 
 
 def _append_topology_history(snapshot, limit=None):
+    """Internal helper for append topology history."""
     return TOPOLOGY_STORE.append(snapshot, limit=limit)
 
 
 def _audit_user():
+    """Internal helper for audit user."""
     try:
         return getpass.getuser()
     except Exception:
@@ -737,6 +781,7 @@ def _audit_user():
 
 
 def _audit_host():
+    """Internal helper for audit host."""
     try:
         return socket.gethostname()
     except Exception:
@@ -744,6 +789,7 @@ def _audit_host():
 
 
 def _log_audit(entry):
+    """Internal helper for log audit."""
     payload = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "user": _audit_user(),
@@ -758,6 +804,7 @@ def _log_audit(entry):
 
 
 def _parse_datetime(value):
+    """Parse datetime."""
     if not value:
         return None
     try:
@@ -780,6 +827,7 @@ def _read_audit_log(
     limit=200,
     offset=0,
 ):
+    """Internal helper for read audit log."""
     if not AUDIT_LOG_PATH.exists():
         return {"items": [], "count": 0, "total": 0}
     try:
@@ -840,6 +888,7 @@ def _read_audit_log(
 
 
 def _global_admin_check(user_id):
+    """Internal helper for global admin check."""
     if not user_id:
         raise ValueError("User ID or UPN is required for global admin check.")
     client = STATE.get_client("entra")
@@ -881,6 +930,7 @@ def _global_admin_check(user_id):
 
 
 def _graph_permission_inventory(client_id):
+    """Internal helper for graph permission inventory."""
     if not client_id:
         return {"ok": False, "error": "CLIENT_ID is not configured."}
     graph = STATE.get_graph()
@@ -962,6 +1012,7 @@ def _graph_permission_inventory(client_id):
 
 
 def _security_posture():
+    """Internal helper for security posture."""
     cfg = STATE.config
     modules = _check_powershell_modules(sorted({m for mods in POWERSHELL_MODULES.values() for m in mods}))
     graph_permissions = _graph_permission_inventory(cfg.client_id)
@@ -1038,6 +1089,7 @@ AUDIT_ACTION_MAP = {
 
 
 def _value(key, env_key=None, default=None, data=None):
+    """Internal helper for value."""
     env_key = env_key or key.upper()
     data = data or {}
     val = data.get(key)
@@ -1048,6 +1100,7 @@ def _value(key, env_key=None, default=None, data=None):
 
 @dataclass
 class BackendConfig:
+    """Backend Config."""
     tenant_id: str | None = None
     client_id: str | None = None
     client_secret: str | None = None
@@ -1065,6 +1118,7 @@ class BackendConfig:
 
 
 def _build_config():
+    """Build config."""
     data = _read_config_file()
     use_keychain = bool(data.get("use_keychain"))
     tenant_id = _value("tenant_id", "TENANT_ID", data=data)
@@ -1094,7 +1148,9 @@ def _build_config():
 
 
 class BackendState:
+    """Backend State."""
     def __init__(self):
+        """Initialize the instance."""
         self.config = _build_config()
         self.graph = None
         self.powershell = PowerShellSession()
@@ -1106,6 +1162,7 @@ class BackendState:
         self.snapshot_engine = SnapshotEngine(self.snapshot_store, self.entity_resolver)
 
     def reload(self):
+        """Run reload."""
         if self.powershell:
             self.powershell.close()
         self.config = _build_config()
@@ -1120,9 +1177,11 @@ class BackendState:
         return self.config
 
     def _target_key(self, target: ExecutionTarget):
+        """Internal helper for target key."""
         return f"{target.type}:{target.host}:{target.port}:{target.user}:{target.key_path}:{target.strict_host_key_checking}"
 
     def get_powershell_session(self, target: ExecutionTarget | None = None):
+        """Get powershell session."""
         if not target or target.type == "local":
             return self.powershell
         if target.type == "ssh":
@@ -1140,12 +1199,15 @@ class BackendState:
         return self.powershell
 
     def get_topology_history(self, limit=None):
+        """Get topology history."""
         return _read_topology_history(limit=limit)
 
     def append_topology_history(self, snapshot, limit=None):
+        """Run append topology history."""
         return _append_topology_history(snapshot, limit=limit)
 
     def update_config(self, payload):
+        """Update config."""
         current = _read_config_file()
         locked = bool(current.get("config_lock"))
         if locked and not ("config_lock" in payload and payload.get("config_lock") is False):
@@ -1199,6 +1261,7 @@ class BackendState:
         return self.get_config_public()
 
     def get_config_public(self):
+        """Get config public."""
         cfg = self.config
         cfg_file = _read_config_file()
         return {
@@ -1248,6 +1311,7 @@ class BackendState:
         }
 
     def export_config_encrypted(self, passphrase=None, use_keychain=False):
+        """Export config encrypted."""
         cfg_file = _read_config_file()
         cfg = self.config
         tenant_id = cfg.tenant_id or cfg_file.get("tenant_id")
@@ -1268,6 +1332,7 @@ class BackendState:
         return _encrypt_payload(payload, passphrase=passphrase, use_keychain=use_keychain, tenant_id=tenant_id, client_id=client_id)
 
     def import_config_encrypted(self, payload, passphrase=None):
+        """Import config encrypted."""
         current = _read_config_file()
         locked = bool(current.get("config_lock"))
         if locked:
@@ -1293,6 +1358,7 @@ class BackendState:
         return self.get_config_public()
 
     def get_graph(self):
+        """Get graph."""
         if self.graph is None:
             cfg = self.config
             self.graph = GraphSession(
@@ -1303,6 +1369,7 @@ class BackendState:
         return self.graph
 
     def get_client(self, service, execution_target: ExecutionTarget | None = None):
+        """Get client."""
         cache_key = service
         if execution_target and execution_target.type == "ssh":
             cache_key = f"{service}:{self._target_key(execution_target)}"
@@ -1418,6 +1485,7 @@ class BackendState:
         return client
 
     def status(self):
+        """Run status."""
         missing = []
         if not self.config.tenant_id:
             missing.append("TENANT_ID")
@@ -1444,6 +1512,7 @@ _ONEDRIVE_WARMUP_STARTED = False
 
 
 def ensure_snapshot_scheduler():
+    """Ensure snapshot scheduler."""
     global _SCHEDULER_STARTED
     global SNAPSHOT_SCHEDULER
     if _SCHEDULER_STARTED:
@@ -1461,6 +1530,7 @@ def ensure_snapshot_scheduler():
 
 
 def ensure_onedrive_cache_warmup_scheduler():
+    """Ensure onedrive cache warmup scheduler."""
     global _ONEDRIVE_WARMUP_STARTED
     global ONEDRIVE_CACHE_WARMER
     global ONEDRIVE_WARMUP_SCHEDULER
@@ -1492,6 +1562,7 @@ GRAPH_CHECKS = {
 
 
 def _check_powershell_modules(modules):
+    """Internal helper for check powershell modules."""
     results = {}
     session = STATE.powershell
     for module in modules:
@@ -1528,6 +1599,7 @@ def _check_powershell_modules(modules):
 
 
 def _check_admin_rights():
+    """Internal helper for check admin rights."""
     session = STATE.powershell
     cmd = (
         "[Security.Principal.WindowsPrincipal] "
@@ -1546,6 +1618,7 @@ def _check_admin_rights():
 
 
 def _check_domain_joined():
+    """Internal helper for check domain joined."""
     session = STATE.powershell
     cmd = "Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty PartOfDomain"
     try:
@@ -1560,6 +1633,7 @@ def _check_domain_joined():
 
 
 def _check_rsat_installed():
+    """Internal helper for check rsat installed."""
     session = STATE.powershell
     script = r"""
     $results = @()
@@ -1600,6 +1674,7 @@ def _check_rsat_installed():
 
 
 def _action_preflight(service, action, target=None):
+    """Internal helper for action preflight."""
     if service not in ACTIONS or action not in ACTIONS[service]:
         raise ValueError(f"Unknown action '{action}' for service '{service}'")
 
@@ -1772,6 +1847,7 @@ def _action_preflight(service, action, target=None):
 
 
 def _graph_check(service=None):
+    """Internal helper for graph check."""
     cfg = STATE.config
     graph = STATE.get_graph()
     checks = {}
@@ -1849,6 +1925,7 @@ def _graph_control_diagnostic(payload: dict | None = None) -> dict:
         raise ValueError("No failing Graph request supplied and no recent failure trace available.")
 
     def _run_once(label: str, req_method: str, req_path: str, req_params: dict | None, *, ignore_circuit: bool = False) -> dict:
+        """Run once."""
         start = time.monotonic()
         try:
             response = getattr(graph, req_method.lower())(
@@ -1970,12 +2047,14 @@ def _graph_control_diagnostic(payload: dict | None = None) -> dict:
 
 
 def _health_check():
+    """Internal helper for health check."""
     graph = _graph_check()
     modules = _check_powershell_modules(sorted({m for mods in POWERSHELL_MODULES.values() for m in mods}))
     return {"graph": graph, "powershell": modules}
 
 
 def _list_recent_snapshots(limit: int = 5):
+    """List recent snapshots."""
     try:
         limit = int(limit)
     except Exception:
@@ -2008,6 +2087,7 @@ def _list_recent_snapshots(limit: int = 5):
 
 
 def _system_status_summary():
+    """Internal helper for system status summary."""
     status = STATE.status()
     modules = _check_powershell_modules(sorted({m for mods in POWERSHELL_MODULES.values() for m in mods}))
     recent = _list_recent_snapshots(limit=5)
@@ -2050,6 +2130,7 @@ def _system_status_summary():
 
 
 def _smoke_test(services=None):
+    """Internal helper for smoke test."""
     services = services or list(GRAPH_CHECKS.keys())
     targets = [svc for svc in services if svc in GRAPH_CHECKS]
     if not targets:
@@ -2069,6 +2150,7 @@ def _smoke_test(services=None):
 
 
 def _tenant_info():
+    """Internal helper for tenant info."""
     graph = STATE.get_graph()
     response = graph.get("/organization?$select=id,displayName,verifiedDomains")
     data = response.json().get("value", [])
@@ -2093,6 +2175,7 @@ def _tenant_info():
 
 
 def _summarize_signins(signins):
+    """Internal helper for summarize signins."""
     if not isinstance(signins, list):
         return {}
     summary = {
@@ -2125,6 +2208,7 @@ def _summarize_signins(signins):
 
 
 def _summarize_devices(devices):
+    """Internal helper for summarize devices."""
     if not isinstance(devices, list):
         return {}
     summary = {
@@ -2145,6 +2229,7 @@ def _summarize_devices(devices):
 
 
 def _summarize_ca_policies(policies):
+    """Internal helper for summarize ca policies."""
     if not isinstance(policies, list):
         return {}
     summary = {"total": len(policies), "states": {}}
@@ -2158,6 +2243,7 @@ def _summarize_ca_policies(policies):
 
 
 def _conditional_access_summary_report():
+    """Internal helper for conditional access summary report."""
     graph = STATE.get_graph()
     response = graph.get(
         "/identity/conditionalAccess/policies",
@@ -2175,6 +2261,7 @@ def _conditional_access_summary_report():
 
 
 def _sign_in_summary_report(user_id=None, top=25, lookback_hours=None):
+    """Internal helper for sign in summary report."""
     graph = STATE.get_graph()
     cfg = STATE.config
     target_user = user_id or cfg.graph_user_id
@@ -2206,6 +2293,7 @@ def _sign_in_summary_report(user_id=None, top=25, lookback_hours=None):
 
 
 def _device_compliance_report(user_id=None, top=50):
+    """Internal helper for device compliance report."""
     graph = STATE.get_graph()
     cfg = STATE.config
     target_user = user_id or cfg.graph_user_id
@@ -2234,6 +2322,7 @@ def _user_audit_report(
     include_devices=False,
     include_mailbox_stats=False,
 ):
+    """Internal helper for user audit report."""
     cfg = STATE.config
     target_user = user_id or cfg.graph_user_id
     if not target_user:
@@ -2242,6 +2331,7 @@ def _user_audit_report(
     errors = []
 
     def _capture_error(scope, exc):
+        """Capture error."""
         if isinstance(exc, GraphAPIError):
             errors.append(
                 {
@@ -2314,6 +2404,7 @@ def _user_audit_report(
 
 
 def _gpo_audit_report(name=None):
+    """Internal helper for gpo audit report."""
     localad = STATE.get_client("localad")
     gpos = localad.list_gpos(name=name)
     if is_powershell_envelope(gpos) and not gpos.get("ok", True):
@@ -2334,6 +2425,7 @@ def _gpo_audit_report(name=None):
 
 
 def _gpo_link_audit_report(ou_dn):
+    """Internal helper for gpo link audit report."""
     if not ou_dn:
         raise ValueError("OU DN is required for GPO link audit.")
     localad = STATE.get_client("localad")
@@ -2352,6 +2444,7 @@ def _gpo_link_audit_report(ou_dn):
 
 
 def _bulk_update(service, update_action, items, context=None):
+    """Internal helper for bulk update."""
     if not update_action:
         raise ValueError("update_action is required for bulk updates.")
     if not items:
@@ -2359,6 +2452,7 @@ def _bulk_update(service, update_action, items, context=None):
     context = context or {}
 
     def _get_client(name):
+        """Get client."""
         if name == "onedrive":
             return STATE.get_client("onedrive")
         return STATE.get_client(name)
@@ -2877,6 +2971,7 @@ CAPABILITY_REGISTRY = build_capability_registry(ACTIONS)
 
 
 def _normalize_params(spec, params):
+    """Normalize params."""
     data = dict(params or {})
     for key in list(data.keys()):
         if isinstance(data[key], str) and data[key].strip() == "":
@@ -2891,6 +2986,7 @@ def _normalize_params(spec, params):
 
 
 def _jsonable(value):
+    """Internal helper for jsonable."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, dict):
@@ -2918,6 +3014,7 @@ SENSITIVE_KEYWORDS = (
 
 
 def _is_sensitive_key(key: str) -> bool:
+    """Return True if sensitive key."""
     normalized = str(key or "").lower()
     if not normalized:
         return False
@@ -2927,6 +3024,7 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def sanitize_payload(value, depth: int = 0):
+    """Run sanitize payload."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if depth > 6:
@@ -2945,6 +3043,7 @@ def sanitize_payload(value, depth: int = 0):
 
 
 def _store_artifact(source_path, prefix="artifact"):
+    """Internal helper for store artifact."""
     if not source_path:
         return None
     source = Path(source_path)
@@ -2963,6 +3062,7 @@ def _store_artifact(source_path, prefix="artifact"):
 
 
 def _hash_file(path: Path):
+    """Internal helper for hash file."""
     try:
         import hashlib
 
@@ -2978,6 +3078,7 @@ def _hash_file(path: Path):
 
 
 def _record_evidence(kind, source_path, subject_ids=None, description=None, meta=None):
+    """Record evidence."""
     if not source_path:
         return None
     artifact_name = _store_artifact(source_path, prefix=kind)
@@ -3014,12 +3115,14 @@ def _record_evidence(kind, source_path, subject_ids=None, description=None, meta
 
 
 def _extract_action_payload(result):
+    """Internal helper for extract action payload."""
     if is_powershell_envelope(result):
         return result.get("data")
     return result
 
 
 def classify_action_kind(action: str, service: str | None = None) -> str:
+    """Classify action kind."""
     if service in {"reports"}:
         return "read"
     if action.startswith("list_") or action.startswith("get_") or action.endswith("_report"):
@@ -3075,6 +3178,7 @@ TARGET_KEYS = (
 
 
 def _build_snapshot_target(params: dict | None, payload: dict | None = None) -> str:
+    """Build snapshot target."""
     params = params or {}
     for key in TARGET_KEYS:
         value = params.get(key)
@@ -3108,6 +3212,7 @@ SNAPSHOT_READERS = {
 
 
 def _resolve_snapshot_reader(service: str, action: str, params: dict | None, result: dict | None):
+    """Resolve snapshot reader."""
     entry = SNAPSHOT_READERS.get((service, action))
     if not entry:
         return None
@@ -3133,6 +3238,7 @@ def _resolve_snapshot_reader(service: str, action: str, params: dict | None, res
 
 
 def _capture_state_snapshot(service: str, action: str, client, params: dict | None, result: dict | None):
+    """Capture state snapshot."""
     resolved = _resolve_snapshot_reader(service, action, params, result)
     if not resolved:
         return None
@@ -3153,6 +3259,7 @@ def _snapshot_meta(
     ok: bool | None = None,
     execution_target: ExecutionTarget | None = None,
 ) -> dict:
+    """Internal helper for snapshot meta."""
     meta = {
         "service": service,
         "action": action,
@@ -3174,6 +3281,7 @@ def _store_snapshot(
     source: dict,
     inputs: dict | None = None,
 ):
+    """Internal helper for store snapshot."""
     try:
         ACTION_SNAPSHOT_STORE.put(
             snapshot_type,
@@ -3190,6 +3298,7 @@ def _store_snapshot(
 
 
 def _infer_snapshot_entity(service: str, action: str, payload: dict | None, source: str) -> str:
+    """Internal helper for infer snapshot entity."""
     if service == "reports":
         return action or "report"
     try:
@@ -3200,6 +3309,7 @@ def _infer_snapshot_entity(service: str, action: str, payload: dict | None, sour
 
 
 def _emit_additional_snapshots(service: str, action: str, params: dict | None, result: dict | None, source_kind: str):
+    """Internal helper for emit additional snapshots."""
     if not isinstance(result, dict):
         return
     meta = _snapshot_meta(service, action, "snapshot", ok=True)
@@ -3369,6 +3479,7 @@ def _emit_additional_snapshots(service: str, action: str, params: dict | None, r
 
 
 def _list_action_snapshots(snapshot_type=None, target=None, limit=50, prefix=None, action=None):
+    """List action snapshots."""
     return ACTION_SNAPSHOT_STORE.list(
         snapshot_type=snapshot_type,
         target=target,
@@ -3379,10 +3490,12 @@ def _list_action_snapshots(snapshot_type=None, target=None, limit=50, prefix=Non
 
 
 def _get_action_snapshot(snapshot_id):
+    """Get action snapshot."""
     return ACTION_SNAPSHOT_STORE.get(snapshot_id)
 
 
 def _diff_action_snapshots(snapshot_id_a: str, snapshot_id_b: str) -> dict | None:
+    """Diff action snapshots."""
     if not snapshot_id_a or not snapshot_id_b:
         return None
     snap_a = ACTION_SNAPSHOT_STORE.get(snapshot_id_a)
@@ -3413,18 +3526,22 @@ def _diff_action_snapshots(snapshot_id_a: str, snapshot_id_b: str) -> dict | Non
 
 
 def _list_engine_snapshots(canonical_id=None, limit=50):
+    """List engine snapshots."""
     return STATE.snapshot_store.list_snapshots(canonical_id=canonical_id, limit=limit)
 
 
 def _get_engine_snapshot(snapshot_id):
+    """Get engine snapshot."""
     return STATE.snapshot_store.get_snapshot(snapshot_id)
 
 
 def _list_snapshot_entities(limit=200):
+    """List snapshot entities."""
     return STATE.snapshot_store.list_entities(limit=limit)
 
 
 def _diff_engine_snapshots(snapshot_id_a: str, snapshot_id_b: str):
+    """Diff engine snapshots."""
     from platform_core.snapshot_diff import diff_snapshots
 
     if not snapshot_id_a or not snapshot_id_b:
@@ -3437,6 +3554,7 @@ def _diff_engine_snapshots(snapshot_id_a: str, snapshot_id_b: str):
 
 
 def _resolve_snapshot_subject(alias_type: str, alias_value: str):
+    """Resolve snapshot subject."""
     if not alias_type or not alias_value:
         return None
     canonical_id = STATE.snapshot_store.resolve_alias(alias_type, alias_value)
@@ -3447,6 +3565,7 @@ def _resolve_snapshot_subject(alias_type: str, alias_value: str):
 
 
 def _list_snapshot_events(canonical_ids=None, limit=50):
+    """List snapshot events."""
     return STATE.snapshot_store.list_events(canonical_ids=canonical_ids, limit=limit)
 
 
@@ -3504,6 +3623,7 @@ def _list_vision_u_eye_visual_signals(
     until: str | None = None,
     limit: int = 50,
 ) -> dict:
+    """List vision u eye visual signals."""
     resolved_id = canonical_id
     if not resolved_id and endpoint_id:
         subject = STATE.entity_resolver.resolve_subject("device", {"endpoint_id": endpoint_id})
@@ -3526,10 +3646,12 @@ def _list_vision_u_eye_visual_signals(
 
 
 def _list_symptom_templates():
+    """List symptom templates."""
     return list_symptom_templates()
 
 
 def _create_incident(payload: dict | None):
+    """Create incident."""
     if not isinstance(payload, dict):
         raise ValueError("Incident payload must be an object.")
     incident_id = payload.get("incident_id") or uuid.uuid4().hex
@@ -3572,10 +3694,12 @@ def _create_incident(payload: dict | None):
 
 
 def _list_incidents(limit=50):
+    """List incidents."""
     return STATE.snapshot_store.list_incidents(limit=limit)
 
 
 def _get_incident(incident_id: str):
+    """Get incident."""
     if not incident_id:
         return None
     incident = STATE.snapshot_store.get_incident(incident_id)
@@ -3588,6 +3712,7 @@ def _get_incident(incident_id: str):
 
 
 def _update_incident(incident_id: str, updates: dict | None):
+    """Update incident."""
     if not incident_id:
         raise ValueError("incident_id is required.")
     if not isinstance(updates, dict):
@@ -3597,10 +3722,12 @@ def _update_incident(incident_id: str, updates: dict | None):
 
 
 def _get_incident_report(incident_id: str):
+    """Get incident report."""
     return STATE.snapshot_store.get_incident_report(incident_id)
 
 
 def _update_incident_report(incident_id: str, report: dict | None):
+    """Update incident report."""
     if not incident_id:
         raise ValueError("incident_id is required.")
     payload = report or {}
@@ -3611,6 +3738,7 @@ def _update_incident_report(incident_id: str, report: dict | None):
 
 
 def _render_incident_report(incident_id: str, fmt: str, redaction: str, report: dict | None = None):
+    """Render incident report."""
     from .reporting import ReportRenderer
 
     if not incident_id:
@@ -3629,6 +3757,7 @@ def _render_incident_report(incident_id: str, fmt: str, redaction: str, report: 
 
 
 def _link_incident_snapshot(incident_id: str, snapshot_id: str):
+    """Internal helper for link incident snapshot."""
     if not incident_id or not snapshot_id:
         raise ValueError("incident_id and snapshot_id are required.")
     STATE.snapshot_store.link_incident_snapshot(incident_id, snapshot_id)
@@ -3636,6 +3765,7 @@ def _link_incident_snapshot(incident_id: str, snapshot_id: str):
 
 
 def _link_incident_event(incident_id: str, event_id: str):
+    """Internal helper for link incident event."""
     if not incident_id or not event_id:
         raise ValueError("incident_id and event_id are required.")
     STATE.snapshot_store.link_incident_event(incident_id, event_id)
@@ -3643,6 +3773,7 @@ def _link_incident_event(incident_id: str, event_id: str):
 
 
 def _infer_node_kind(identifier: str | None):
+    """Internal helper for infer node kind."""
     if not identifier:
         return "resource"
     if "@" in identifier:
@@ -3655,6 +3786,7 @@ def _infer_node_kind(identifier: str | None):
 
 
 def _build_incident_graph(incident_id: str):
+    """Build incident graph."""
     incident = _get_incident(incident_id)
     snapshot_ids = STATE.snapshot_store.list_incident_snapshots(incident_id)
     snapshots = [STATE.snapshot_store.get_snapshot(sid) for sid in snapshot_ids]
@@ -3664,6 +3796,7 @@ def _build_incident_graph(incident_id: str):
     edges = []
 
     def _add_node(node_id, kind=None, label=None, role=None):
+        """Add node."""
         if not node_id:
             return
         if node_id not in nodes:
@@ -3722,6 +3855,7 @@ def _build_incident_graph(incident_id: str):
 
 
 def _build_incident_timeline(incident_id: str):
+    """Build incident timeline."""
     incident = _get_incident(incident_id)
     snapshot_ids = STATE.snapshot_store.list_incident_snapshots(incident_id)
     snapshots = [STATE.snapshot_store.get_snapshot(sid) for sid in snapshot_ids]
@@ -3752,10 +3886,12 @@ def _build_incident_timeline(incident_id: str):
 
 
 def _list_golden_snapshots():
+    """List golden snapshots."""
     return STATE.snapshot_store.list_golden_snapshots()
 
 
 def _set_golden_snapshot(kind: str, snapshot_id: str, label: str | None = None):
+    """Set golden snapshot."""
     if not kind or not snapshot_id:
         raise ValueError("kind and snapshot_id are required.")
     STATE.snapshot_store.set_golden_snapshot(kind, snapshot_id, label=label)
@@ -3763,6 +3899,7 @@ def _set_golden_snapshot(kind: str, snapshot_id: str, label: str | None = None):
 
 
 def _clear_golden_snapshot(kind: str):
+    """Internal helper for clear golden snapshot."""
     if not kind:
         raise ValueError("kind is required.")
     STATE.snapshot_store.clear_golden_snapshot(kind)
@@ -3770,6 +3907,7 @@ def _clear_golden_snapshot(kind: str):
 
 
 def _diff_golden_snapshot(snapshot_id: str):
+    """Diff golden snapshot."""
     from platform_core.snapshot_diff import diff_snapshots
 
     snapshot = STATE.snapshot_store.get_snapshot(snapshot_id)
@@ -3792,10 +3930,12 @@ def _diff_golden_snapshot(snapshot_id: str):
 
 
 def _get_symptom_template(symptom_id: str):
+    """Get symptom template."""
     return get_symptom_template(symptom_id)
 
 
 def _snapshot_context_from_payload(payload):
+    """Internal helper for snapshot context from payload."""
     context = _build_snapshot_context(payload.get("context") if isinstance(payload, dict) else None)
     return context
 
@@ -3804,10 +3944,12 @@ _PROFILE_ORDER = {"core": 0, "troubleshoot": 1, "deep": 2}
 
 
 def _profile_allows(profile: str, minimum: str) -> bool:
+    """Internal helper for profile allows."""
     return _PROFILE_ORDER.get(profile or "core", 0) >= _PROFILE_ORDER.get(minimum or "core", 0)
 
 
 def _required_probe_ids_for(kind: str, profile: str) -> list[str]:
+    """Internal helper for required probe ids for."""
     required = []
     for entry in PROBE_REGISTRY:
         if kind not in (entry.get("subject_kinds") or []):
@@ -3821,6 +3963,7 @@ def _required_probe_ids_for(kind: str, profile: str) -> list[str]:
 
 
 def _capture_snapshots(payload):
+    """Capture snapshots."""
     if not isinstance(payload, dict):
         raise ValueError("Snapshot payload must be an object.")
     profile = payload.get("profile") or "core"
@@ -3916,6 +4059,7 @@ def _capture_snapshots(payload):
 
 
 def _finalize_draft_snapshot(payload: dict) -> dict:
+    """Finalize draft snapshot."""
     if not isinstance(payload, dict):
         raise ValueError("Draft payload must be an object.")
     draft = payload.get("draft") or {}
@@ -4044,12 +4188,15 @@ def _finalize_draft_snapshot(payload: dict) -> dict:
 
 
 class SnapshotScheduler:
+    """Snapshot Scheduler."""
     def __init__(self, state: "BackendState"):
+        """Initialize the instance."""
         self.state = state
         self._thread = None
         self._stop = threading.Event()
 
     def _load_schedule(self):
+        """Internal helper for load schedule."""
         data = _read_config_file()
         schedule = data.get("snapshot_scheduler") or {}
         enabled = bool(schedule.get("enabled", False))
@@ -4059,6 +4206,7 @@ class SnapshotScheduler:
         return enabled, interval, profile, subjects
 
     def start(self):
+        """Run start."""
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
@@ -4066,9 +4214,11 @@ class SnapshotScheduler:
         self._thread.start()
 
     def stop(self):
+        """Run stop."""
         self._stop.set()
 
     def _run(self):
+        """Internal helper for run."""
         while not self._stop.is_set():
             try:
                 enabled, interval, profile, subjects = self._load_schedule()
@@ -4093,6 +4243,7 @@ class OneDriveCacheWarmupRunner:
     """Background warmup for OneDrive driveId resolution (cache priming)."""
 
     def __init__(self, state: "BackendState"):
+        """Initialize the instance."""
         self.state = state
         self._lock = threading.Lock()
         self._thread = None
@@ -4103,10 +4254,12 @@ class OneDriveCacheWarmupRunner:
         self._run_id = None
 
     def is_running(self) -> bool:
+        """Return True if running."""
         with self._lock:
             return bool(self._running)
 
     def status(self) -> dict:
+        """Run status."""
         with self._lock:
             return {
                 "running": bool(self._running),
@@ -4117,6 +4270,7 @@ class OneDriveCacheWarmupRunner:
             }
 
     def _default_upns(self, limit: int = 50) -> list[str]:
+        """Internal helper for default upns."""
         tenant_id = self.state.config.tenant_id or ""
         if not tenant_id:
             return []
@@ -4126,6 +4280,7 @@ class OneDriveCacheWarmupRunner:
             return []
 
     def warm_now(self, *, upns: list[str] | None = None, max_items: int = 50) -> dict:
+        """Run warm now."""
         upns = [str(item).strip() for item in (upns or []) if str(item).strip()]
         if not upns:
             upns = self._default_upns(limit=max_items)
@@ -4238,6 +4393,7 @@ class OneDriveCacheWarmupRunner:
         return {"ok": True, "processed": processed, "ok_count": ok_count, "failed": len(failures), "failures": failures}
 
     def _run(self, *, upns: list[str], max_items: int, run_id: str):
+        """Internal helper for run."""
         cfg_file = _read_config_file()
         ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
         stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
@@ -4332,12 +4488,15 @@ class OneDriveCacheWarmupRunner:
 
 
 class OneDriveCacheWarmupScheduler:
+    """One Drive Cache Warmup Scheduler."""
     def __init__(self, runner: OneDriveCacheWarmupRunner):
+        """Initialize the instance."""
         self.runner = runner
         self._thread = None
         self._stop = threading.Event()
 
     def _load_schedule(self):
+        """Internal helper for load schedule."""
         data = _read_config_file()
         schedule = data.get("onedrive_cache_warmup") or {}
         enabled = bool(schedule.get("enabled", False))
@@ -4347,6 +4506,7 @@ class OneDriveCacheWarmupScheduler:
         return enabled, interval, upns, max_items
 
     def start(self):
+        """Run start."""
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
@@ -4354,9 +4514,11 @@ class OneDriveCacheWarmupScheduler:
         self._thread.start()
 
     def stop(self):
+        """Run stop."""
         self._stop.set()
 
     def _run(self):
+        """Internal helper for run."""
         while not self._stop.is_set():
             try:
                 enabled, interval, upns, max_items = self._load_schedule()
@@ -4396,9 +4558,13 @@ class OneDriveCacheWarmupScheduler:
             self._stop.wait(timeout=sleep_seconds)
 
 def get_action_source(service, action):
+    """Get action source."""
     if service in LOCAL_SERVICES:
         return "powershell"
     spec = ACTIONS.get(service, {}).get(action, {})
+    explicit = spec.get("source") or spec.get("tool")
+    if explicit in ("graph", "powershell"):
+        return str(explicit)
     method = spec.get("method", "") or ""
     if "powershell" in method:
         return "powershell"
@@ -4411,20 +4577,52 @@ class _OneDriveCacheClient:
     The real implementation lives in dispatch_task's service/action special-cases.
     """
 
+    def get_user_drive_id(self, **_kwargs):
+        """Get user drive id."""
+        return None
+
     def drive_cache_status(self, **_kwargs):
+        """Run drive cache status."""
         return None
 
     def warm_drive_cache(self, **_kwargs):
+        """Run warm drive cache."""
         return None
 
     def seed_drive_cache(self, **_kwargs):
+        """Run seed drive cache."""
         return None
 
     def requeue_drive_resolution(self, **_kwargs):
+        """Run requeue drive resolution."""
         return None
 
     def force_live_resolve(self, **_kwargs):
+        """Run force live resolve."""
         return None
+
+
+class _LazyGraphProxy:
+    """Lazily initializes GraphSession on first use.
+
+    This lets cache-first actions return cached results even when Graph auth/network
+    is degraded, without paying the cost of initializing MSAL upfront.
+    """
+
+    def __init__(self, state: "BackendState"):
+        """Initialize the instance."""
+        self._state = state
+        self._graph = None
+
+    def _get_graph(self):
+        """Get graph."""
+        if self._graph is None:
+            self._graph = self._state.get_graph()
+        return self._graph
+
+    def __getattr__(self, name):  # pragma: no cover - trivial delegation
+        """Fallback attribute access hook."""
+        return getattr(self._get_graph(), name)
 
 
 ACTION_ENDPOINTS = {
@@ -4457,10 +4655,12 @@ ACTION_ENDPOINTS = {
 
 
 def get_action_endpoint(service, action):
+    """Get action endpoint."""
     return ACTION_ENDPOINTS.get((service, action))
 
 
 def dispatch_task(service, action, params=None, target=None):
+    """Run dispatch task."""
     params = params or {}
     snapshot_enabled = True
     if isinstance(params, dict) and "_snapshot" in params:
@@ -4748,6 +4948,16 @@ def dispatch_task(service, action, params=None, target=None):
             payload["user_upn"] = payload.pop("user")
         if payload.get("id") and not payload.get("drive_id"):
             payload["drive_id"] = payload.pop("id")
+    if service == "onedrive" and action == "get_user_drive_id":
+        # Accept common aliases so API/CLI callers can pass a UPN/ObjectId without needing
+        # to memorize runner field names. The UI uses `user_id`; other callers often use
+        # `user_upn_or_id` or `upn`.
+        if payload.get("user_upn_or_id") and not payload.get("user_id"):
+            payload["user_id"] = payload.pop("user_upn_or_id")
+        if payload.get("upn") and not payload.get("user_id"):
+            payload["user_id"] = payload.pop("upn")
+        if payload.get("user") and not payload.get("user_id"):
+            payload["user_id"] = payload.pop("user")
     if service == "onedrive" and action in ("requeue_drive_resolution", "force_live_resolve"):
         if payload.get("user_id") and not payload.get("user_upn"):
             payload["user_upn"] = payload.pop("user_id")
@@ -4767,15 +4977,10 @@ def dispatch_task(service, action, params=None, target=None):
         "requeue_drive_resolution",
         "force_live_resolve",
     ):
-        if action == "get_user_drive_id":
-            cfg = STATE.config
-            client = OneDriveClient(
-                STATE.get_graph(),
-                drive_id=cfg.onedrive_drive_id or "",
-                powershell_options={"session": STATE.powershell, "admin_url": cfg.spo_admin_url},
-            )
-        else:
-            client = _OneDriveCacheClient()
+        # These actions are cache/scheduler helpers (or cache-first resolvers) and should not
+        # eagerly initialize Graph auth. Doing so defeats cache-first behavior when the network
+        # or Graph is degraded.
+        client = _OneDriveCacheClient()
     else:
         client = STATE.get_client(service, execution_target)
     method = getattr(client, spec["method"])
@@ -4787,6 +4992,16 @@ def dispatch_task(service, action, params=None, target=None):
                 call_params["user_id"] = STATE.config.graph_user_id
             else:
                 raise ValueError("GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in .env.")
+    # Cache-first OneDrive resolver uses `user_id` as the input field but doesn't require
+    # eager Graph initialization. Preserve the convenient default to GRAPH_USER_ID when
+    # the user leaves the field blank in the UI.
+    if service == "onedrive" and action == "get_user_drive_id":
+        user_val = call_params.get("user_id")
+        if user_val is None or str(user_val).strip() == "":
+            if STATE.config.graph_user_id:
+                call_params["user_id"] = STATE.config.graph_user_id
+            else:
+                raise ValueError("GRAPH_USER_ID is required for OneDrive drive resolution. Set GRAPH_USER_ID in Settings.")
 
     # OneDrive drive-scoped actions can resolve drive IDs dynamically (cache-first), avoiding the
     # need to pre-configure ONEDRIVE_DRIVE_ID for common workflows (ex: list root items).
@@ -4986,7 +5201,7 @@ def dispatch_task(service, action, params=None, target=None):
             force_live = bool(call_params.pop("force_live", False) or call_params.pop("refresh", False))
             result = resolve_onedrive_drive_id(
                 store=STATE.snapshot_store,
-                graph=STATE.get_graph(),
+                graph=_LazyGraphProxy(STATE),
                 tenant_id=STATE.config.tenant_id or "",
                 user_upn_or_id=str(call_params.get("user_id") or ""),
                 force_live=force_live,

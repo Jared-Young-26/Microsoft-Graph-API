@@ -9,10 +9,12 @@ from .snapshot_models import Subject
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _emit(store: SnapshotSqlStore, subject: Subject, signal_name: str, payload: Dict[str, Any], context: Dict[str, Any]):
+    """Internal helper for emit."""
     event_id = uuid.uuid4().hex
     emitted_at = _now_iso()
     store.add_event(
@@ -34,6 +36,7 @@ def _emit(store: SnapshotSqlStore, subject: Subject, signal_name: str, payload: 
 
 
 def apply_signal_rules(store: SnapshotSqlStore, subject: Subject, lens: Dict[str, Any], probe_results: Iterable[Any], context: Dict[str, Any]):
+    """Apply signal rules."""
     connectivity = (lens.get("connectivity") or {}).get("probes") or []
     for probe in connectivity:
         if not isinstance(probe, dict):

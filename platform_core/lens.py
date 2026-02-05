@@ -65,6 +65,7 @@ LENS_TEMPLATE: Dict[str, Any] = {
 
 
 def _get_template_value(path: str) -> Any:
+    """Get template value."""
     parts = [part for part in path.split(".") if part]
     node: Any = LENS_TEMPLATE
     for part in parts:
@@ -76,6 +77,7 @@ def _get_template_value(path: str) -> Any:
 
 
 def _ensure_path(root: Dict[str, Any], path: List[str]) -> Dict[str, Any]:
+    """Ensure path."""
     node = root
     for part in path:
         if part not in node or not isinstance(node.get(part), dict):
@@ -85,6 +87,7 @@ def _ensure_path(root: Dict[str, Any], path: List[str]) -> Dict[str, Any]:
 
 
 def _merge_into(target: Any, data: Any, default: Any) -> Any:
+    """Internal helper for merge into."""
     if data is None:
         return target
     if isinstance(target, list):
@@ -106,6 +109,7 @@ def _merge_into(target: Any, data: Any, default: Any) -> Any:
 
 
 def _apply_path(lens: Dict[str, Any], path: str, data: Any) -> None:
+    """Apply path."""
     parts = [part for part in path.split(".") if part]
     if not parts:
         return
@@ -127,6 +131,7 @@ def _apply_path(lens: Dict[str, Any], path: str, data: Any) -> None:
 
 
 def _extract_probe_id(result: Any) -> Optional[str]:
+    """Internal helper for extract probe id."""
     if isinstance(result, ProbeResult):
         return result.probe
     if isinstance(result, dict):
@@ -135,6 +140,7 @@ def _extract_probe_id(result: Any) -> Optional[str]:
 
 
 def _extract_probe_data(result: Any) -> Any:
+    """Internal helper for extract probe data."""
     if isinstance(result, ProbeResult):
         return result.data
     if isinstance(result, dict):
@@ -143,6 +149,7 @@ def _extract_probe_data(result: Any) -> Any:
 
 
 def assemble_lens(subject_kind: str, probe_results: Iterable[Any], registry: Optional[Iterable[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Run assemble lens."""
     lens = deepcopy(LENS_TEMPLATE)
     registry_items = list(registry or PROBE_REGISTRY)
     registry_map = {entry.get("probe_id"): entry for entry in registry_items if entry.get("probe_id")}

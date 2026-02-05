@@ -11,21 +11,27 @@ from platform_core.snapshot_storage import SnapshotSqlStore
 
 
 class _FakeResponse:
+    """Internal type: _ Fake Response."""
     def __init__(self, payload):
+        """Initialize the instance."""
         self._payload = payload
         self.status_code = 200
 
     def json(self):
+        """Run json."""
         return dict(self._payload or {})
 
 
 class _FakeGraph:
+    """Internal type: _ Fake Graph."""
     def __init__(self, *, payload=None, error=None):
+        """Initialize the instance."""
         self.payload = payload or {}
         self.error = error
         self.calls = []
 
     def get(self, path, params=None, max_attempts=None, max_budget_s=None, **kwargs):
+        """Run get."""
         self.calls.append(
             {
                 "path": path,
@@ -40,11 +46,14 @@ class _FakeGraph:
 
 
 class _FakeGraphRouting:
+    """Internal type: _ Fake Graph Routing."""
     def __init__(self, routes):
+        """Initialize the instance."""
         self.routes = dict(routes or {})
         self.calls = []
 
     def get(self, path, params=None, max_attempts=None, max_budget_s=None, **kwargs):
+        """Run get."""
         self.calls.append({"path": path, "params": params, "max_attempts": max_attempts, "max_budget_s": max_budget_s})
         handler = None
         for prefix, value in self.routes.items():
@@ -64,12 +73,15 @@ class _FakeGraphRouting:
 
 
 class TestOneDriveDriveResolver(unittest.TestCase):
+    """Test One Drive Drive Resolver."""
     def _store(self):
+        """Internal helper for store."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return SnapshotSqlStore(Path(tmp.name) / "snapshots.sqlite")
 
     def test_cache_hit_returns_without_graph_call(self):
+        """Run test cache hit returns without graph call."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -96,6 +108,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(result.get("source"), "cache")
 
     def test_cache_miss_calls_graph_and_stores(self):
+        """Run test cache miss calls graph and stores."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -126,6 +139,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(cached.get("user_object_id"), "USER1")
 
     def test_503_retries_exhausted_keeps_failure_source_graph(self):
+        """Run test 503 retries exhausted keeps failure source graph."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -159,6 +173,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(payload.get("failure_outcome"), "retry_exhausted")
 
     def test_404_maps_to_onedrive_not_provisioned(self):
+        """Run test 404 maps to onedrive not provisioned."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -196,6 +211,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(getattr(ctx.exception, "error_class", None), "onedrive_not_provisioned")
 
     def test_circuit_open_uses_cache_fallback(self):
+        """Run test circuit open uses cache fallback."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -238,6 +254,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(result.get("source"), "cache")
 
     def test_step_b_503_no_cache_returns_pending_and_enqueues(self):
+        """Run test step b 503 no cache returns pending and enqueues."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -274,6 +291,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(pending_stats.get("total"), 1)
 
     def test_step_b_circuit_open_no_cache_returns_pending_and_enqueues(self):
+        """Run test step b circuit open no cache returns pending and enqueues."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"
@@ -299,6 +317,7 @@ class TestOneDriveDriveResolver(unittest.TestCase):
         self.assertEqual(pending_stats.get("total"), 1)
 
     def test_stale_cache_too_old_not_used(self):
+        """Run test stale cache too old not used."""
         store = self._store()
         tenant_id = "tenant-1"
         upn = "alice@contoso.com"

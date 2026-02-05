@@ -10,10 +10,12 @@ TIME_SKEW_DEFAULT_MINUTES = 5
 
 
 def _iso_now():
+    """Internal helper for iso now."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -24,6 +26,7 @@ def _wrap_envelope(result, payload_builder):
 
 
 def _ensure_list(value):
+    """Ensure list."""
     if value is None:
         return []
     if isinstance(value, list):
@@ -32,12 +35,14 @@ def _ensure_list(value):
 
 
 def _text(value, fallback=""):
+    """Internal helper for text."""
     if value is None:
         return fallback
     return str(value)
 
 
 def _bool(value):
+    """Internal helper for bool."""
     if isinstance(value, bool):
         return value
     if value is None:
@@ -46,6 +51,7 @@ def _bool(value):
 
 
 def _guidance_block(summary, observed, why, likely_cause, next_checks, limitations):
+    """Internal helper for guidance block."""
     return {
         "summary": summary,
         "observed": observed,
@@ -57,6 +63,7 @@ def _guidance_block(summary, observed, why, likely_cause, next_checks, limitatio
 
 
 def _build_guidance_endpoint_auth(evidence: dict, skew_warn_minutes: int):
+    """Build guidance endpoint auth."""
     observed = []
     next_checks = []
     limitations = []
@@ -153,6 +160,7 @@ def _build_guidance_endpoint_auth(evidence: dict, skew_warn_minutes: int):
 
 
 def _build_guidance_policy(evidence: dict, lookback_hours: int):
+    """Build guidance policy."""
     observed = []
     next_checks = []
     limitations = []
@@ -209,6 +217,7 @@ def _build_guidance_policy(evidence: dict, lookback_hours: int):
 
 
 def _build_guidance_service_integrity(evidence: dict):
+    """Build guidance service integrity."""
     observed = []
     next_checks = []
     limitations = []
@@ -255,6 +264,7 @@ def _build_guidance_service_integrity(evidence: dict):
 
 
 def _build_guidance_failure_causality(evidence: dict, lookback_hours: int):
+    """Build guidance failure causality."""
     observed = []
     next_checks = []
     limitations = []
@@ -296,6 +306,7 @@ def _build_guidance_failure_causality(evidence: dict, lookback_hours: int):
 
 
 def _build_guidance_network_path(evidence: dict, target_host: str):
+    """Build guidance network path."""
     observed = []
     next_checks = []
     limitations = []
@@ -350,15 +361,19 @@ def _build_guidance_network_path(evidence: dict, target_host: str):
 
 
 class RemoteWorkflowClient:
+    """Client for Remote Workflow operations."""
     def __init__(self, powershell=None):
+        """Initialize the instance."""
         self._powershell = powershell or PowerShellModuleClient().session
 
     def _get_powershell(self):
+        """Get powershell."""
         if isinstance(self._powershell, PowerShellModuleClient):
             return self._powershell
         return PowerShellModuleClient(session=self._powershell)
 
     def _build_output(self, workflow_id: str, name: str, purpose: str, evidence: dict, guidance: dict, meta: dict):
+        """Build output."""
         return {
             "workflow": {
                 "id": workflow_id,
@@ -381,6 +396,7 @@ class RemoteWorkflowClient:
         }
 
     def endpoint_auth_reality(self, lookback_hours=24, time_skew_warn_minutes=TIME_SKEW_DEFAULT_MINUTES):
+        """Run endpoint auth reality."""
         script = r"""
         $errors = @()
         $loggedOnUsers = @()
@@ -512,6 +528,7 @@ class RemoteWorkflowClient:
         )
 
     def effective_policy_vs_intended(self, lookback_hours=24, max_events=50):
+        """Run effective policy vs intended."""
         script = r"""
         $errors = @()
         $gpRaw = ''
@@ -555,6 +572,7 @@ class RemoteWorkflowClient:
             parameters={"LOOKBACK_HOURS": lookback_hours, "MAX_EVENTS": max_events},
         )
         def build(data, meta):
+            """Run build."""
             summary = {}
             if data and data.get("gpresult_raw"):
                 try:
@@ -583,6 +601,7 @@ class RemoteWorkflowClient:
         return _wrap_envelope(result, build)
 
     def service_process_integrity(self, lookback_hours=24, max_events=25):
+        """Run service process integrity."""
         script = r"""
         $errors = @()
         $map = @()
@@ -653,6 +672,7 @@ class RemoteWorkflowClient:
         )
 
     def recent_failure_causality(self, lookback_hours=24, max_events=50):
+        """Run recent failure causality."""
         script = r"""
         $errors = @()
         $timeline = @()
@@ -696,6 +716,7 @@ class RemoteWorkflowClient:
         )
 
     def host_network_path_check(self, target_host: str, port: int | None = None):
+        """Run host network path check."""
         if not target_host:
             raise ValueError("target_host is required")
         script = r"""
@@ -761,6 +782,7 @@ class RemoteWorkflowClient:
             parameters={"TARGET_HOST": target_host, "TARGET_PORT": port},
         )
         def build(data, meta):
+            """Run build."""
             routes = data.get("routes") or [] if data else []
             route_conflict = False
             if isinstance(routes, list) and len(routes) > 1:

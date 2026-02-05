@@ -4,10 +4,12 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _ps_value(value):
+    """Internal helper for ps value."""
     if isinstance(value, bool):
         return "$true" if value else "$false"
     if value is None:
@@ -20,6 +22,7 @@ def _ps_value(value):
 
 
 def _unwrap_or_error(result, errors, source):
+    """Internal helper for unwrap or error."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             errors.append({"source": source, "error": result.get("error")})
@@ -29,31 +32,39 @@ def _unwrap_or_error(result, errors, source):
 
 
 class LocalTopologyClient:
+    """Client for Local Topology operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalTopologyPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def list_dhcp_leases(self, dhcp_server=None, scope_ids=None, max_items=None):
+        """List dhcp leases."""
         scopes = _ps_value(scope_ids) if scope_ids else "$null"
         server_expr = _ps_value(dhcp_server) if dhcp_server else "$null"
         limit = f"| Select-Object -First {int(max_items)}" if max_items else ""
@@ -90,6 +101,7 @@ class LocalTopologyClient:
         return self._get_powershell().run_json(script)
 
     def list_dns_records(self, dns_server=None, zones=None, record_types=None, max_items=None):
+        """List dns records."""
         zones_expr = _ps_value(zones) if zones else "$null"
         types_expr = _ps_value(record_types) if record_types else "@('A','AAAA')"
         server_expr = _ps_value(dns_server) if dns_server else "$null"
@@ -142,6 +154,7 @@ class LocalTopologyClient:
         return self._get_powershell().run_json(script)
 
     def list_print_queues(self, print_server=None, max_items=None):
+        """List print queues."""
         server_expr = _ps_value(print_server) if print_server else "$null"
         limit = f"| Select-Object -First {int(max_items)}" if max_items else ""
         script = f"""
@@ -160,6 +173,7 @@ class LocalTopologyClient:
         return self._get_powershell().run_json(script)
 
     def list_print_jobs(self, print_server=None, max_items=None):
+        """List print jobs."""
         server_expr = _ps_value(print_server) if print_server else "$null"
         limit = f"| Select-Object -First {int(max_items)}" if max_items else ""
         script = f"""
@@ -188,6 +202,7 @@ class LocalTopologyClient:
         return self._get_powershell().run_json(script)
 
     def list_smb_sessions(self, smb_server=None, max_items=None):
+        """List smb sessions."""
         server_expr = _ps_value(smb_server) if smb_server else "$null"
         limit = f"| Select-Object -First {int(max_items)}" if max_items else ""
         script = f"""
@@ -218,6 +233,7 @@ class LocalTopologyClient:
         include_print_jobs=False,
         max_items=None,
     ):
+        """Run collect topology."""
         errors = []
         data = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -276,6 +292,7 @@ class LocalTopologyClient:
         }
 
     def ping_targets(self, targets, count=1, timeout_seconds=2, ipv6=False):
+        """Run ping targets."""
         if not targets:
             raise ValueError("Targets are required.")
         targets_expr = _ps_value(targets)
@@ -311,13 +328,17 @@ class LocalTopologyClient:
 
 
 class LocalTopologyPowerShellClient(PowerShellModuleClient):
+    """Client for Local Topology Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         return self.connect_script
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

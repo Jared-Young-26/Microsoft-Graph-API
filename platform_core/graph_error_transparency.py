@@ -8,10 +8,12 @@ from microsoft import GraphAPIError
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _redact_headers(headers: Dict[str, Any] | None) -> Dict[str, str]:
+    """Internal helper for redact headers."""
     if not isinstance(headers, dict):
         return {}
     cleaned: Dict[str, str] = {}
@@ -26,6 +28,7 @@ def _redact_headers(headers: Dict[str, Any] | None) -> Dict[str, str]:
 
 
 def _try_parse_json(text: str | None) -> Any:
+    """Internal helper for try parse json."""
     if not text:
         return None
     try:
@@ -35,6 +38,10 @@ def _try_parse_json(text: str | None) -> Any:
 
 
 def _classify_error_class(status: Optional[int], code: str | None) -> str | None:
+    """Classify error class."""
+    if code and "authentication_requestfromnonpremiumtenantorb2ctenant" in str(code).lower():
+        # Some Entra audit log endpoints are gated by tenant licensing (P1/P2).
+        return "tenant_license_required"
     if status == 401:
         return "auth"
     if status == 403 or (code in ("Authorization_RequestDenied", "InsufficientPrivileges")):
@@ -139,6 +146,7 @@ def build_graph_error_response(
 ) -> Dict[str, Any]:
     # Some call sites may raise GraphAPIError with response attached but without explicitly
     # setting status_code. Prefer the Response status when available.
+    """Build graph error response."""
     status = exc.status_code
     if status is None and getattr(exc, "response", None) is not None:
         try:
@@ -307,10 +315,20 @@ def build_graph_error_response(
         "attempts": enriched_attempts,
     }
 
+    upstream_artifacts = _has_upstream_artifacts(exc=exc, raw_headers=raw_headers, raw_body_text=raw_body_text)
+
+    # Treat status_code as the upstream Graph status when we actually received an upstream response.
+    # Guardrail failures (e.g., circuit breaker open) should not look like Graph returned a 503.
+    status_payload = status
+    synthetic_status = None
+    if failure_source != "graph_upstream" and error_class == "circuit_open" and not upstream_artifacts:
+        synthetic_status = status or 503
+        status_payload = None
+
     raw_graph = None
-    if status is not None or raw_headers or raw_body_text is not None:
+    if status_payload is not None or raw_headers or raw_body_text is not None:
         raw_graph = {
-            "status": status,
+            "status": status_payload,
             "headers": _redact_headers(raw_headers),
             "body": raw_body_text,
             "body_json": raw_body_json,
@@ -359,10 +377,6 @@ def build_graph_error_response(
         "route_group": route_group,
     }
 
-    synthetic_status = None
-    if failure_source != "graph_upstream" and error_class == "circuit_open":
-        synthetic_status = status or 503
-
     return {
         "ok": False,
         # Split attribution: source vs outcome. Keep legacy failure_origin as alias for source.
@@ -376,7 +390,7 @@ def build_graph_error_response(
             "error_summary": str(exc),
             "error_class": error_class,
         },
-        "status_code": status,
+        "status_code": status_payload,
         "synthetic_status": synthetic_status,
         "request_id": exc.request_id,
         "correlation_id": getattr(exc, "correlation_id", None),

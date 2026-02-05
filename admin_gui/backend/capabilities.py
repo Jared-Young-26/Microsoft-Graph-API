@@ -274,18 +274,24 @@ WRITE_PREFIXES = (
 
 
 def _titleize(text: str) -> str:
+    """Internal helper for titleize."""
     return " ".join(part.capitalize() for part in text.split())
 
 
 def humanize_action(action: str) -> str:
+    """Run humanize action."""
     cleaned = action.replace("_", " ")
     cleaned = cleaned.replace("dc", "DC").replace("fsmo", "FSMO")
     return _titleize(cleaned)
 
 
 def infer_source(service: str, spec: Dict[str, Any]) -> str:
+    """Run infer source."""
     if service in LOCAL_SERVICES:
         return "powershell"
+    explicit = (spec or {}).get("source") or (spec or {}).get("tool")
+    if explicit in ("graph", "powershell"):
+        return str(explicit)
     method = (spec or {}).get("method", "") or ""
     if "powershell" in method:
         return "powershell"
@@ -293,6 +299,7 @@ def infer_source(service: str, spec: Dict[str, Any]) -> str:
 
 
 def infer_risk(action: str) -> str:
+    """Run infer risk."""
     if action.startswith(DANGER_PREFIXES):
         return "danger"
     if action.startswith(WRITE_PREFIXES):
@@ -301,6 +308,7 @@ def infer_risk(action: str) -> str:
 
 
 def infer_output_schema(action: str) -> Dict[str, str]:
+    """Run infer output schema."""
     lowered = action.lower()
     if lowered.endswith("_report") or "report" in lowered or "audit" in lowered or "summary" in lowered:
         return {"type": "report"}
@@ -312,6 +320,7 @@ def infer_output_schema(action: str) -> Dict[str, str]:
 
 
 def infer_requires_admin(service: str, action: str, source: str, risk: str) -> bool:
+    """Run infer requires admin."""
     if source != "powershell":
         return False
     if action in ADMIN_REQUIRED_ACTIONS.get(service, set()):
@@ -322,6 +331,7 @@ def infer_requires_admin(service: str, action: str, source: str, risk: str) -> b
 
 
 def infer_requires_domain_join(service: str, action: str, source: str) -> bool:
+    """Run infer requires domain join."""
     if source != "powershell":
         return False
     if action in DOMAIN_REQUIRED_ACTIONS.get(service, set()):
@@ -330,16 +340,19 @@ def infer_requires_domain_join(service: str, action: str, source: str) -> bool:
 
 
 def infer_required_modules(service: str, source: str) -> list[str]:
+    """Run infer required modules."""
     if source != "powershell":
         return []
     return list(SERVICE_MODULES.get(service, []))
 
 
 def infer_requires_rsat(required_modules: list[str]) -> bool:
+    """Run infer requires rsat."""
     return bool(set(required_modules or []) & RSAT_REQUIRED_MODULES)
 
 
 def build_capability_registry(actions: Dict[str, Dict[str, Dict[str, Any]]]) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Build capability registry."""
     registry: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for service, action_map in actions.items():
         registry[service] = {}
@@ -371,4 +384,5 @@ def build_capability_registry(actions: Dict[str, Dict[str, Dict[str, Any]]]) -> 
 
 
 def get_action_capability(registry: Dict[str, Dict[str, Dict[str, Any]]], service: str, action: str) -> Dict[str, Any] | None:
+    """Get action capability."""
     return registry.get(service, {}).get(action)

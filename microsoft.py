@@ -35,6 +35,7 @@ SENSITIVE_KEYWORDS = (
 
 
 def _is_sensitive_key(key: str) -> bool:
+    """Return True if sensitive key."""
     normalized = str(key or "").lower()
     if not normalized:
         return False
@@ -44,6 +45,7 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def _redact_payload(value, depth: int = 0):
+    """Internal helper for redact payload."""
     if value is None or isinstance(value, (int, float, bool)):
         return value
     if isinstance(value, str):
@@ -68,12 +70,14 @@ def _redact_payload(value, depth: int = 0):
 
 
 def is_powershell_envelope(value) -> bool:
+    """Return True if powershell envelope."""
     if not isinstance(value, dict):
         return False
     return all(key in value for key in ("ok", "data", "error", "meta"))
 
 
 def unwrap_powershell_data(value):
+    """Run unwrap powershell data."""
     if is_powershell_envelope(value):
         return value.get("data")
     return value
@@ -83,18 +87,22 @@ _TRACE_CONTEXT: ContextVar[dict | None] = ContextVar("gas_trace_context", defaul
 
 
 def set_trace_context(context: dict | None):
+    """Set trace context."""
     return _TRACE_CONTEXT.set(context)
 
 
 def reset_trace_context(token):
+    """Run reset trace context."""
     _TRACE_CONTEXT.reset(token)
 
 
 def get_trace_context() -> dict | None:
+    """Get trace context."""
     return _TRACE_CONTEXT.get()
 
 
 def _redact_headers(headers: dict) -> dict:
+    """Internal helper for redact headers."""
     if not isinstance(headers, dict):
         return {}
     cleaned = {}
@@ -184,6 +192,7 @@ _SERVICE_SEMAPHORES = {svc: threading.BoundedSemaphore(limit) for svc, limit in 
 
 
 def _circuit_wait_seconds(route_group: str) -> int:
+    """Internal helper for circuit wait seconds."""
     now = time.time()
     with _GRAPH_GUARD_LOCK:
         entry = _CIRCUIT_STATE.get(route_group) or {}
@@ -200,6 +209,7 @@ def _record_circuit_failure(
     request_id: str | None = None,
     timestamp_utc: str | None = None,
 ) -> None:
+    """Record circuit failure."""
     if not route_group:
         return
     if not status or status < 500:
@@ -236,6 +246,7 @@ def _record_circuit_failure(
 
 
 def _circuit_snapshot() -> dict:
+    """Internal helper for circuit snapshot."""
     now = time.time()
     snapshot: dict[str, dict] = {}
     with _GRAPH_GUARD_LOCK:
@@ -259,6 +270,7 @@ def _circuit_snapshot() -> dict:
 
 @contextmanager
 def _graph_concurrency_gate(service: str | None):
+    """Internal helper for graph concurrency gate."""
     global _INFLIGHT_TOTAL
     start = time.perf_counter()
     _GLOBAL_SEMAPHORE.acquire()
@@ -285,6 +297,7 @@ def _graph_concurrency_gate(service: str | None):
 
 
 def graph_runtime_state() -> dict:
+    """Run graph runtime state."""
     with _GRAPH_GUARD_LOCK:
         inflight_total = int(_INFLIGHT_TOTAL)
         inflight_by_service = dict(_INFLIGHT_BY_SERVICE)
@@ -300,6 +313,7 @@ def graph_runtime_state() -> dict:
 
 
 class GraphAPIError(RuntimeError):
+    """Exception type: Graph A P I Error."""
     def __init__(
         self,
         message,
@@ -328,6 +342,7 @@ class GraphAPIError(RuntimeError):
         circuit=None,
         failure_outcome=None,
     ):
+        """Initialize the instance."""
         super().__init__(message)
         self.status_code = status_code
         self.request_id = request_id
@@ -355,7 +370,9 @@ class GraphAPIError(RuntimeError):
 
 
 class GraphSession:
+    """Session wrapper for Graph operations."""
     def __init__(self, *, tenant_id=None, client_id=None, client_secret=None, debug=False):
+        """Initialize the instance."""
         self._validate_env(tenant_id, client_id, client_secret)
         self.tenant_id = tenant_id or os.getenv("TENANT_ID")
         self.client_id = client_id or os.getenv("CLIENT_ID")
@@ -382,6 +399,7 @@ class GraphSession:
                 duration_ms = 0
 
             def emit_trace(trace):
+                """Run emit trace."""
                 hook = trace_ctx.get("trace_hook")
                 if callable(hook):
                     try:
@@ -460,6 +478,7 @@ class GraphSession:
         self.debug = debug
 
     def _get_session(self) -> requests.Session:
+        """Get session."""
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
@@ -467,14 +486,17 @@ class GraphSession:
         return session
 
     def _reset_session(self) -> requests.Session:
+        """Internal helper for reset session."""
         session = requests.Session()
         setattr(self._thread_local, "session", session)
         return session
 
     def get_runtime_state(self) -> dict:
+        """Get runtime state."""
         return graph_runtime_state()
     
     def token_expiry_human(self):
+        """Run token expiry human."""
         if not self.expires_at:
             return "No token aquired"
         
@@ -482,6 +504,7 @@ class GraphSession:
         return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
     
     def _validate_env(self, tenant_id, client_id, client_secret):
+        """Validate env."""
         missing = []
         if not (tenant_id or os.getenv("TENANT_ID")):
             missing.append("TENANT_ID")
@@ -493,6 +516,7 @@ class GraphSession:
             raise RuntimeError(f"Missing Microsoft Configuration Variables: {missing}")
     
     def _request(self, method, url, **kwargs):
+        """Internal helper for request."""
         max_attempts_supplied = "max_attempts" in kwargs
         max_budget_supplied = "max_budget_s" in kwargs or "retry_budget_seconds" in kwargs
 
@@ -552,11 +576,13 @@ class GraphSession:
         last_response_body = None
 
         def _budget_exceeded() -> bool:
+            """Internal helper for budget exceeded."""
             if max_budget_s is None:
                 return False
             return (time.perf_counter() - start_perf) >= max_budget_s
 
         def _raise_budget_exhausted() -> None:
+            """Internal helper for raise budget exhausted."""
             duration_ms = int(round((time.perf_counter() - start_perf) * 1000))
             circuit_state = _circuit_snapshot().get(route_group) or {}
             circuit_state = {**circuit_state, "route_group": route_group} if circuit_state else None
@@ -628,6 +654,7 @@ class GraphSession:
             )
 
         def emit_trace(trace):
+            """Run emit trace."""
             hook = trace_ctx.get("trace_hook")
             if callable(hook):
                 try:
@@ -994,6 +1021,16 @@ class GraphSession:
                         },
                     }
                     emit_trace(trace)
+                    error_class = (
+                        "missing_permission"
+                        if (resp and resp.status_code == 403)
+                        else "auth"
+                        if (resp and resp.status_code == 401)
+                        else "unknown"
+                    )
+                    if code and "authentication_requestfromnonpremiumtenantorb2ctenant" in str(code).lower():
+                        # Some Entra audit log endpoints are gated by tenant licensing (P1/P2).
+                        error_class = "tenant_license_required"
                     raise GraphAPIError(
                         message,
                         status_code=resp.status_code if resp else None,
@@ -1013,11 +1050,7 @@ class GraphSession:
                         duration_ms=duration_ms,
                         ui_request_id=ui_request_id,
                         correlation_id=client_request_id or (str(ui_request_id) if ui_request_id else None),
-                        error_class="missing_permission"
-                        if (resp and resp.status_code == 403)
-                        else "auth"
-                        if (resp and resp.status_code == 401)
-                        else "unknown",
+                        error_class=error_class,
                         total_attempts=max_attempts,
                         tenant_id=self.tenant_id,
                         queue_wait_ms=queue_wait_ms,
@@ -1061,6 +1094,7 @@ class GraphSession:
                 return response
 
     def _parse_retry_after(self, headers):
+        """Parse retry after."""
         if not headers:
             return None
         retry_after = headers.get("Retry-After")
@@ -1078,6 +1112,7 @@ class GraphSession:
         return None
 
     def get_graph_token(self):
+        """Get graph token."""
         trace_ctx = get_trace_context() or {}
         ui_request_id = trace_ctx.get("ui_request_id")
         trace_service = trace_ctx.get("service")
@@ -1085,6 +1120,7 @@ class GraphSession:
         start_perf = time.perf_counter()
 
         def emit_trace(trace):
+            """Run emit trace."""
             hook = trace_ctx.get("trace_hook")
             if callable(hook):
                 try:
@@ -1249,31 +1285,38 @@ class GraphSession:
         return self.token
 
     def get_headers(self):
+        """Get headers."""
         if not self.token or time.time() > self.expires_at - 60:
             self.get_graph_token()
         
         return {"Authorization": f"Bearer {self.token}"}
     
     def url(self, path):
+        """Run url."""
         return f"{self.graph_base}/{path.lstrip('/')}"
     
     def get(self, url, **kwargs):
+        """Run get."""
         full_url = url if url.startswith("http") else self.url(url)
         return self._request("GET", full_url, **kwargs)
     
     def post(self, url, **kwargs):
+        """Run post."""
         full_url = url if url.startswith("http") else self.url(url)
         return self._request("POST", full_url, **kwargs)
 
     def put(self, url, **kwargs):
+        """Run put."""
         full_url = url if url.startswith("http") else self.url(url)
         return self._request("PUT", full_url, **kwargs)
     
     def patch(self, url, **kwargs):
+        """Run patch."""
         full_url = url if url.startswith("http") else self.url(url)
         return self._request("PATCH", full_url, **kwargs)
     
     def delete(self, url, **kwargs):
+        """Run delete."""
         full_url = url if url.startswith("http") else self.url(url)
         return self._request("DELETE", full_url, **kwargs)
     
@@ -1370,43 +1413,56 @@ class GraphSession:
         }
     
     def _log(self, msg):
+        """Internal helper for log."""
         if self.debug:
             print(msg)
 
 
 class ServiceClient:
+    """Client for Service operations."""
     def __init__(self, graph_session):
+        """Initialize the instance."""
         self.graph = graph_session
 
     def get(self, url, **kwargs):
+        """Run get."""
         return self.graph.get(url, **kwargs)
 
     def post(self, url, **kwargs):
+        """Run post."""
         return self.graph.post(url, **kwargs)
 
     def put(self, url, **kwargs):
+        """Run put."""
         return self.graph.put(url, **kwargs)
 
     def patch(self, url, **kwargs):
+        """Run patch."""
         return self.graph.patch(url, **kwargs)
 
     def delete(self, url, **kwargs):
+        """Run delete."""
         return self.graph.delete(url, **kwargs)
 
 
 class PowerShellCommandError(RuntimeError):
+    """Exception type: Power Shell Command Error."""
     def __init__(self, message, output=None):
+        """Initialize the instance."""
         super().__init__(message)
         self.output = output
 
 
 class PowerShellSession:
+    """Session wrapper for Power Shell operations."""
     def __init__(self, pwsh_path="pwsh"):
+        """Initialize the instance."""
         self.pwsh_path = pwsh_path
         self.process = None
         self._lock = threading.Lock()
 
     def _start(self):
+        """Internal helper for start."""
         if self.process and self.process.poll() is None:
             return
         try:
@@ -1422,6 +1478,7 @@ class PowerShellSession:
             raise RuntimeError("PowerShell (pwsh) not found. Install PowerShell 7 and ensure 'pwsh' is on PATH.") from e
 
     def _build_param_block(self, parameters):
+        """Build param block."""
         if not parameters:
             return "$__codex_params = @{}"
         payload = json.dumps(parameters)
@@ -1433,6 +1490,7 @@ class PowerShellSession:
         )
 
     def _wrap_script(self, script, *, parameters=None, depth=8, capture_text=False, working_dir=None):
+        """Internal helper for wrap script."""
         token = f"__CODEX_PS_ENVELOPE__{uuid.uuid4().hex}"
         param_block = self._build_param_block(parameters)
         invoke_with_params = False
@@ -1512,6 +1570,7 @@ class PowerShellSession:
         )
 
     def _read_envelope(self, token):
+        """Internal helper for read envelope."""
         payload_lines = []
         started = False
         while True:
@@ -1530,6 +1589,7 @@ class PowerShellSession:
         return "".join(payload_lines).strip()
 
     def _execute_enveloped(self, script, *, parameters=None, depth=8, capture_text=False, working_dir=None):
+        """Internal helper for execute enveloped."""
         self._start()
         token, wrapped = self._wrap_script(
             script,
@@ -1561,9 +1621,11 @@ class PowerShellSession:
         return payload
 
     def run(self, script, parameters=None, working_dir=None):
+        """Run run."""
         return self._execute_enveloped(script, parameters=parameters, capture_text=True, working_dir=working_dir)
 
     def close(self):
+        """Run close."""
         if not self.process or self.process.poll() is not None:
             return
         try:
@@ -1575,6 +1637,7 @@ class PowerShellSession:
             pass
 
     def run_json(self, script_or_command, parameters=None, depth=8, working_dir=None):
+        """Run json."""
         return self._execute_enveloped(
             script_or_command,
             parameters=parameters,
@@ -1585,15 +1648,19 @@ class PowerShellSession:
 
 
 class RemotePowerShellSession:
+    """Session wrapper for Remote Power Shell operations."""
     def __init__(self, runner, prefer_pwsh=True):
+        """Initialize the instance."""
         self.runner = runner
         self.prefer_pwsh = prefer_pwsh
         self._helper = PowerShellSession()
 
     def _encode_command(self, script: str) -> str:
+        """Internal helper for encode command."""
         return base64.b64encode(script.encode("utf-16le")).decode("ascii")
 
     def _extract_envelope(self, output: str, token: str):
+        """Internal helper for extract envelope."""
         begin_marker = f"{token}::BEGIN"
         end_marker = f"{token}::END"
         start = output.find(begin_marker)
@@ -1606,10 +1673,12 @@ class RemotePowerShellSession:
         return output[start:end].strip()
 
     def _run_encoded(self, shell: str, encoded_command: str, timeout: int):
+        """Run encoded."""
         command = f"{shell} -NoProfile -NonInteractive -EncodedCommand {encoded_command}"
         return self.runner.run_command(command, timeout=timeout)
 
     def _execute(self, script, *, parameters=None, depth=8, capture_text=False, working_dir=None, timeout=60):
+        """Internal helper for execute."""
         token, wrapped = self._helper._wrap_script(
             script,
             parameters=parameters,
@@ -1671,6 +1740,7 @@ class RemotePowerShellSession:
         }
 
     def run(self, script, parameters=None, working_dir=None, timeout=60):
+        """Run run."""
         return self._execute(
             script,
             parameters=parameters,
@@ -1680,6 +1750,7 @@ class RemotePowerShellSession:
         )
 
     def run_json(self, script_or_command, parameters=None, depth=8, working_dir=None, timeout=60):
+        """Run json."""
         return self._execute(
             script_or_command,
             parameters=parameters,
@@ -1691,17 +1762,22 @@ class RemotePowerShellSession:
 
 
 class PowerShellModuleClient:
+    """Client for Power Shell Module operations."""
     def __init__(self, session=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         self.session = session or PowerShellSession(pwsh_path=pwsh_path)
         self.connected = False
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         return None
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return None
 
     def connect(self):
+        """Run connect."""
         if self.connected:
             return True
         script = self._connect_script()
@@ -1713,13 +1789,16 @@ class PowerShellModuleClient:
         return True
 
     def run(self, script, parameters=None, working_dir=None):
+        """Run run."""
         self.connect()
         return self.session.run(script, parameters=parameters, working_dir=working_dir)
 
     def run_json(self, script, parameters=None, depth=8, working_dir=None):
+        """Run json."""
         return self.session.run_json(script, parameters=parameters, depth=depth, working_dir=working_dir)
 
     def disconnect(self):
+        """Run disconnect."""
         script = self._disconnect_script()
         if script:
             try:
@@ -1732,5 +1811,6 @@ class PowerShellModuleClient:
         return True
 
     def close(self):
+        """Run close."""
         self.disconnect()
         self.session.close()

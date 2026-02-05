@@ -7,24 +7,29 @@ from microsoft import is_powershell_envelope
 
 
 def _unwrap(result):
+    """Internal helper for unwrap."""
     if is_powershell_envelope(result):
         return result.get("data")
     return result
 
 
 class LocalTimeClient:
+    """Client for Local Time operations."""
     def __init__(self, powershell=None, snapshot_store=None, config=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._snapshot_store = snapshot_store
         self._config = config or {}
 
     def _context(self):
+        """Internal helper for context."""
         return {
             "powershell": self._powershell,
             "time_thresholds": self._config.get("time_thresholds") or {},
         }
 
     def time_chain(self, ntp_servers=None):
+        """Run time chain."""
         context = self._context()
         local = time_local_status_probe(None, context, {})
         dc = time_dc_offset_probe(None, context, {})
@@ -37,6 +42,7 @@ class LocalTimeClient:
         }
 
     def time_drift_history(self, canonical_id=None, limit=50):
+        """Run time drift history."""
         try:
             limit = int(limit)
         except Exception:

@@ -650,4 +650,5 @@ PROBE_REGISTRY: List[Dict[str, object]] = [
 
 
 def build_probe_registry() -> List[Dict[str, object]]:
+    """Build probe registry."""
     return list(PROBE_REGISTRY)

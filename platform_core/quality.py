@@ -7,6 +7,7 @@ from .snapshot_models import ProbeResult
 
 
 def _extract_probe_id(result: Any) -> Optional[str]:
+    """Internal helper for extract probe id."""
     if isinstance(result, ProbeResult):
         return result.probe
     if isinstance(result, dict):
@@ -15,6 +16,7 @@ def _extract_probe_id(result: Any) -> Optional[str]:
 
 
 def _extract_probe_ok(result: Any) -> bool:
+    """Internal helper for extract probe ok."""
     if isinstance(result, ProbeResult):
         return bool(result.ok)
     if isinstance(result, dict):
@@ -23,6 +25,7 @@ def _extract_probe_ok(result: Any) -> bool:
 
 
 def _extract_probe_data(result: Any) -> Any:
+    """Internal helper for extract probe data."""
     if isinstance(result, ProbeResult):
         return result.data
     if isinstance(result, dict):
@@ -31,6 +34,7 @@ def _extract_probe_data(result: Any) -> Any:
 
 
 def _extract_probe_error_class(result: Any) -> Optional[str]:
+    """Internal helper for extract probe error class."""
     if isinstance(result, ProbeResult):
         return result.error_class
     if isinstance(result, dict):
@@ -39,6 +43,7 @@ def _extract_probe_error_class(result: Any) -> Optional[str]:
 
 
 def _extract_probe_meta(result: Any) -> Dict[str, Any]:
+    """Internal helper for extract probe meta."""
     if isinstance(result, ProbeResult):
         return result.meta or {}
     if isinstance(result, dict):
@@ -47,6 +52,7 @@ def _extract_probe_meta(result: Any) -> Dict[str, Any]:
 
 
 def _has_partial_data(data: Any) -> bool:
+    """Return True if partial data."""
     if not isinstance(data, dict):
         return False
     for key in ("missing", "partial", "errors", "warnings"):
@@ -57,6 +63,7 @@ def _has_partial_data(data: Any) -> bool:
 
 
 def _section_from_outputs(outputs: Iterable[str]) -> Optional[str]:
+    """Internal helper for section from outputs."""
     for path in outputs or []:
         if not path:
             continue
@@ -69,6 +76,7 @@ def _section_from_outputs(outputs: Iterable[str]) -> Optional[str]:
 
 
 def _build_section_requirements(required_probes, registry_map: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
+    """Build section requirements."""
     if isinstance(required_probes, dict):
         return {section: list(probes or []) for section, probes in required_probes.items()}
     if isinstance(required_probes, (list, tuple, set)):
@@ -87,6 +95,7 @@ def compute_completeness(
     required_probes: Any,
     registry: Optional[Iterable[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    """Compute completeness."""
     registry_items = list(registry or PROBE_REGISTRY)
     registry_map = {entry.get("probe_id"): entry for entry in registry_items if entry.get("probe_id")}
     required_by_section = _build_section_requirements(required_probes, registry_map)

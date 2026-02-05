@@ -2,10 +2,12 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _parse_gpresult_summary(text):
+    """Parse gpresult summary."""
     summary = {"user": {}, "computer": {}, "applied_gpos": {"user": [], "computer": []}}
     section = None
     collecting = False
@@ -54,6 +56,7 @@ def _parse_gpresult_summary(text):
 
 
 def _ps_value(value):
+    """Internal helper for ps value."""
     if isinstance(value, bool):
         return "$true" if value else "$false"
     if value is None:
@@ -66,6 +69,7 @@ def _ps_value(value):
 
 
 def _ps_params(params):
+    """Internal helper for ps params."""
     parts = []
     for key, value in (params or {}).items():
         if value is None:
@@ -75,6 +79,7 @@ def _ps_params(params):
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -85,31 +90,39 @@ def _wrap_envelope(result, payload_builder):
 
 
 class LocalEndpointClient:
+    """Client for Local Endpoint operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalEndpointPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def get_computer_info(self):
+        """Get computer info."""
         cmd = (
             "Get-ComputerInfo | Select-Object CsName,CsDomain,CsDomainRole,CsManufacturer,CsModel,"
             "CsSystemType,CsTotalPhysicalMemory,CsNumberOfLogicalProcessors,OsName,OsVersion,OsBuildNumber,"
@@ -118,6 +131,7 @@ class LocalEndpointClient:
         return self._get_powershell().run_json(cmd)
 
     def get_cim_summary(self):
+        """Get cim summary."""
         script = """
         $cs = Get-CimInstance Win32_ComputerSystem | Select-Object Name,Domain,Manufacturer,Model,TotalPhysicalMemory,NumberOfLogicalProcessors
         $os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,LastBootUpTime,InstallDate,OSArchitecture
@@ -131,6 +145,7 @@ class LocalEndpointClient:
         return self._get_powershell().run_json(script)
 
     def get_systeminfo(self):
+        """Get systeminfo."""
         script = r"""
         $raw = systeminfo 2>&1 | Out-String
         $rows = @{}
@@ -189,6 +204,7 @@ class LocalEndpointClient:
         return self._get_powershell().run_json(script)
 
     def list_processes(self, top=25):
+        """List processes."""
         script = f"""
         $count = {int(top)}
         $rows = Get-Process | Sort-Object CPU -Descending | Select-Object -First $count Name,Id,CPU,WS,StartTime
@@ -206,6 +222,7 @@ class LocalEndpointClient:
         return self._get_powershell().run_json(script)
 
     def list_services(self, name=None, status=None):
+        """List services."""
         params = {}
         if name:
             params["Name"] = name
@@ -226,6 +243,7 @@ class LocalEndpointClient:
         max_events=50,
         contains=None,
     ):
+        """Run query event logs."""
         script = f"""
         $filter = @{{}}
         $logName = {_ps_value(log_name)}
@@ -264,6 +282,7 @@ class LocalEndpointClient:
         return self._get_powershell().run_json(script)
 
     def wevtutil_query(self, log_name="System", query=None, max_events=50):
+        """Run wevtutil query."""
         if not log_name:
             raise ValueError("Log name is required.")
         query_fragment = f'/q:"{_ps_quote(query)}"' if query else ""
@@ -272,6 +291,7 @@ class LocalEndpointClient:
         return _wrap_envelope(result, lambda output: {"raw_text": output})
 
     def legacy_event_log(self, log_name="System", source=None, entry_type=None, after=None, before=None, max_events=50):
+        """Run legacy event log."""
         params = {"LogName": log_name, "Newest": int(max_events)}
         if source:
             params["Source"] = source
@@ -286,18 +306,22 @@ class LocalEndpointClient:
         return self._get_powershell().run_json(cmd)
 
     def list_hotfixes(self):
+        """List hotfixes."""
         cmd = "Get-HotFix | Select-Object HotFixID,Description,InstalledOn,InstalledBy"
         return self._get_powershell().run_json(cmd)
 
     def list_dism_packages(self):
+        """List dism packages."""
         result = self._get_powershell().run("DISM /Online /Get-Packages")
         return _wrap_envelope(result, lambda output: {"raw_text": output})
 
     def whoami_all(self):
+        """Run whoami all."""
         result = self._get_powershell().run("whoami /all")
         return _wrap_envelope(result, lambda output: {"raw_text": output})
 
     def gpresult_report(self, report_type="summary", output_path=None, include_summary=False):
+        """Run gpresult report."""
         report_type = (report_type or "summary").lower()
         if report_type in {"html", "h"}:
             script = f"""
@@ -329,6 +353,7 @@ class LocalEndpointClient:
         return wrapped
 
     def gpresultant_set_of_policy(self, report_path=None):
+        """Run gpresultant set of policy."""
         script = f"""
         $path = {_ps_value(report_path)}
         if (-not $path) {{
@@ -341,15 +366,19 @@ class LocalEndpointClient:
 
 
 class LocalEndpointPowerShellClient(PowerShellModuleClient):
+    """Client for Local Endpoint Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         if self.connect_script:
             return self.connect_script
         return "Import-Module GroupPolicy -ErrorAction SilentlyContinue"
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

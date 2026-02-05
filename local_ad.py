@@ -2,6 +2,7 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _parse_gpresult_summary(text):
+    """Parse gpresult summary."""
     summary = {"user": {}, "computer": {}, "applied_gpos": {"user": [], "computer": []}}
     section = None
     collecting = False
@@ -50,10 +51,12 @@ def _parse_gpresult_summary(text):
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _ps_value(value):
+    """Internal helper for ps value."""
     if isinstance(value, bool):
         return "$true" if value else "$false"
     if value is None:
@@ -66,6 +69,7 @@ def _ps_value(value):
 
 
 def _ps_params(params):
+    """Internal helper for ps params."""
     parts = []
     for key, value in params.items():
         if value is None:
@@ -75,6 +79,7 @@ def _ps_params(params):
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -85,35 +90,44 @@ def _wrap_envelope(result, payload_builder):
 
 
 class LocalADClient:
+    """Client for Local A D operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalADPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def list_users(self, name=None):
+        """List users."""
         cmd = "Get-ADUser" + _ps_params({"Filter": f"Name -like '{_ps_quote(name)}'" if name else "*"})
         return self._get_powershell().run_json(cmd)
 
     def create_user(self, name, sam_account_name, user_principal_name, password, ou_dn=None, enabled=True):
+        """Create user."""
         secure = f"(ConvertTo-SecureString '{_ps_quote(password)}' -AsPlainText -Force)"
         params = {
             "Name": name,
@@ -127,6 +141,7 @@ class LocalADClient:
         return self._get_powershell().run(cmd)
 
     def reset_password(self, user_dn, password, unlock=False):
+        """Run reset password."""
         secure = f"(ConvertTo-SecureString '{_ps_quote(password)}' -AsPlainText -Force)"
         cmd = "Set-ADAccountPassword" + _ps_params({"Identity": user_dn, "Reset": True, "NewPassword": secure})
         script = cmd
@@ -135,22 +150,27 @@ class LocalADClient:
         return self._get_powershell().run(script)
 
     def unlock_account(self, user_dn):
+        """Run unlock account."""
         cmd = "Unlock-ADAccount" + _ps_params({"Identity": user_dn})
         return self._get_powershell().run(cmd)
 
     def enable_account(self, user_dn):
+        """Run enable account."""
         cmd = "Enable-ADAccount" + _ps_params({"Identity": user_dn})
         return self._get_powershell().run(cmd)
 
     def disable_account(self, user_dn):
+        """Run disable account."""
         cmd = "Disable-ADAccount" + _ps_params({"Identity": user_dn})
         return self._get_powershell().run(cmd)
 
     def list_groups(self, name=None):
+        """List groups."""
         cmd = "Get-ADGroup" + _ps_params({"Filter": f"Name -like '{_ps_quote(name)}'" if name else "*"})
         return self._get_powershell().run_json(cmd)
 
     def create_group(self, name, sam_account_name=None, ou_dn=None, scope="Global", category="Security"):
+        """Create group."""
         params = {
             "Name": name,
             "SamAccountName": sam_account_name,
@@ -162,30 +182,37 @@ class LocalADClient:
         return self._get_powershell().run(cmd)
 
     def add_group_member(self, group_dn, member_dn):
+        """Add group member."""
         cmd = "Add-ADGroupMember" + _ps_params({"Identity": group_dn, "Members": [member_dn]})
         return self._get_powershell().run(cmd)
 
     def remove_group_member(self, group_dn, member_dn):
+        """Remove group member."""
         cmd = "Remove-ADGroupMember" + _ps_params({"Identity": group_dn, "Members": [member_dn], "Confirm": False})
         return self._get_powershell().run(cmd)
 
     def move_user_to_ou(self, user_dn, ou_dn):
+        """Run move user to ou."""
         cmd = "Move-ADObject" + _ps_params({"Identity": user_dn, "TargetPath": ou_dn})
         return self._get_powershell().run(cmd)
 
     def list_ous(self, name=None):
+        """List ous."""
         cmd = "Get-ADOrganizationalUnit" + _ps_params({"Filter": f"Name -like '{_ps_quote(name)}'" if name else "*"})
         return self._get_powershell().run_json(cmd)
 
     def list_gpos(self, name=None):
+        """List gpos."""
         cmd = "Get-GPO" + _ps_params({"Name": name} if name else {"All": True})
         return self._get_powershell().run_json(cmd)
 
     def get_gpo_inheritance(self, ou_dn):
+        """Get gpo inheritance."""
         cmd = "Get-GPInheritance" + _ps_params({"Target": ou_dn})
         return self._get_powershell().run_json(cmd)
 
     def get_gpo_links(self, ou_dn):
+        """Get gpo links."""
         script = f"""
         $target = {_ps_value(ou_dn)}
         $inherit = Get-GPInheritance -Target $target
@@ -207,6 +234,7 @@ class LocalADClient:
         return self._get_powershell().run_json(script)
 
     def get_gpo_report(self, name, report_type="Xml", output_path=None):
+        """Get gpo report."""
         if not name:
             raise ValueError("GPO name is required.")
         report_type = report_type or "Xml"
@@ -228,6 +256,7 @@ class LocalADClient:
         return self._get_powershell().run_json(script)
 
     def get_gppref_registry_value(self, gpo_name, key, value_name=None):
+        """Get gppref registry value."""
         if not gpo_name or not key:
             raise ValueError("GPO name and registry key are required.")
         params = {"Name": gpo_name, "Key": key}
@@ -237,23 +266,28 @@ class LocalADClient:
         return self._get_powershell().run_json(cmd)
 
     def link_gpo(self, gpo_name, ou_dn, enforced=False):
+        """Run link gpo."""
         cmd = "New-GPLink" + _ps_params({"Name": gpo_name, "Target": ou_dn, "Enforced": enforced})
         return self._get_powershell().run(cmd)
 
     def unlink_gpo(self, gpo_name, ou_dn):
+        """Run unlink gpo."""
         cmd = "Remove-GPLink" + _ps_params({"Name": gpo_name, "Target": ou_dn, "Confirm": False})
         return self._get_powershell().run(cmd)
 
     def backup_gpo(self, gpo_name, path, comment=None):
+        """Run backup gpo."""
         params = {"Name": gpo_name, "Path": path, "Comment": comment}
         cmd = "Backup-GPO" + _ps_params(params)
         return self._get_powershell().run_json(cmd)
 
     def restore_gpo(self, gpo_name, path):
+        """Run restore gpo."""
         cmd = "Restore-GPO" + _ps_params({"Name": gpo_name, "Path": path})
         return self._get_powershell().run(cmd)
 
     def gpresult_report(self, report_type="summary", output_path=None, include_summary=False):
+        """Run gpresult report."""
         report_type = (report_type or "summary").lower()
         if report_type in {"html", "h"}:
             script = f"""
@@ -286,15 +320,19 @@ class LocalADClient:
 
 
 class LocalADPowerShellClient(PowerShellModuleClient):
+    """Client for Local A D Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         if self.connect_script:
             return self.connect_script
         return "Import-Module ActiveDirectory; Import-Module GroupPolicy"
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

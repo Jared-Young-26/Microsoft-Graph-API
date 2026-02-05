@@ -27,10 +27,12 @@ DOMAIN_PATTERN = re.compile(r"\\b[a-zA-Z0-9-]{2,}\\.[a-zA-Z]{2,}\\b")
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def redact_text(text: str, mode: str = "internal") -> str:
+    """Run redact text."""
     if not text:
         return text
     redacted = SECRET_PATTERN.sub("[redacted]", text)
@@ -42,6 +44,7 @@ def redact_text(text: str, mode: str = "internal") -> str:
 
 
 def redact_payload(payload: Any, mode: str = "internal", depth: int = 0) -> Any:
+    """Run redact payload."""
     if payload is None:
         return payload
     if depth > 6:
@@ -62,10 +65,13 @@ def redact_payload(payload: Any, mode: str = "internal", depth: int = 0) -> Any:
 
 
 class ReportRenderer:
+    """Report Renderer."""
     def __init__(self, report: Dict[str, Any]):
+        """Initialize the instance."""
         self.report = report or {}
 
     def _summary_bullets(self) -> List[str]:
+        """Internal helper for summary bullets."""
         summary = []
         reported = self.report.get("summary_reported")
         actual = self.report.get("summary_actual")
@@ -82,6 +88,7 @@ class ReportRenderer:
         return summary[:6]
 
     def _change_recovery_block(self) -> List[str]:
+        """Internal helper for change recovery block."""
         evidence = self.report.get("evidence_refs") or []
         has_diff = any(ref.get("type") == "diff" for ref in evidence)
         has_revert = any(
@@ -99,6 +106,7 @@ class ReportRenderer:
         ]
 
     def _timeline_lines(self) -> List[str]:
+        """Internal helper for timeline lines."""
         lines = []
         for entry in self.report.get("timeline") or []:
             ts = entry.get("timestamp") or ""
@@ -107,6 +115,7 @@ class ReportRenderer:
         return lines
 
     def _evidence_lines(self) -> List[str]:
+        """Internal helper for evidence lines."""
         lines = []
         for ref in self.report.get("evidence_refs") or []:
             label = ref.get("label") or ref.get("id") or ref.get("type")
@@ -115,6 +124,7 @@ class ReportRenderer:
         return lines
 
     def render_markdown(self, redaction: str = "internal") -> str:
+        """Render markdown."""
         report = redact_payload(self.report, redaction)
         title = report.get("title") or "Incident report"
         incident_id = report.get("incident_id") or ""
@@ -194,11 +204,13 @@ class ReportRenderer:
         return "\n".join(lines)
 
     def render_text(self, redaction: str = "internal") -> str:
+        """Render text."""
         markdown = self.render_markdown(redaction)
         text = re.sub(r"[#*_`]", "", markdown)
         return text
 
     def render_pdf(self, redaction: str = "internal", artifact_dir: str | None = None) -> Dict[str, Any]:
+        """Render pdf."""
         if SimpleDocTemplate is None:
             raise RuntimeError("PDF rendering requires reportlab.")
         artifact_dir = str(artifact_dir or ".")

@@ -33,6 +33,7 @@ NODE_KINDS = {
 
 
 def _normalize_alias_value(alias_type: str, value: str) -> str:
+    """Normalize alias value."""
     if not value:
         return value
     lowered_types = {"fqdn", "hostname", "upn", "email", "mail", "ip", "dns"}
@@ -42,6 +43,7 @@ def _normalize_alias_value(alias_type: str, value: str) -> str:
 
 
 def _confidence_for(alias_type: str) -> float:
+    """Internal helper for confidence for."""
     if alias_type in STRONG_IDS:
         return CONFIDENCE_SCORE["strong"]
     if alias_type in MEDIUM_IDS:
@@ -52,10 +54,12 @@ def _confidence_for(alias_type: str) -> float:
 
 
 def _subject_type_for(kind: str) -> str:
+    """Internal helper for subject type for."""
     return "node" if kind in NODE_KINDS else "resource"
 
 
 def _iter_identifiers(identifiers: Any) -> Iterable[Tuple[str, str]]:
+    """Internal helper for iter identifiers."""
     if not identifiers:
         return []
     if isinstance(identifiers, dict):
@@ -87,9 +91,11 @@ def _iter_identifiers(identifiers: Any) -> Iterable[Tuple[str, str]]:
 
 @dataclass
 class EntityResolver:
+    """Entity Resolver."""
     store: SnapshotSqlStore
 
     def resolve_subject(self, kind: str, identifiers: Any) -> Subject:
+        """Resolve subject."""
         aliases: List[Alias] = []
         candidates: Dict[str, float] = {}
         display_name = None

@@ -8,6 +8,7 @@ import json
 
 
 def _normalize_list(value):
+    """Normalize list."""
     if value is None:
         return []
     if isinstance(value, list):
@@ -16,6 +17,7 @@ def _normalize_list(value):
 
 
 def normalize_topology_snapshot(data: dict | None) -> dict | None:
+    """Normalize topology snapshot."""
     if not isinstance(data, dict):
         return None
     timestamp = data.get("generated_at") or data.get("timestamp") or datetime.now(timezone.utc).isoformat()
@@ -62,11 +64,13 @@ def normalize_topology_snapshot(data: dict | None) -> dict | None:
 
 @dataclass
 class SnapshotStore:
+    """Snapshot Store."""
     path: Path
     normalizer: Callable[[dict | None], dict | None] | None = None
     max_entries: int = 100
 
     def load(self, limit: int | None = None) -> list[dict]:
+        """Run load."""
         if not self.path.exists():
             return []
         try:
@@ -82,9 +86,11 @@ class SnapshotStore:
         return history
 
     def save(self, history: list[dict]) -> None:
+        """Run save."""
         self.path.write_text(json.dumps(history, indent=2))
 
     def append(self, snapshot: dict | None, limit: int | None = None) -> list[dict]:
+        """Run append."""
         history = self.load()
         normalized = self.normalizer(snapshot) if self.normalizer else snapshot
         if not normalized:
@@ -102,6 +108,7 @@ class SnapshotStore:
 
 
 def _key_tuple(record: dict, fields: list[str]) -> tuple:
+    """Internal helper for key tuple."""
     return tuple(record.get(field) for field in fields)
 
 
@@ -111,6 +118,7 @@ def diff_records(
     key_fields: list[str],
     compare_fields: list[str] | None = None,
 ) -> dict:
+    """Diff records."""
     before_list = [item for item in _normalize_list(before) if isinstance(item, dict)]
     after_list = [item for item in _normalize_list(after) if isinstance(item, dict)]
     before_index = {}
@@ -166,6 +174,7 @@ def diff_records(
 
 
 def diff_topology_snapshots(before: dict | None, after: dict | None) -> dict:
+    """Diff topology snapshots."""
     return {
         "dhcp_leases": diff_records(
             before.get("dhcp_leases") if isinstance(before, dict) else [],

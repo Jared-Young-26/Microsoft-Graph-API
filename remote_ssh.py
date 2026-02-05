@@ -8,10 +8,12 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 class RemoteSSHClient:
+    """Client for Remote S S H operations."""
     def run_command(
         self,
         host,
@@ -22,6 +24,7 @@ class RemoteSSHClient:
         strict_host_key=True,
         timeout=60,
     ):
+        """Run command."""
         runner = SshRunner(
             host=host,
             user=user,
@@ -33,6 +36,7 @@ class RemoteSSHClient:
 
 
 class SshRunner:
+    """Ssh Runner."""
     def __init__(
         self,
         host: str,
@@ -41,6 +45,7 @@ class SshRunner:
         key_path: str | None = None,
         strict_host_key_checking: bool = True,
     ):
+        """Initialize the instance."""
         self.host = host
         self.user = user
         self.port = port or 22
@@ -48,6 +53,7 @@ class SshRunner:
         self.strict_host_key_checking = strict_host_key_checking
 
     def _run_paramiko(self, command: str, timeout: int):
+        """Run paramiko."""
         if not paramiko:
             raise RuntimeError("Paramiko not available.")
         client = paramiko.SSHClient()
@@ -90,6 +96,7 @@ class SshRunner:
         }
 
     def _run_subprocess(self, command: str, timeout: int):
+        """Run subprocess."""
         target = f"{self.user}@{self.host}" if self.user else self.host
         args = ["ssh", "-p", str(self.port), "-o", "BatchMode=yes"]
         if self.strict_host_key_checking:
@@ -123,6 +130,7 @@ class SshRunner:
         }
 
     def run_command(self, command: str, timeout: int = 60):
+        """Run command."""
         if not self.host:
             raise ValueError("Host is required.")
         if not command:
@@ -136,6 +144,7 @@ class SshRunner:
         return self._run_subprocess(command, timeout)
 
     def test_connection(self, timeout: int = 10):
+        """Run test connection."""
         results = {"ok": False, "host": self.host, "user": self.user, "port": self.port, "checks": {}}
         hostname = self.run_command("hostname", timeout=timeout)
         results["checks"]["hostname"] = hostname.get("stdout", "").strip()

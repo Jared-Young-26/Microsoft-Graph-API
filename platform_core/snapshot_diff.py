@@ -8,16 +8,19 @@ from .snapshot_storage import SnapshotSqlStore
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _get_lens(snapshot: Any) -> Dict[str, Any]:
+    """Get lens."""
     if not isinstance(snapshot, dict):
         return {}
     return snapshot.get("lens") or {}
 
 
 def _get_subject_id(snapshot: Any) -> Optional[str]:
+    """Get subject id."""
     if not isinstance(snapshot, dict):
         return None
     subject = snapshot.get("subject") or {}
@@ -27,6 +30,7 @@ def _get_subject_id(snapshot: Any) -> Optional[str]:
 
 
 def _diff_object(a: Any, b: Any, prefix: str = "") -> Dict[str, List[Dict[str, Any]]]:
+    """Diff object."""
     diff = {"added": [], "removed": [], "changed": []}
     if a is None and b is None:
         return diff
@@ -59,6 +63,7 @@ def _diff_list(
     after_list: Iterable[Dict[str, Any]],
     key_fn,
 ) -> Dict[str, List[Dict[str, Any]]]:
+    """Diff list."""
     before_items = [item for item in before_list if isinstance(item, dict)]
     after_items = [item for item in after_list if isinstance(item, dict)]
     before_map: Dict[str, Dict[str, Any]] = {}
@@ -89,12 +94,14 @@ def _diff_list(
 
 
 def _interface_key(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """Internal helper for interface key."""
     name = item.get("InterfaceAlias") or item.get("Name") or item.get("name")
     mac = item.get("MacAddress") or item.get("mac") or item.get("MACAddress")
     return (str(name).lower() if name else None, str(mac).lower() if mac else None)
 
 
 def _probe_key(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Internal helper for probe key."""
     name = item.get("name") or item.get("probe") or item.get("type")
     target = item.get("target") or item.get("host") or item.get("address") or item.get("ip")
     port = item.get("port")
@@ -112,18 +119,22 @@ def _probe_key(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Opti
 
 
 def _group_key(item: Dict[str, Any]) -> Optional[str]:
+    """Internal helper for group key."""
     return item.get("id") or item.get("group_id")
 
 
 def _printer_key(item: Dict[str, Any]) -> Optional[str]:
+    """Internal helper for printer key."""
     return item.get("share_name") or item.get("ShareName") or item.get("name")
 
 
 def _registry_key(item: Dict[str, Any]) -> Optional[str]:
+    """Internal helper for registry key."""
     return item.get("path") or item.get("Path")
 
 
 def diff_snapshots(snapshot_a: Dict[str, Any], snapshot_b: Dict[str, Any], store: SnapshotSqlStore | None = None) -> Dict[str, Any]:
+    """Diff snapshots."""
     lens_a = _get_lens(snapshot_a)
     lens_b = _get_lens(snapshot_b)
 

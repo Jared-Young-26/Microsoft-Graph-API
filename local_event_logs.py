@@ -2,10 +2,12 @@ from microsoft import PowerShellModuleClient, is_powershell_envelope, unwrap_pow
 
 
 def _ps_quote(value):
+    """Internal helper for ps quote."""
     return str(value).replace("'", "''")
 
 
 def _ps_value(value):
+    """Internal helper for ps value."""
     if isinstance(value, bool):
         return "$true" if value else "$false"
     if value is None:
@@ -18,6 +20,7 @@ def _ps_value(value):
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -28,28 +31,35 @@ def _wrap_envelope(result, payload_builder):
 
 
 class LocalEventLogsClient:
+    """Client for Local Event Logs operations."""
     def __init__(self, powershell=None, powershell_options=None):
+        """Initialize the instance."""
         self._powershell = powershell
         self._powershell_options = powershell_options or {}
 
     def _get_powershell(self, **overrides):
+        """Get powershell."""
         if self._powershell is None:
             options = {**self._powershell_options, **overrides}
             self._powershell = LocalEventLogsPowerShellClient(**options)
         return self._powershell
 
     def connect_powershell(self, **options):
+        """Run connect powershell."""
         return self._get_powershell(**options).connect()
 
     def disconnect_powershell(self):
+        """Run disconnect powershell."""
         if self._powershell:
             return self._powershell.disconnect()
         return True
 
     def run_powershell(self, script, **options):
+        """Run powershell."""
         return self._get_powershell(**options).run(script)
 
     def run_powershell_json(self, script, **options):
+        """Run powershell json."""
         return self._get_powershell(**options).run_json(script)
 
     def eventlog_summary(
@@ -63,6 +73,7 @@ class LocalEventLogsClient:
         computer=None,
         sample_size=10,
     ):
+        """Run eventlog summary."""
         script = r"""
 param($logNames, $levels, $hours, $eventIds, $providers, $maxEvents, $computer, $sampleSize)
 $levelMap = @{
@@ -174,6 +185,7 @@ $sample = $events | Sort-Object TimeCreated -Descending | Select-Object -First $
         )
 
     def export_evtx(self, log_names=None, output_dir=None):
+        """Export evtx."""
         script = r"""
 param($logNames, $outputDir)
 if (-not $outputDir) {
@@ -203,6 +215,7 @@ foreach ($logName in ($logNames | Where-Object { $_ -ne $null -and $_ -ne "" }))
         )
 
     def import_evtx(self, file_path, max_events=500, sample_size=10):
+        """Import evtx."""
         if not file_path:
             raise ValueError("file_path is required")
         script = r"""
@@ -271,13 +284,17 @@ $sample = $events | Sort-Object TimeCreated -Descending | Select-Object -First $
 
 
 class LocalEventLogsPowerShellClient(PowerShellModuleClient):
+    """Client for Local Event Logs Power Shell operations."""
     def __init__(self, session=None, connect_script=None, disconnect_script=None, pwsh_path="pwsh"):
+        """Initialize the instance."""
         super().__init__(session=session, pwsh_path=pwsh_path)
         self.connect_script = connect_script
         self.disconnect_script = disconnect_script
 
     def _connect_script(self):
+        """Internal helper for connect script."""
         return self.connect_script
 
     def _disconnect_script(self):
+        """Internal helper for disconnect script."""
         return self.disconnect_script

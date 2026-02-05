@@ -8,6 +8,7 @@ from microsoft import is_powershell_envelope, unwrap_powershell_data
 
 
 def _get_graph(context: Dict[str, Any]):
+    """Get graph."""
     graph = context.get("graph")
     if not graph:
         raise RuntimeError("Graph request handler not configured.")
@@ -15,6 +16,7 @@ def _get_graph(context: Dict[str, Any]):
 
 
 def _subject_value(subject: Any, alias_types: list[str]) -> Optional[str]:
+    """Internal helper for subject value."""
     aliases = getattr(subject, "aliases", None)
     if isinstance(subject, dict):
         aliases = subject.get("aliases")
@@ -42,10 +44,12 @@ def _subject_value(subject: Any, alias_types: list[str]) -> Optional[str]:
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def _wrap_envelope(result, payload_builder):
+    """Internal helper for wrap envelope."""
     if is_powershell_envelope(result):
         if not result.get("ok", True):
             return result
@@ -56,11 +60,13 @@ def _wrap_envelope(result, payload_builder):
 
 
 def _read_inputs(options: Dict[str, Any]) -> Dict[str, Any]:
+    """Internal helper for read inputs."""
     inputs = options.get("inputs") if isinstance(options, dict) else None
     return dict(inputs or {})
 
 
 def _ps_run(context: Dict[str, Any], script: str, parameters: Optional[Dict[str, Any]] = None, depth: int = 8):
+    """Internal helper for ps run."""
     session = context.get("powershell")
     if not session:
         return {"ok": False, "data": None, "error": {"message": "PowerShell session missing."}, "meta": {}}
@@ -68,6 +74,7 @@ def _ps_run(context: Dict[str, Any], script: str, parameters: Optional[Dict[str,
 
 
 def _apply_time_warnings(payload: Dict[str, Any], thresholds: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply time warnings."""
     warn_ms = thresholds.get("warn_ms", 300)
     high_ms = thresholds.get("high_ms", 5000)
     warnings = payload.get("warnings") or []
@@ -88,6 +95,7 @@ def _apply_time_warnings(payload: Dict[str, Any], thresholds: Dict[str, Any]) ->
 
 
 def local_system_info_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run local system info probe."""
     script = r"""
 $cs = Get-CimInstance Win32_ComputerSystem | Select-Object Name,Domain,Manufacturer,Model,TotalPhysicalMemory
 $os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,LastBootUpTime,OSArchitecture
@@ -112,6 +120,7 @@ if ($os.LastBootUpTime) {
 
 
 def local_interfaces_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run local interfaces probe."""
     script = r"""
 $rows = Get-NetIPConfiguration | ForEach-Object {
   [PSCustomObject]@{
@@ -129,6 +138,7 @@ $rows
 
 
 def local_routes_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run local routes probe."""
     script = r"""
 $routes = Get-NetRoute -AddressFamily IPv4 | Select-Object DestinationPrefix,NextHop,InterfaceAlias,RouteMetric
 $default = $routes | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' } | Select-Object -First 1
@@ -141,6 +151,7 @@ $default = $routes | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' } | Sel
 
 
 def dns_resolve_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run dns resolve probe."""
     inputs = _read_inputs(options)
     targets = inputs.get("targets") or []
     script = r"""
@@ -174,6 +185,7 @@ $results
 
 
 def port_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run port probe."""
     inputs = _read_inputs(options)
     targets = inputs.get("targets") or []
     ports = inputs.get("ports") or []
@@ -211,6 +223,7 @@ $results
 
 
 def firewall_profiles_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run firewall profiles probe."""
     script = r"""
 Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction
 """
@@ -218,6 +231,7 @@ Get-NetFirewallProfile | Select-Object Name,Enabled,DefaultInboundAction,Default
 
 
 def eventlog_summary_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run eventlog summary probe."""
     inputs = _read_inputs(options)
     log_names = inputs.get("log_names") or ["System", "Application"]
     levels = inputs.get("levels") or ["Error", "Warning"]
@@ -325,6 +339,7 @@ $sample = $events | Sort-Object TimeCreated -Descending | Select-Object -First $
 
 
 def registry_watchlist_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run registry watchlist probe."""
     inputs = _read_inputs(options)
     watchlist_id = inputs.get("watchlist_id")
     watchlists = context.get("registry_watchlists") or {}
@@ -405,6 +420,7 @@ foreach ($path in ($paths | Where-Object { $_ -ne $null -and $_ -ne "" })) {
     result = _ps_run(context, script, parameters={"paths": paths, "depth": recurse_depth, "maxItems": max_items}, depth=6)
 
     def _build(data):
+        """Internal helper for build."""
         payload = data if isinstance(data, dict) else {}
         return {"watchlist_id": watchlist_id, "items": payload.get("items") or []}
 
@@ -412,6 +428,7 @@ foreach ($path in ($paths | Where-Object { $_ -ne $null -and $_ -ne "" })) {
 
 
 def time_local_status_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run time local status probe."""
     script = r"""
 $raw = w32tm /query /status 2>&1
 $map = @{}
@@ -438,6 +455,7 @@ if ($map.ContainsKey('Phase Offset') -and ($map['Phase Offset'] -match '([+-]?\d
     result = _ps_run(context, script)
 
     def _build(data):
+        """Internal helper for build."""
         payload = data if isinstance(data, dict) else {}
         thresholds = context.get("time_thresholds") or {}
         return _apply_time_warnings(payload, thresholds)
@@ -446,6 +464,7 @@ if ($map.ContainsKey('Phase Offset') -and ($map['Phase Offset'] -match '([+-]?\d
 
 
 def time_dc_offset_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run time dc offset probe."""
     script = r"""
 $raw = w32tm /monitor 2>&1
 $entries = @()
@@ -466,6 +485,7 @@ foreach ($line in ($raw -split "`r?`n")) {
     result = _ps_run(context, script)
 
     def _build(data):
+        """Internal helper for build."""
         payload = data if isinstance(data, dict) else {}
         thresholds = context.get("time_thresholds") or {}
         return _apply_time_warnings(payload, thresholds)
@@ -474,6 +494,7 @@ foreach ($line in ($raw -split "`r?`n")) {
 
 
 def time_ntp_offset_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run time ntp offset probe."""
     inputs = _read_inputs(options)
     servers = inputs.get("servers") or ["pool.ntp.org"]
     samples = int(inputs.get("samples") or 3)
@@ -508,6 +529,7 @@ foreach ($server in $servers) {
     result = _ps_run(context, script, parameters={"servers": servers, "samples": samples})
 
     def _build(data):
+        """Internal helper for build."""
         payload = data if isinstance(data, dict) else {}
         thresholds = context.get("time_thresholds") or {}
         return _apply_time_warnings(payload, thresholds)
@@ -516,6 +538,7 @@ foreach ($server in $servers) {
 
 
 def cert_inventory_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run cert inventory probe."""
     inputs = _read_inputs(options)
     stores = inputs.get("stores") or ["My", "Root", "CA"]
     expiring_days = int(inputs.get("expiring_days") or 30)
@@ -556,6 +579,7 @@ $results
 
 
 def tls_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run tls probe."""
     inputs = _read_inputs(options)
     targets = inputs.get("targets") or []
     port = int(inputs.get("port") or 443)
@@ -613,6 +637,7 @@ $results
 
 
 def _looks_like_guid(value: str | None) -> bool:
+    """Internal helper for looks like guid."""
     if not value:
         return False
     value = str(value).strip()
@@ -620,6 +645,7 @@ def _looks_like_guid(value: str | None) -> bool:
 
 
 def user_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run user core probe."""
     graph = _get_graph(context)
     user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
     if not user_ref:
@@ -661,6 +687,7 @@ def user_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
 
 
 def user_groups_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run user groups core probe."""
     graph = _get_graph(context)
     inputs = _read_inputs(options)
     top = int(inputs.get("top") or 200)
@@ -689,6 +716,7 @@ def user_groups_core_probe(subject, context: Dict[str, Any], options: Dict[str, 
 
 
 def _get_sku_map(context: Dict[str, Any], graph) -> Dict[str, str]:
+    """Get sku map."""
     cached = context.get("_sku_map")
     if isinstance(cached, dict):
         return cached
@@ -709,6 +737,7 @@ def _get_sku_map(context: Dict[str, Any], graph) -> Dict[str, str]:
 
 
 def user_licenses_core_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run user licenses core probe."""
     graph = _get_graph(context)
     user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
     if not user_ref:
@@ -731,6 +760,7 @@ def user_licenses_core_probe(subject, context: Dict[str, Any], options: Dict[str
 
 
 def _fetch_signins(graph, user_ref: str, lookback_hours: int, top: int) -> list[dict]:
+    """Internal helper for fetch signins."""
     start = datetime.now(timezone.utc) - timedelta(hours=int(lookback_hours or 24))
     start_iso = start.isoformat().replace("+00:00", "Z")
     filter_parts = [f"createdDateTime ge {start_iso}"]
@@ -752,6 +782,7 @@ def _fetch_signins(graph, user_ref: str, lookback_hours: int, top: int) -> list[
 
 
 def signin_summary_24h_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run signin summary 24h probe."""
     graph = _get_graph(context)
     inputs = _read_inputs(options)
     lookback = int(inputs.get("lookback_hours") or 24)
@@ -804,6 +835,7 @@ def signin_summary_24h_probe(subject, context: Dict[str, Any], options: Dict[str
 
 
 def ca_block_summary_24h_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run ca block summary 24h probe."""
     graph = _get_graph(context)
     inputs = _read_inputs(options)
     lookback = int(inputs.get("lookback_hours") or 24)
@@ -842,6 +874,7 @@ def ca_block_summary_24h_probe(subject, context: Dict[str, Any], options: Dict[s
 
 
 def device_directory_record_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run device directory record probe."""
     graph = _get_graph(context)
     device_ref = _subject_value(subject, ["entra_device_id", "objectId", "id", "fqdn", "hostname"])
     if not device_ref:
@@ -885,6 +918,7 @@ def device_directory_record_probe(subject, context: Dict[str, Any], options: Dic
 
 
 def process_inventory_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run process inventory probe."""
     inputs = _read_inputs(options)
     include_command_line = bool(inputs.get("include_command_line", False))
     max_items = int(inputs.get("max_items") or 200)
@@ -926,6 +960,7 @@ $results
     )
 
     def _build(data):
+        """Internal helper for build."""
         rows = data if isinstance(data, list) else []
         summary = {
             "count": len(rows),
@@ -951,6 +986,7 @@ $results
 
 
 def service_process_map_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run service process map probe."""
     inputs = _read_inputs(options)
     max_items = int(inputs.get("max_items") or 200)
     script = r"""
@@ -980,6 +1016,7 @@ $rows | Select-Object -First $max_items
 
 
 def resource_pressure_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run resource pressure probe."""
     script = r"""
 $cpu = $null
 try {
@@ -1019,6 +1056,7 @@ Get-PSDrive -PSProvider FileSystem | ForEach-Object {
 
 
 def network_context_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run network context probe."""
     script = r"""
 $cfg = Get-NetIPConfiguration | Where-Object { $_.IPv4Address -and $_.IPv4DefaultGateway } | Select-Object -First 1
 $adapter = $null
@@ -1046,6 +1084,7 @@ Get-NetAdapter | ForEach-Object {
     result = _ps_run(context, script, depth=6)
 
     def _build(data):
+        """Internal helper for build."""
         payload = data if isinstance(data, dict) else {}
         ip_value = payload.get("ip")
         zone_map = context.get("zone_map") or []
@@ -1078,6 +1117,7 @@ Get-NetAdapter | ForEach-Object {
 
 
 def dns_multi_resolver_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run dns multi resolver probe."""
     inputs = _read_inputs(options)
     targets = inputs.get("targets") or []
     resolvers = inputs.get("resolvers") or []
@@ -1119,6 +1159,7 @@ $results
 
 
 def external_latency_probe(subject, context: Dict[str, Any], options: Dict[str, Any]):
+    """Run external latency probe."""
     inputs = _read_inputs(options)
     targets = inputs.get("targets") or []
     port = int(inputs.get("port") or 443)
@@ -1152,6 +1193,7 @@ $results
 
 
 def build_probe_handlers() -> Dict[str, Any]:
+    """Build probe handlers."""
     return {
         "identity.local_system_info": local_system_info_probe,
         "connectivity.local_interfaces": local_interfaces_probe,

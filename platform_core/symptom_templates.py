@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class SymptomTemplate(BaseModel):
+    """Symptom Template."""
     model_config = ConfigDict(extra="allow")
 
     symptom_id: str
@@ -186,10 +187,12 @@ SYMPTOM_TEMPLATES: Dict[str, SymptomTemplate] = {
 
 
 def list_symptom_templates() -> List[Dict[str, object]]:
+    """List symptom templates."""
     return [template.model_dump() for template in SYMPTOM_TEMPLATES.values()]
 
 
 def get_symptom_template(symptom_id: str) -> Optional[Dict[str, object]]:
+    """Get symptom template."""
     if not symptom_id:
         return None
     template = SYMPTOM_TEMPLATES.get(symptom_id)

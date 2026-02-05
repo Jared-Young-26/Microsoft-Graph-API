@@ -11,15 +11,18 @@ from .snapshot_storage import SnapshotSqlStore
 
 
 def _now() -> datetime:
+    """Internal helper for now."""
     return datetime.now(timezone.utc)
 
 
 def _now_iso() -> str:
+    """Internal helper for now iso."""
     return _now().isoformat()
 
 
 @dataclass(frozen=True)
 class SharePointSitesResult:
+    """Share Point Sites Result."""
     value: list
     cached: bool = False
     cache_fallback: bool = False
@@ -33,6 +36,7 @@ class SharePointSitesResult:
     live_error: Optional[Dict[str, Any]] = None
 
     def to_payload(self) -> Dict[str, Any]:
+        """Run to payload."""
         return {
             "value": list(self.value or []),
             "cached": self.cached,

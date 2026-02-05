@@ -10,7 +10,9 @@ from platform_core.snapshot_storage import SnapshotSqlStore
 
 
 class _FakeGraph:
+    """Internal type: _ Fake Graph."""
     def __init__(self, *, payload=None, error=None):
+        """Initialize the instance."""
         self.payload = payload or {"value": []}
         self.error = error
         self.calls = []
@@ -27,6 +29,7 @@ class _FakeGraph:
         max_attempts=None,
         **kwargs,
     ):
+        """Run paged get."""
         self.calls.append(
             {
                 "url": url,
@@ -44,12 +47,15 @@ class _FakeGraph:
 
 
 class TestSharePointSitesResolver(unittest.TestCase):
+    """Test Share Point Sites Resolver."""
     def _store(self):
+        """Internal helper for store."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         return SnapshotSqlStore(Path(tmp.name) / "snapshots.sqlite")
 
     def test_cache_hit_returns_without_graph_call(self):
+        """Run test cache hit returns without graph call."""
         store = self._store()
         tenant_id = "tenant-1"
         term = "*"
@@ -68,6 +74,7 @@ class TestSharePointSitesResolver(unittest.TestCase):
         self.assertEqual(len(graph.calls), 0)
 
     def test_cache_miss_calls_graph_and_stores(self):
+        """Run test cache miss calls graph and stores."""
         store = self._store()
         tenant_id = "tenant-1"
         term = "contoso"
@@ -92,6 +99,7 @@ class TestSharePointSitesResolver(unittest.TestCase):
         self.assertEqual((cached or {}).get("sites")[0]["id"], "site-1")
 
     def test_503_uses_stale_cache_fallback(self):
+        """Run test 503 uses stale cache fallback."""
         store = self._store()
         tenant_id = "tenant-1"
         term = "*"
