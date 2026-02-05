@@ -1998,6 +1998,60 @@
           <div class="card full" data-panel="settings">
             <div class="card-title">Environment</div>
             <div class="card-subtitle">Configure your local session</div>
+            <details class="profile-panel" id="profile-panel">
+              <summary>Saved configs</summary>
+              <div class="profile-bar">
+                <div class="profile-row">
+                  <label>
+                    Saved configs
+                    <select id="profile-select"></select>
+                  </label>
+                  <label>
+                    Profile name
+                    <input id="profile-name" type="text" placeholder="Client name" />
+                  </label>
+                  <div class="profile-actions">
+                    <button type="button" class="ghost small" id="profile-save">Save profile</button>
+                    <button type="button" class="primary small" id="profile-apply">Apply</button>
+                  </div>
+                </div>
+                <div class="profile-row secondary">
+                  <div class="profile-actions">
+                    <button type="button" class="ghost small" id="profile-delete">Delete</button>
+                    <button type="button" class="ghost small" id="profile-export">Export .env</button>
+                    <button type="button" class="ghost small" id="profile-import">Import</button>
+                  </div>
+                  <input id="profile-import-file" type="file" accept=".json,.env" hidden />
+                </div>
+                <div class="note">
+                  Profiles are stored locally in this browser. Client secrets are saved only if you enter them
+                  before saving a profile.
+                </div>
+              </div>
+            </details>
+            <details class="profile-panel" id="secure-config-panel">
+              <summary>Secure config transfer</summary>
+              <div class="profile-bar">
+                <div class="profile-row">
+                  <label>
+                    Passphrase (optional)
+                    <input id="config-passphrase" type="password" placeholder="Leave blank to use keychain" />
+                  </label>
+                  <label>
+                    Keychain fallback
+                    <input type="text" value="Enabled when passphrase is empty" disabled />
+                  </label>
+                  <div class="profile-actions">
+                    <button type="button" class="ghost small" id="config-export">Export encrypted</button>
+                    <button type="button" class="primary small" id="config-import">Import encrypted</button>
+                  </div>
+                </div>
+                <div class="note">
+                  Encrypted exports include client secrets. Use a passphrase for portability; keychain is best for local backups.
+                </div>
+              </div>
+              <input id="config-import-file" type="file" accept=".json,.enc" hidden />
+            </details>
             <div class="form form-grid form-grid-wide">
               <label>
                 Tenant ID
@@ -2214,60 +2268,6 @@
                 <div class="note">Targets are stored locally. Only key paths are saved (no private key material).</div>
               </div>
             </div>
-            <details class="profile-panel" id="profile-panel">
-              <summary>Saved configs</summary>
-              <div class="profile-bar">
-                <div class="profile-row">
-                  <label>
-                    Saved configs
-                    <select id="profile-select"></select>
-                  </label>
-                  <label>
-                    Profile name
-                    <input id="profile-name" type="text" placeholder="Client name" />
-                  </label>
-                  <div class="profile-actions">
-                    <button type="button" class="ghost small" id="profile-save">Save profile</button>
-                    <button type="button" class="primary small" id="profile-apply">Apply</button>
-                  </div>
-                </div>
-                <div class="profile-row secondary">
-                  <div class="profile-actions">
-                    <button type="button" class="ghost small" id="profile-delete">Delete</button>
-                    <button type="button" class="ghost small" id="profile-export">Export .env</button>
-                    <button type="button" class="ghost small" id="profile-import">Import</button>
-                  </div>
-                  <input id="profile-import-file" type="file" accept=".json,.env" hidden />
-                </div>
-                <div class="note">
-                  Profiles are stored locally in this browser. Client secrets are saved only if you enter them
-                  before saving a profile.
-                </div>
-              </div>
-            </details>
-            <details class="profile-panel" id="secure-config-panel">
-              <summary>Secure config transfer</summary>
-              <div class="profile-bar">
-                <div class="profile-row">
-                  <label>
-                    Passphrase (optional)
-                    <input id="config-passphrase" type="password" placeholder="Leave blank to use keychain" />
-                  </label>
-                  <label>
-                    Keychain fallback
-                    <input type="text" value="Enabled when passphrase is empty" disabled />
-                  </label>
-                  <div class="profile-actions">
-                    <button type="button" class="ghost small" id="config-export">Export encrypted</button>
-                    <button type="button" class="primary small" id="config-import">Import encrypted</button>
-                  </div>
-                </div>
-                <div class="note">
-                  Encrypted exports include client secrets. Use a passphrase for portability; keychain is best for local backups.
-                </div>
-              </div>
-              <input id="config-import-file" type="file" accept=".json,.enc" hidden />
-            </details>
             <details class="info">
               <summary>Where to find Graph app credentials</summary>
               <ul>
