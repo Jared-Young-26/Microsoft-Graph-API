@@ -24,12 +24,22 @@ def _duration_ms(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
 
 
-def _severity_for(ok: bool, data: Any) -> str:
+def _severity_for(ok: bool, data: Any, error_class: str | None = None) -> str:
     if ok:
         if isinstance(data, dict):
             if data.get("missing") or data.get("partial") or data.get("errors"):
                 return "warn"
         return "info"
+    if error_class in (
+        "missing_module",
+        "missing_permission",
+        "throttling",
+        "transient_upstream",
+        "transient_upstream_persistent",
+        "circuit_open",
+    ):
+        # Coverage/limits are important but not "critical failure" signals.
+        return "warn"
     return "high"
 
 
@@ -37,6 +47,8 @@ def _classify_error_message(message: str) -> str:
     if not message:
         return "unknown"
     lowered = message.lower()
+    if "pwsh" in lowered and ("not found" in lowered or "no such file" in lowered or "not recognized" in lowered):
+        return "missing_module"
     if "module" in lowered and ("not found" in lowered or "missing" in lowered or "not recognized" in lowered):
         return "missing_module"
     if "access is denied" in lowered or "insufficient" in lowered or "permission" in lowered or "unauthorized" in lowered:
@@ -57,6 +69,9 @@ def _classify_graph_error(exc: Exception) -> str:
         status = getattr(exc, "status_code", None)
         code = str(getattr(exc, "code", "") or "").lower()
         message = str(exc)
+        if "authentication_requestfromnonpremiumtenantorb2ctenant" in code:
+            # Sign-in logs / CA details are often gated by tenant licensing; treat as a coverage gap.
+            return "missing_permission"
         if status == 401:
             return "auth"
         if status == 403:
@@ -164,7 +179,7 @@ def run_graph_probe(probe_id: str, subject: Any, context: Dict[str, Any], option
         error_class = _classify_graph_error(exc)
         data = {"missing": {"error": error_message}}
 
-    severity = _severity_for(ok, data)
+    severity = _severity_for(ok, data, error_class)
     return ProbeResult(
         probe=probe_id,
         ok=ok,
@@ -238,7 +253,7 @@ def run_powershell_probe(probe_id: str, subject: Any, context: Dict[str, Any], o
         error_class = _classify_error_message(error_message)
         data = {"missing": {"error": error_message}}
 
-    severity = _severity_for(ok, data)
+    severity = _severity_for(ok, data, error_class)
     return ProbeResult(
         probe=probe_id,
         ok=ok,
@@ -291,7 +306,7 @@ def run_local_probe(probe_id: str, subject: Any, context: Dict[str, Any], option
         error_class = _classify_error_message(error_message)
         data = {"missing": {"error": error_message}}
 
-    severity = _severity_for(ok, data)
+    severity = _severity_for(ok, data, error_class)
     return ProbeResult(
         probe=probe_id,
         ok=ok,

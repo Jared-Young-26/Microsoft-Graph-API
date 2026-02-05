@@ -1,9 +1,14 @@
 from pathlib import Path
+from datetime import datetime, timezone
+import sqlite3
 from flask import Flask, jsonify, request, send_from_directory
 
 from .core import (
     STATE,
     dispatch_task,
+    record_graph_trace,
+    list_graph_traces,
+    graph_reliability_summary,
     _read_audit_log,
     get_action_source,
     _list_action_snapshots,
@@ -36,17 +41,22 @@ from .core import (
     _capture_snapshots,
     _finalize_draft_snapshot,
     _system_status_summary,
+    _ingest_vision_u_eye_visual_signal,
+    _list_vision_u_eye_visual_signals,
     ensure_snapshot_scheduler,
+    ensure_onedrive_cache_warmup_scheduler,
     ARTIFACTS_DIR,
 )
 from platform_core.interpreter import interpret_response
-from microsoft import GraphAPIError, PowerShellCommandError
+from platform_core.graph_error_transparency import build_graph_error_response
+from microsoft import GraphAPIError, PowerShellCommandError, set_trace_context, reset_trace_context
 
 ROOT = Path(__file__).resolve().parents[1]
 
 # Disable Flask's built-in static route so SPA fallbacks can handle deep links.
 app = Flask(__name__, static_folder=None)
 ensure_snapshot_scheduler()
+ensure_onedrive_cache_warmup_scheduler()
 
 
 @app.get("/api/status")
@@ -135,11 +145,22 @@ def import_config():
 @app.post("/api/task")
 def run_task():
     payload = request.get_json(silent=True) or {}
+    service = payload.get("service")
+    action = payload.get("action")
+    params = payload.get("params") or {}
+    ui_request_id = None
+    if isinstance(params, dict) and "_ui_request_id" in params:
+        ui_request_id = str(params.pop("_ui_request_id"))
+    target = payload.get("target")
+    token = set_trace_context(
+        {
+            "ui_request_id": ui_request_id,
+            "service": service,
+            "action": action,
+            "trace_hook": record_graph_trace,
+        }
+    )
     try:
-        service = payload.get("service")
-        action = payload.get("action")
-        params = payload.get("params")
-        target = payload.get("target")
         data = dispatch_task(service, action, params, target)
         normalized = None
         try:
@@ -149,61 +170,141 @@ def run_task():
             normalized = None
         return jsonify({"ok": True, "data": data, "normalized": normalized, "target": target})
     except GraphAPIError as exc:
-        detail = ""
-        rate_limit = {}
-        suggested_wait = None
-        if exc.response is not None:
-            try:
-                detail = exc.response.json()
-            except Exception:
-                detail = exc.response.text
-            headers = exc.response.headers or {}
-            header_keys = [
-                "Retry-After",
-                "x-ms-retry-after-ms",
-                "RateLimit-Remaining",
-                "RateLimit-Reset",
-                "RateLimit-Limit",
-                "x-ms-throttle-limit",
-                "x-ms-usage",
-            ]
-            for key in header_keys:
-                if key in headers:
-                    rate_limit[key] = headers.get(key)
-            retry_after = exc.retry_after
-            if retry_after is None:
-                retry_after_header = headers.get("Retry-After")
-                if retry_after_header:
-                    try:
-                        retry_after = int(retry_after_header)
-                    except ValueError:
-                        retry_after = None
-            retry_after_ms = headers.get("x-ms-retry-after-ms")
-            if retry_after is None and retry_after_ms:
-                try:
-                    retry_after = max(1, int(int(retry_after_ms) / 1000))
-                except ValueError:
-                    retry_after = None
-            suggested_wait = retry_after
+        response = build_graph_error_response(exc, service=service, action=action)
         hint = None
-        if exc.code in ("Authorization_RequestDenied", "InsufficientPrivileges"):
+        if response.get("error_class") == "missing_permission":
             hint = "App permission missing or admin consent not granted. Add the permission in Entra and grant admin consent."
-        if isinstance(detail, dict):
-            err_code = detail.get("error", {}).get("code") if detail.get("error") else None
-            if err_code in ("Authorization_RequestDenied", "InsufficientPrivileges"):
-                hint = "App permission missing or admin consent not granted. Add the permission in Entra and grant admin consent."
-        return jsonify({
-            "ok": False,
-            "error": str(exc),
-            "status_code": exc.status_code,
-            "request_id": exc.request_id,
-            "detail": detail,
-            "hint": hint,
-            "rate_limit": rate_limit or None,
-            "suggested_wait_seconds": suggested_wait,
-        }), 400
+        response["hint"] = hint
+        status_code = exc.status_code or 400
+        return jsonify(response), status_code
+    except sqlite3.Error as exc:
+        # Surface SQLite/schema issues as a 500 so operators don't confuse them with Graph failures.
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "failure_source": "dashboard_internal_error",
+                    "failure_outcome": "error",
+                    "error_class": "db_schema",
+                    "error": "Cache schema out of date; migration required.",
+                    "detail": {"message": str(exc)},
+                    "status_code": 500,
+                    "service": service,
+                    "action": action,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            ),
+            500,
+        )
     except PowerShellCommandError as exc:
         return jsonify({"ok": False, "error": str(exc), "detail": exc.output}), 400
+    except Exception as exc:
+        message = str(exc)
+        lowered = message.lower()
+        if "missing microsoft configuration variables" in lowered or "missing graph" in lowered:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "failure_source": "dashboard_config_error",
+                        "failure_outcome": "retry_exhausted",
+                        "failure_origin": "dashboard_config_error",
+                        "error_class": "dashboard_config_error",
+                        "error": message,
+                        "status_code": 400,
+                        "service": service,
+                        "action": action,
+                        "timestamp": None,
+                    }
+                ),
+                400,
+            )
+        if "graph request handler not configured" in lowered:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "failure_source": "dashboard_config_error",
+                        "failure_outcome": "retry_exhausted",
+                        "failure_origin": "dashboard_config_error",
+                        "error_class": "dashboard_config_error",
+                        "error": message,
+                        "status_code": 400,
+                        "service": service,
+                        "action": action,
+                    }
+                ),
+                400,
+            )
+        return jsonify({"ok": False, "error": message}), 400
+    finally:
+        if token is not None:
+            reset_trace_context(token)
+
+
+@app.post("/ingest/perception")
+def ingest_vision_u_eye_perception():
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _ingest_vision_u_eye_visual_signal(payload)
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/debug/traces")
+def debug_traces():
+    limit = request.args.get("limit", type=int) or 50
+    ui_request_id = request.args.get("ui_request_id") or None
+    request_id = request.args.get("request_id") or None
+    return jsonify({"ok": True, "data": list_graph_traces(limit=limit, ui_request_id=ui_request_id, request_id=request_id)})
+
+
+@app.get("/api/debug/traces/<ui_request_id>")
+def debug_traces_by_ui(ui_request_id):
+    limit = request.args.get("limit", type=int) or 200
+    return jsonify({"ok": True, "data": list_graph_traces(limit=limit, ui_request_id=ui_request_id)})
+
+
+@app.get("/api/debug/traces/by-graph-request/<request_id>")
+def debug_traces_by_graph_request(request_id):
+    limit = request.args.get("limit", type=int) or 200
+    return jsonify({"ok": True, "data": list_graph_traces(limit=limit, request_id=request_id)})
+
+
+@app.get("/api/debug/graph-reliability")
+def graph_reliability():
+    return jsonify({"ok": True, "data": graph_reliability_summary()})
+
+
+@app.post("/api/signals/visual")
+def ingest_visual_signal_api():
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _ingest_vision_u_eye_visual_signal(payload)
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/signals/visual")
+def list_visual_signals_api():
+    endpoint_id = request.args.get("endpoint_id") or None
+    session_id = request.args.get("session_id") or None
+    canonical_id = request.args.get("canonical_id") or None
+    since = request.args.get("since") or None
+    until = request.args.get("until") or None
+    limit = request.args.get("limit", type=int) or 50
+    try:
+        data = _list_vision_u_eye_visual_signals(
+            endpoint_id=endpoint_id,
+            session_id=session_id,
+            canonical_id=canonical_id,
+            since=since,
+            until=until,
+            limit=limit,
+        )
+        return jsonify({"ok": True, "data": data})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 

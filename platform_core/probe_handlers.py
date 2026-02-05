@@ -667,7 +667,9 @@ def user_groups_core_probe(subject, context: Dict[str, Any], options: Dict[str, 
     user_ref = _subject_value(subject, ["objectId", "id", "upn", "email", "mail"])
     if not user_ref:
         raise RuntimeError("User identifier missing.")
-    items = graph.paged_get(f"/users/{user_ref}/memberOf?$select=id,displayName,@odata.type")
+    # Graph does not allow selecting @odata.type explicitly; using the typed segment
+    # keeps results group-only without needing to inspect odata metadata.
+    items = graph.paged_get(f"/users/{user_ref}/memberOf/microsoft.graph.group?$select=id,displayName")
     groups = []
     for item in items or []:
         if not isinstance(item, dict):
@@ -679,7 +681,6 @@ def user_groups_core_probe(subject, context: Dict[str, Any], options: Dict[str, 
             {
                 "id": obj_id,
                 "displayName": item.get("displayName"),
-                "odata_type": item.get("@odata.type"),
             }
         )
         if len(groups) >= top:

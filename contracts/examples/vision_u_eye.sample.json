@@ -1,0 +1,54 @@
+{
+  "schema": "vision_u_eye.visual_signal.v1",
+  "event_type": "perception",
+  "event_id": "00000000000000000000000000000001",
+  "endpoint_id": "example-endpoint",
+  "session_id": "example-session",
+  "user_id": null,
+  "timestamp_utc": "2026-02-04T00:00:00.000Z",
+  "monotonic_timestamp": 1234567890,
+  "sequence": 1,
+  "episode_id": "example-session.ep0001",
+  "observation_event_id": "example-session.00000001",
+  "perception": {
+    "ui": {
+      "method": "stub",
+      "elements": [
+        {
+          "element_id": "stub.el1",
+          "type": "button",
+          "bbox": { "x": 10, "y": 20, "width": 120, "height": 40 }
+        }
+      ]
+    },
+    "ocr": {
+      "engine": "stub",
+      "available": true,
+      "text": "OCR_STUB_TEXT",
+      "blocks": [
+        {
+          "text": "OCR_STUB_TEXT",
+          "bbox": { "x": 100, "y": 100, "width": 200, "height": 40 }
+        }
+      ]
+    },
+    "correlation": {
+      "app_name": "ExampleApp.exe",
+      "pid": 1234,
+      "exe_path": "C:/Program Files/ExampleApp/ExampleApp.exe",
+      "window_title": "Example Window",
+      "ui_element_count": 1,
+      "ocr_available": true
+    },
+    "semantic": {
+      "method": "stub",
+      "encoding": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "diff": {
+      "changed": true,
+      "fields_changed": ["active_window.title"],
+      "changes": { "active_window.title": { "from": "Old", "to": "New" } }
+    }
+  }
+}
+

@@ -16,6 +16,9 @@ except Exception:
 from .core import (
     STATE,
     dispatch_task,
+    record_graph_trace,
+    list_graph_traces,
+    graph_reliability_summary,
     _read_audit_log,
     get_action_source,
     _list_action_snapshots,
@@ -48,16 +51,21 @@ from .core import (
     _capture_snapshots,
     _finalize_draft_snapshot,
     _system_status_summary,
+    _ingest_vision_u_eye_visual_signal,
+    _list_vision_u_eye_visual_signals,
     ensure_snapshot_scheduler,
+    ensure_onedrive_cache_warmup_scheduler,
     ARTIFACTS_DIR,
 )
 from platform_core.interpreter import interpret_response
-from microsoft import GraphAPIError, PowerShellCommandError
+from platform_core.graph_error_transparency import build_graph_error_response
+from microsoft import GraphAPIError, PowerShellCommandError, set_trace_context, reset_trace_context
 
 ROOT = Path(__file__).resolve().parents[1]
 
 app = FastAPI(title="Graph Admin Studio API")
 ensure_snapshot_scheduler()
+ensure_onedrive_cache_warmup_scheduler()
 
 app.add_middleware(
     CORSMiddleware,
@@ -193,8 +201,20 @@ def import_config(payload: ConfigImportRequest):
 
 @app.post("/api/task")
 def run_task(task: TaskRequest):
+    params = dict(task.params or {})
+    ui_request_id = None
+    if "_ui_request_id" in params:
+        ui_request_id = str(params.pop("_ui_request_id"))
+    token = set_trace_context(
+        {
+            "ui_request_id": ui_request_id,
+            "service": task.service,
+            "action": task.action,
+            "trace_hook": record_graph_trace,
+        }
+    )
     try:
-        data = dispatch_task(task.service, task.action, task.params, task.target)
+        data = dispatch_task(task.service, task.action, params, task.target)
         normalized = None
         try:
             normalized_payload = _extract_action_payload(data)
@@ -208,64 +228,131 @@ def run_task(task: TaskRequest):
             normalized = None
         return {"ok": True, "data": data, "normalized": normalized, "target": task.target}
     except GraphAPIError as exc:
-        detail = ""
-        rate_limit = {}
-        suggested_wait = None
-        if exc.response is not None:
-            try:
-                detail = exc.response.json()
-            except Exception:
-                detail = exc.response.text
-            headers = exc.response.headers or {}
-            header_keys = [
-                "Retry-After",
-                "x-ms-retry-after-ms",
-                "RateLimit-Remaining",
-                "RateLimit-Reset",
-                "RateLimit-Limit",
-                "x-ms-throttle-limit",
-                "x-ms-usage",
-            ]
-            for key in header_keys:
-                if key in headers:
-                    rate_limit[key] = headers.get(key)
-            retry_after = exc.retry_after
-            if retry_after is None:
-                retry_after_header = headers.get("Retry-After")
-                if retry_after_header:
-                    try:
-                        retry_after = int(retry_after_header)
-                    except ValueError:
-                        retry_after = None
-            retry_after_ms = headers.get("x-ms-retry-after-ms")
-            if retry_after is None and retry_after_ms:
-                try:
-                    retry_after = max(1, int(int(retry_after_ms) / 1000))
-                except ValueError:
-                    retry_after = None
-            suggested_wait = retry_after
+        response = build_graph_error_response(exc, service=task.service, action=task.action)
         hint = None
-        if exc.code in ("Authorization_RequestDenied", "InsufficientPrivileges"):
+        if response.get("error_class") == "missing_permission":
             hint = "App permission missing or admin consent not granted. Add the permission in Entra and grant admin consent."
-        if isinstance(detail, dict):
-            err_code = detail.get("error", {}).get("code") if detail.get("error") else None
-            if err_code in ("Authorization_RequestDenied", "InsufficientPrivileges"):
-                hint = "App permission missing or admin consent not granted. Add the permission in Entra and grant admin consent."
-        return JSONResponse(
-            status_code=400,
-            content={
-                "ok": False,
-                "error": str(exc),
-                "status_code": exc.status_code,
-                "request_id": exc.request_id,
-                "detail": detail,
-                "hint": hint,
-                "rate_limit": rate_limit or None,
-                "suggested_wait_seconds": suggested_wait,
-            },
-        )
+        response["hint"] = hint
+        status_code = exc.status_code or 400
+        return JSONResponse(status_code=status_code, content=response)
     except PowerShellCommandError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "detail": exc.output})
+    except Exception as exc:
+        message = str(exc)
+        lowered = message.lower()
+        if "missing microsoft configuration variables" in lowered or "missing graph" in lowered:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "failure_source": "dashboard_config_error",
+                    "failure_outcome": "retry_exhausted",
+                    "failure_origin": "dashboard_config_error",
+                    "error_class": "dashboard_config_error",
+                    "error": message,
+                    "status_code": 400,
+                    "service": task.service,
+                    "action": task.action,
+                },
+            )
+        if "graph request handler not configured" in lowered:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "failure_source": "dashboard_config_error",
+                    "failure_outcome": "retry_exhausted",
+                    "failure_origin": "dashboard_config_error",
+                    "error_class": "dashboard_config_error",
+                    "error": message,
+                    "status_code": 400,
+                    "service": task.service,
+                    "action": task.action,
+                },
+            )
+        return JSONResponse(status_code=400, content={"ok": False, "error": message})
+    finally:
+        if token is not None:
+            reset_trace_context(token)
+
+
+@app.post("/ingest/perception")
+def ingest_vision_u_eye_perception(payload: dict):
+    try:
+        data = _ingest_vision_u_eye_visual_signal(payload)
+        return data
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/signals/visual")
+def ingest_visual_signal_api(payload: dict):
+    try:
+        data = _ingest_vision_u_eye_visual_signal(payload)
+        return data
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/signals/visual")
+def list_visual_signals_api(
+    endpoint_id: str | None = None,
+    session_id: str | None = None,
+    canonical_id: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+):
+    try:
+        data = _list_vision_u_eye_visual_signals(
+            endpoint_id=endpoint_id,
+            session_id=session_id,
+            canonical_id=canonical_id,
+            since=since,
+            until=until,
+            limit=limit,
+        )
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/debug/traces")
+def debug_traces(
+    limit: int = 50,
+    ui_request_id: str | None = None,
+    request_id: str | None = None,
+):
+    try:
+        data = list_graph_traces(limit=limit, ui_request_id=ui_request_id, request_id=request_id)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/debug/traces/{ui_request_id}")
+def debug_traces_by_ui(ui_request_id: str, limit: int = 200):
+    try:
+        data = list_graph_traces(limit=limit, ui_request_id=ui_request_id, request_id=None)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/debug/traces/by-graph-request/{request_id}")
+def debug_traces_by_graph_request(request_id: str, limit: int = 200):
+    try:
+        data = list_graph_traces(limit=limit, ui_request_id=None, request_id=request_id)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/debug/graph-reliability")
+def debug_graph_reliability():
+    try:
+        data = graph_reliability_summary()
+        return {"ok": True, "data": data}
     except Exception as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
@@ -627,3 +714,17 @@ async def ssh_terminal(websocket: WebSocket):
                 os.close(master_fd)
             except Exception:
                 pass
+
+
+@app.get("/api/signals/visual/{endpoint_id}/{episode_id}")
+def visual_signal_timeline(endpoint_id: str, episode_id: str, limit: int | None = 200):
+    try:
+        events = STATE.snapshot_store.list_signal_timeline(
+            signal_name="visual",
+            endpoint_id=endpoint_id,
+            episode_id=episode_id,
+            limit=int(limit or 200),
+        )
+        return {"ok": True, "data": {"endpoint_id": endpoint_id, "episode_id": episode_id, "events": events}}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})

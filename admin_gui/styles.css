@@ -373,6 +373,17 @@ button,
   color: var(--muted);
 }
 
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.banner-actions:empty {
+  display: none;
+}
+
 .mode-header {
   display: flex;
   align-items: center;

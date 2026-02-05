@@ -9,3 +9,4 @@ keyring
 cryptography
 paramiko
 reportlab
+jsonschema

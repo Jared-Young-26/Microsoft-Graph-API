@@ -19,6 +19,7 @@ const warningDismiss = document.getElementById("warning-dismiss");
 const graphStatusBanner = document.getElementById("graph-status-banner");
 const graphStatusMessage = document.getElementById("graph-status-message");
 const graphStatusMeta = document.getElementById("graph-status-meta");
+const graphStatusActions = document.getElementById("graph-status-actions");
 const graphStatusDismiss = document.getElementById("graph-status-dismiss");
 const snapshotDiffTriage = document.getElementById("snapshot-diff-triage");
 const reportDiffTriage = document.getElementById("report-diff-triage");
@@ -639,12 +640,58 @@ const ACTIONS_UI = {
     list_drive_items: {
       label: "List drive items",
       mode: "graph",
-      fields: [{ key: "folder_id", label: "Folder ID (optional)" }],
+      fields: [
+        { key: "user_id", label: "User UPN or ID (optional)" },
+        { key: "folder_id", label: "Folder ID (optional)" },
+      ],
     },
     get_user_drive_id: {
-      label: "Get user drive ID",
+      label: "Resolve OneDrive drive ID from user (UPN/Object ID)",
       mode: "graph",
-      fields: [{ key: "user_id", label: "User UPN or ID (optional)" }],
+      fields: [
+        { key: "user_id", label: "User UPN or ID (optional)" },
+        { key: "force_live", label: "Refresh (force live)", type: "checkbox" },
+      ],
+    },
+    drive_cache_status: {
+      label: "OneDrive drive cache status",
+      mode: "local",
+      fields: [],
+    },
+    warm_drive_cache: {
+      label: "Warm OneDrive drive cache",
+      mode: "graph",
+      fields: [
+        { key: "upns", label: "UPNs (optional)", placeholder: "user1@contoso.com, user2@contoso.com" },
+        { key: "max_items", label: "Max items", type: "number", placeholder: "50" },
+      ],
+    },
+    requeue_drive_resolution: {
+      label: "Requeue drive resolution",
+      mode: "local",
+      fields: [
+        { key: "user_upn", label: "User UPN" },
+        { key: "delay_seconds", label: "Delay seconds", type: "number", placeholder: "5" },
+      ],
+    },
+    force_live_resolve: {
+      label: "Force live drive resolution",
+      mode: "graph",
+      fields: [
+        { key: "user_upn", label: "User UPN" },
+        { key: "ignore_circuit_breaker", label: "Ignore circuit breaker", type: "checkbox" },
+      ],
+    },
+    seed_drive_cache: {
+      label: "Seed drive cache (manual)",
+      mode: "local",
+      fields: [
+        { key: "user_upn", label: "User UPN" },
+        { key: "drive_id", label: "Drive ID" },
+        { key: "web_url", label: "Web URL (optional)" },
+        { key: "drive_type", label: "Drive type (optional)" },
+        { key: "user_object_id", label: "User object ID (optional)" },
+      ],
     },
     create_upload_session: {
       label: "Create upload session",
@@ -2062,7 +2109,7 @@ const UPDATE_CONTEXT_MAP = {
       idField: "id",
       idParam: "item_id",
       payloadKey: "updates",
-      contextKeys: [],
+      contextKeys: ["user_id"],
       allowedFields: ["name", "description"],
     },
   },
@@ -3401,13 +3448,32 @@ function setOutputView(service, view) {
 function hideGraphStatusBanner() {
   if (!graphStatusBanner) return;
   graphStatusBanner.classList.add("hidden");
+  if (graphStatusActions) {
+    graphStatusActions.innerHTML = "";
+  }
 }
 
-function showGraphStatusBanner(message, meta = "") {
+function showGraphStatusBanner(message, meta = "", actions = null) {
   if (!graphStatusBanner || !graphStatusMessage) return;
   graphStatusMessage.textContent = message || "Graph service reports degraded status.";
   if (graphStatusMeta) {
     graphStatusMeta.textContent = meta || "";
+  }
+  if (graphStatusActions) {
+    graphStatusActions.innerHTML = "";
+    if (Array.isArray(actions)) {
+      actions.forEach((item) => {
+        if (!item || typeof item !== "object" || !item.label || typeof item.onClick !== "function") return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.classList.add("ghost", "small");
+        if (item.danger) button.classList.add("danger");
+        button.textContent = item.label;
+        if (item.title) button.title = item.title;
+        button.addEventListener("click", item.onClick);
+        graphStatusActions.appendChild(button);
+      });
+    }
   }
   graphStatusBanner.classList.remove("hidden");
 }
@@ -10025,6 +10091,7 @@ async function runReportTask(action, params) {
   if (shouldDisableSnapshots("reports", action)) {
     payload._snapshot = false;
   }
+  payload._ui_request_id = generateUiRequestId();
   const res = await fetch("/api/task", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -10927,7 +10994,7 @@ async function loadTenantInfo(options = {}) {
     const res = await fetch("/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service: "system", action: "tenant_info", params: {} }),
+      body: JSON.stringify({ service: "system", action: "tenant_info", params: { _ui_request_id: generateUiRequestId() } }),
     });
     const data = await res.json();
     if (!data.ok) {
@@ -11047,6 +11114,13 @@ function generateTargetId() {
     return crypto.randomUUID();
   }
   return `target-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function generateUiRequestId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `ui-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
 
 function normalizeSshTargets(list) {
@@ -11640,10 +11714,12 @@ function resetPreflightCache() {
 }
 
 async function runSystemTask(action, params, target) {
+  const payload = { ...(params || {}) };
+  payload._ui_request_id = generateUiRequestId();
   const res = await fetch("/api/task", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ service: "system", action, params, target }),
+    body: JSON.stringify({ service: "system", action, params: payload, target }),
   });
   const data = await res.json();
   return data;
@@ -13349,7 +13425,7 @@ async function renderWorkspaceEntraLookup(container, tile) {
       const res = await fetch("/api/task", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ service: "entra", action: "get_user", params: { id: userId } }),
+        body: JSON.stringify({ service: "entra", action: "get_user", params: { id: userId, _ui_request_id: generateUiRequestId() } }),
       });
       const data = await res.json();
       output.textContent = JSON.stringify(data.data || data, null, 2);
@@ -13984,6 +14060,7 @@ function updateNavShadows() {
 }
 
 async function fetchStatus() {
+  if (!statusBadge) return;
   try {
     const res = await fetch("/api/status");
     const data = await res.json();
@@ -14385,10 +14462,30 @@ function getExportPayload(service) {
 
 function extractErrorMeta(data) {
   if (!data || typeof data !== "object") return null;
-  const status = data.status_code || data.status || data.statusCode;
+  let status = data.status_code || data.status || data.statusCode;
   let requestId = data.request_id || data.requestId;
+  const failureSource = data.failure_source || data.failureSource || data.failure_origin || data.failureOrigin || null;
+  const failureOutcome = data.failure_outcome || data.failureOutcome || null;
+  const failureOrigin = data.failure_origin || data.failureOrigin || null;
+  const errorClass = data.error_class || data.errorClass || null;
+  const method = data.method || null;
+  const url = data.url || null;
+  const path = data.path || null;
+  const params = data.params || null;
+  const tenantId = data.tenant_id || data.tenantId || null;
+  const uiRequestId = data.ui_request_id || data.uiRequestId || null;
+  const correlationId = data.correlation_id || data.correlationId || null;
+  const durationMs = data.duration_ms || data.durationMs || null;
+  const queueWaitMs = data.queue_wait_ms || data.queueWaitMs || null;
+  const timestamp = data.timestamp || null;
+  const diagnostics = data.diagnostics || null;
+  const retry = data.retry || null;
+  const rawGraph = data.raw_graph || data.rawGraph || null;
+  const normalized = data.normalized || null;
+  const circuit = data.circuit || null;
+  const routeGroup = data.route_group || data.routeGroup || data.request?.route_group || data.request?.routeGroup || null;
   let code = data.code || data.error_code;
-  let message = data.error || data.message;
+  let message = (normalized && normalized.error_summary) || data.error || data.message;
   let hint = data.hint;
   let detail = data.detail;
   const rateLimit = data.rate_limit || data.rateLimit;
@@ -14399,6 +14496,18 @@ function extractErrorMeta(data) {
     message = message || err.message;
     if (!requestId && err.innerError) {
       requestId = err.innerError["request-id"] || err.innerError["client-request-id"] || requestId;
+    }
+  }
+  if (!code && rawGraph && typeof rawGraph === "object") {
+    const bodyJson = rawGraph.body_json;
+    if (bodyJson && typeof bodyJson === "object" && bodyJson.error) {
+      code = bodyJson.error.code || code;
+    }
+  }
+  if (!requestId && rawGraph && typeof rawGraph === "object") {
+    const headers = rawGraph.headers || {};
+    if (headers && typeof headers === "object") {
+      requestId = headers["request-id"] || headers["Request-Id"] || headers["requestId"] || requestId;
     }
   }
   if (data.details && typeof data.details === "object") {
@@ -14412,6 +14521,26 @@ function extractErrorMeta(data) {
     message,
     hint,
     requestId,
+    correlationId,
+    uiRequestId,
+    failureSource,
+    failureOutcome,
+    failureOrigin,
+    errorClass,
+    method,
+    url,
+    path,
+    params,
+    tenantId,
+    durationMs,
+    queueWaitMs,
+    timestamp,
+    diagnostics,
+    retry,
+    rawGraph,
+    normalized,
+    circuit,
+    routeGroup,
     detail,
     rateLimit,
     suggestedWait,
@@ -15472,6 +15601,31 @@ function classifyError(meta) {
   const message = String(meta.message || "").toLowerCase();
   const detailText = typeof meta.detail === "string" ? meta.detail.toLowerCase() : "";
   const errorText = extractErrorText(meta);
+  const source = meta.failureSource || meta.failureOrigin || "";
+  const outcome = meta.failureOutcome || "";
+  const errorClass = String(meta.errorClass || "").toLowerCase();
+
+  if (errorClass === "circuit_open" || outcome === "circuit_open") {
+    return {
+      type: "circuit_open",
+      label: "Circuit breaker open",
+      summary: "Graph returned repeated 5xx errors; the dashboard opened a circuit breaker to prevent amplification.",
+    };
+  }
+  if (source === "dashboard_parse_error") {
+    return {
+      type: "dashboard_parse_error",
+      label: "Dashboard parse error",
+      summary: "Dashboard received a non-JSON response when JSON was expected.",
+    };
+  }
+  if (source === "dashboard_http") {
+    return {
+      type: "dashboard_http",
+      label: "Network/transport error",
+      summary: "Dashboard failed before receiving a response from Graph.",
+    };
+  }
 
   if (
     status === 401 ||
@@ -15777,6 +15931,25 @@ function buildExplanations(service, payload) {
     const classification = classifyError(meta);
     const causes = [];
     const actions = [];
+    if (classification?.type === "dashboard_parse_error") {
+      causes.push("Dashboard expected JSON but received an unexpected response format.");
+      actions.push("Check backend logs for an unhandled exception or proxy response.");
+      actions.push("Retry after confirming the backend is running and reachable.");
+    }
+    if (classification?.type === "dashboard_http") {
+      causes.push("Dashboard could not reach Graph or a network timeout occurred.");
+      actions.push("Check network connectivity, proxy settings, and firewall rules.");
+      actions.push("Retry after connectivity is restored.");
+    }
+    if (classification?.type === "circuit_open") {
+      causes.push("Circuit breaker opened after repeated transient failures for this route group.");
+      if (meta.suggestedWait) {
+        actions.push(`Wait ${meta.suggestedWait} seconds, then retry.`);
+      } else {
+        actions.push("Wait briefly, then retry the action.");
+      }
+      actions.push("If the issue persists, export a support bundle and check Graph service health.");
+    }
     if (classification?.type === "permission") {
       causes.push("App permission missing or admin consent not granted.");
       actions.push("Grant required permissions in Entra and grant admin consent.");
@@ -15841,6 +16014,103 @@ function buildExplanations(service, payload) {
       actions: actions.length ? actions : ["Review the error and retry."],
       details: meta.message ? [meta.message] : [],
     });
+
+    const traceFacts = [];
+    const traceActions = [];
+    const requestTarget = meta.path || meta.url || null;
+    const requestLine = [meta.method, requestTarget].filter(Boolean).join(" ");
+    const sourceValue = meta.failureSource || meta.failureOrigin || null;
+    const outcomeValue = meta.failureOutcome || null;
+    if (sourceValue) {
+      const sourceLabel = String(sourceValue).replace(/_/g, " ");
+      traceFacts.push(`Source: ${sourceLabel}`);
+    }
+    if (outcomeValue) {
+      const outcomeLabel = String(outcomeValue).replace(/_/g, " ");
+      traceFacts.push(`Outcome: ${outcomeLabel}`);
+    }
+    if (meta.errorClass) {
+      traceFacts.push(`error_class: ${meta.errorClass}`);
+    }
+    if (requestLine) traceFacts.push(`Request: ${requestLine}`);
+    if (meta.requestId) traceFacts.push(`request-id: ${meta.requestId}`);
+    if (meta.correlationId) traceFacts.push(`client-request-id: ${meta.correlationId}`);
+    if (meta.uiRequestId) traceFacts.push(`ui_request_id: ${meta.uiRequestId}`);
+    if (meta.tenantId) traceFacts.push(`tenant_id: ${meta.tenantId}`);
+    if (meta.durationMs) traceFacts.push(`duration_ms: ${meta.durationMs}`);
+    if (meta.queueWaitMs) traceFacts.push(`queue_wait_ms: ${meta.queueWaitMs}`);
+    if (meta.routeGroup) traceFacts.push(`route_group: ${meta.routeGroup}`);
+    if (meta.diagnostics?.date) traceFacts.push(`date: ${meta.diagnostics.date}`);
+    if (meta.diagnostics?.ags) traceFacts.push(`x-ms-ags-diagnostic: ${trimText(String(meta.diagnostics.ags), 180)}`);
+
+    const retryAttempts = meta.retry?.attempts;
+    if (Array.isArray(retryAttempts) && retryAttempts.length) {
+      traceFacts.push(
+        `Attempts: ${retryAttempts.length}/${meta.retry?.total_attempts || retryAttempts.length}`
+      );
+      const timeline = retryAttempts
+        .map((attempt) => {
+          const status = attempt.status !== undefined && attempt.status !== null ? attempt.status : "ERR";
+          const wait = attempt.wait_ms ? ` wait ${Math.round(attempt.wait_ms / 1000)}s` : "";
+          return `${status}${wait}`;
+        })
+        .join(" · ");
+      if (timeline) traceFacts.push(`Retry timeline: ${trimText(timeline, 220)}`);
+    }
+
+    if (meta.suggestedWait) {
+      traceFacts.push(`suggested_wait_seconds: ${meta.suggestedWait}`);
+    }
+    if (meta.circuit && typeof meta.circuit === "object") {
+      if (meta.circuit.route_group) {
+        traceFacts.push(`circuit.route_group: ${meta.circuit.route_group}`);
+      }
+      if (meta.circuit.state) {
+        traceFacts.push(`circuit.state: ${meta.circuit.state}`);
+      }
+      if (meta.circuit.remaining_seconds) {
+        traceFacts.push(`circuit.remaining_seconds: ${meta.circuit.remaining_seconds}`);
+      }
+      if (meta.circuit.opened_reason) {
+        traceFacts.push(`circuit.opened_reason: ${meta.circuit.opened_reason}`);
+      }
+      if (meta.circuit.last_upstream_status) {
+        traceFacts.push(`circuit.last_upstream_status: ${meta.circuit.last_upstream_status}`);
+      }
+      if (meta.circuit.last_upstream_request_id) {
+        traceFacts.push(`circuit.last_upstream_request_id: ${meta.circuit.last_upstream_request_id}`);
+      }
+      if (meta.circuit.last_upstream_timestamp) {
+        traceFacts.push(`circuit.last_upstream_timestamp: ${meta.circuit.last_upstream_timestamp}`);
+      }
+    }
+    if (sourceValue === "graph_upstream") {
+      traceActions.push("Graph returned an error response. Use 'Export support bundle' to share request-id and headers for escalation.");
+      if (outcomeValue === "retry_exhausted") {
+        traceActions.push("Graph returned 5xx repeatedly; dashboard retries were exhausted.");
+      }
+    } else if (sourceValue === "dashboard_http") {
+      traceActions.push("Request failed before reaching Graph; check backend connectivity/DNS/proxy and local network health.");
+    } else if (sourceValue === "dashboard_parse_error") {
+      traceActions.push("Dashboard could not parse the upstream response; inspect raw body/headers for HTML/proxy interstitials.");
+    } else if (sourceValue === "dashboard_config_error") {
+      traceActions.push("Configuration is incomplete; open Settings and verify tenant/client IDs and client secret.");
+    } else if (
+      (sourceValue === "dashboard_guardrail" || sourceValue === "dashboard_retry_policy") &&
+      outcomeValue === "circuit_open"
+    ) {
+      traceActions.push("Graph returned repeated 5xx errors; the dashboard opened a circuit breaker to prevent amplification.");
+      traceActions.push("Wait for cooldown, then retry. If errors persist, reduce request volume and check Microsoft 365 service health.");
+    }
+    if (traceFacts.length) {
+      explanations.push({
+        title: "Request context",
+        severity: sourceValue && sourceValue !== "graph_upstream" ? "warn" : "info",
+        summary: "Trace context and headers captured for root-cause analysis.",
+        causes: traceFacts,
+        actions: traceActions,
+      });
+    }
   }
 
   return explanations;
@@ -16561,6 +16831,7 @@ function clearBulkProgress(service) {
 
 async function executeUpdate(service, updateConfig, itemId, updates) {
   const params = buildUpdateParams(updateConfig, itemId, updates);
+  params._ui_request_id = generateUiRequestId();
   try {
     const res = await fetch("/api/task", {
       method: "POST",
@@ -16595,6 +16866,7 @@ async function executeBulkUpdate(service, updateConfig, items) {
           update_action: updateConfig.updateAction,
           items,
           context,
+          _ui_request_id: generateUiRequestId(),
         },
       }),
     });
@@ -18505,6 +18777,7 @@ function setOutput(service, content) {
   }
   lastOutputs[service] = parsed ?? rawText;
   updateArtifactButton(service, extractArtifact(content));
+  updateSupportBundleButton(service, content);
   if (!isBulkSummary) {
     setBulkFailures(service, null);
   }
@@ -18562,6 +18835,103 @@ function updateArtifactButton(service, artifact) {
     const url = button.dataset.url;
     if (!url) return;
     window.open(url, "_blank");
+  };
+}
+
+function normalizeHeaderMap(headers) {
+  const map = new Map();
+  if (!headers || typeof headers !== "object") return map;
+  Object.entries(headers).forEach(([key, value]) => {
+    map.set(String(key).toLowerCase(), value);
+  });
+  return map;
+}
+
+function buildGraphSupportBundle(errorPayload) {
+  if (!errorPayload || typeof errorPayload !== "object") return null;
+  const rawGraph = errorPayload.raw_graph || errorPayload.rawGraph || {};
+  const headersMap = normalizeHeaderMap(rawGraph.headers || {});
+  const diagnostics = errorPayload.diagnostics || {};
+  const rate = errorPayload.rate_limit || errorPayload.rateLimit || {};
+  const rateMap = normalizeHeaderMap(rate || {});
+  const pick = (key) => headersMap.get(key) ?? rateMap.get(key) ?? null;
+
+  const selectedHeaders = {};
+  [
+    "retry-after",
+    "x-ms-ags-diagnostic",
+    "request-id",
+    "client-request-id",
+    "date",
+    "x-ms-retry-after-ms",
+  ].forEach((key) => {
+    const val = pick(key);
+    if (val !== null && val !== undefined && val !== "") {
+      selectedHeaders[key] = val;
+    }
+  });
+  if (!selectedHeaders.date && diagnostics?.date) {
+    selectedHeaders.date = diagnostics.date;
+  }
+
+  return {
+    service: errorPayload.service || null,
+    action: errorPayload.action || null,
+    method: errorPayload.method || null,
+    path: errorPayload.path || null,
+    url: errorPayload.url || null,
+    timestamp: errorPayload.timestamp || null,
+    status_code: errorPayload.status_code || errorPayload.status || null,
+    request_id: errorPayload.request_id || null,
+    correlation_id: errorPayload.correlation_id || null,
+    ui_request_id: errorPayload.ui_request_id || null,
+    failure_origin: errorPayload.failure_origin || null,
+    duration_ms: errorPayload.duration_ms || null,
+    headers: selectedHeaders,
+    raw_body: rawGraph.body ?? null,
+    attempts: errorPayload.retry?.attempts || null,
+  };
+}
+
+function updateSupportBundleButton(service, content) {
+  const card = document.querySelector(`.output-card[data-panel="${service}"]`);
+  if (!card) return;
+  let actions = card.querySelector(".output-actions");
+  if (!actions) {
+    const clearButton = card.querySelector(`.clear-output[data-output-target="${service}"]`);
+    actions = document.createElement("div");
+    actions.classList.add("output-actions");
+    if (clearButton && clearButton.parentElement === card) {
+      card.insertBefore(actions, clearButton);
+    } else {
+      card.appendChild(actions);
+    }
+  }
+  let button = actions.querySelector(".support-bundle-download");
+
+  const errorPayload =
+    content && typeof content === "object" && content.ok === false ? content : null;
+  const hasRawGraph = Boolean(errorPayload?.raw_graph || errorPayload?.rawGraph);
+  if (!errorPayload || !hasRawGraph) {
+    if (button) button.remove();
+    return;
+  }
+
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.classList.add("ghost", "small", "support-bundle-download");
+    actions.appendChild(button);
+  }
+  button.textContent = "Export support bundle";
+  button.onclick = () => {
+    const bundle = buildGraphSupportBundle(errorPayload);
+    if (!bundle) return;
+    const context = lastActionContext[service] || {};
+    const safeAction = sanitizeFilename(context.action || errorPayload.action || service);
+    const id = sanitizeFilename(errorPayload.request_id || errorPayload.ui_request_id || "graph-error");
+    downloadJson(bundle, `support-bundle-${service}-${safeAction}-${id}.json`);
+    showToast("Support bundle exported");
   };
 }
 
@@ -18714,6 +19084,9 @@ async function runAction(service, action, params = {}, options = {}) {
     if (shouldDisableSnapshots(service, action)) {
       finalParams._snapshot = false;
     }
+    const uiRequestId = generateUiRequestId();
+    finalParams._ui_request_id = uiRequestId;
+    updateRunMeta(service, { ui_request_id: uiRequestId });
     const res = await fetch("/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -18729,6 +19102,10 @@ async function runAction(service, action, params = {}, options = {}) {
         http_status: res.status,
         status_code: errorMeta.status || data.status_code || data.status || null,
         request_id: errorMeta.requestId || data.request_id || null,
+        correlation_id: errorMeta.correlationId || data.correlation_id || null,
+        failure_source: errorMeta.failureSource || data.failure_source || data.failure_origin || null,
+        failure_outcome: errorMeta.failureOutcome || data.failure_outcome || null,
+        failure_origin: errorMeta.failureOrigin || data.failure_origin || null,
         error: errorMeta.message || data.error || null,
         hint: errorMeta.hint || data.hint || null,
         rate_limit: errorMeta.rateLimit || data.rate_limit || null,
@@ -18736,12 +19113,15 @@ async function runAction(service, action, params = {}, options = {}) {
         elapsed_ms: elapsedMs,
       });
       setOutput(service, data);
-      const status = data.status_code || data.status || "";
-      const statusLabel = status ? `HTTP ${status}` : "Failed";
+      const source = errorMeta.failureSource || data.failure_source || data.failure_origin || null;
+      const outcome = errorMeta.failureOutcome || data.failure_outcome || null;
+      const sourceLabel = source ? String(source).replace(/_/g, " ") : "";
+      const outcomeLabel = outcome ? String(outcome).replace(/_/g, " ") : "";
+      const statusLabel = `HTTP ${res.status}`;
       setOutputStatus(service, {
         state: "fail",
         text: `${label} failed`,
-        meta: `${statusLabel} · ${formatElapsed(elapsedMs)}`,
+        meta: [statusLabel, sourceLabel, outcomeLabel, formatElapsed(elapsedMs)].filter(Boolean).join(" · "),
         running: false,
       });
       addActivity(`Failed: ${activityLabel(service, action)}`);
@@ -18756,10 +19136,168 @@ async function runAction(service, action, params = {}, options = {}) {
     if (service === "reports") {
       refreshReportHistory();
     }
+    if (service === "onedrive" && action === "get_user_drive_id") {
+      const pending = payload?.status === "pending";
+      const cached = Boolean(payload?.cached);
+      const fallback = Boolean(payload?.cache_fallback);
+      const source = payload?.source || null;
+      const pendingRow = payload?.pending && typeof payload.pending === "object" ? payload.pending : null;
+      const verified = payload?.last_verified_at ? formatRelativeTime(payload.last_verified_at) : null;
+      const circuitRemaining = payload?.circuit?.remaining_seconds ? Number(payload.circuit.remaining_seconds) : null;
+      const nextRetrySeconds = Number.isFinite(Number(payload?.next_retry_seconds))
+        ? Number(payload.next_retry_seconds)
+        : null;
+      const attempts = Number.isFinite(Number(pendingRow?.attempts)) ? Number(pendingRow.attempts) : null;
+      const maxAttempts = Number.isFinite(Number(pendingRow?.max_attempts)) ? Number(pendingRow.max_attempts) : 10;
+      const nextRunAt = pendingRow?.next_run_at ? String(pendingRow.next_run_at) : "";
+      let nextRunAtLabel = null;
+      if (nextRunAt) {
+        const parsed = new Date(nextRunAt);
+        if (!Number.isNaN(parsed.getTime())) {
+          nextRunAtLabel = parsed.toLocaleString();
+        }
+      }
+      const bannerMetaParts = []
+        .concat(verified ? [`Last verified: ${verified}`] : [])
+        .concat(Number.isFinite(circuitRemaining) ? [`Cooldown: ${circuitRemaining}s`] : [])
+        .concat(Number.isFinite(nextRetrySeconds) ? [`Next retry: ${nextRetrySeconds}s`] : [])
+        .concat(Number.isFinite(attempts) ? [`Attempts: ${attempts}/${maxAttempts}`] : [])
+        .concat(nextRunAtLabel ? [`Retry at: ${nextRunAtLabel}`] : []);
+      if (pending) {
+        const identifier = (pendingRow?.user_upn || "").trim();
+        const actions = identifier
+          ? [
+              {
+                label: "Requeue",
+                title: "Reset attempts and retry soon",
+                onClick: () => {
+                  runAction("onedrive", "requeue_drive_resolution", { user_upn: identifier }).catch(() => {});
+                },
+              },
+              {
+                label: "Force live",
+                title: "Attempt live resolution now",
+                onClick: () => {
+                  runAction("onedrive", "force_live_resolve", { user_upn: identifier }).catch(() => {});
+                },
+              },
+              {
+                label: "Seed cache",
+                title: "Manually seed the drive cache (escape hatch)",
+                onClick: async () => {
+                  const values = await openFormModal({
+                    title: "Seed OneDrive drive cache",
+                    subtitle: "Manual override (use when Graph is degraded)",
+                    fields: [
+                      { key: "user_upn", label: "User UPN", value: identifier, required: true },
+                      { key: "drive_id", label: "Drive ID", required: true },
+                      { key: "web_url", label: "Web URL (optional)" },
+                      { key: "drive_type", label: "Drive type (optional)" },
+                      { key: "user_object_id", label: "User object ID (optional)" },
+                    ],
+                    confirmLabel: "Seed cache",
+                    cancelLabel: "Cancel",
+                    size: "medium",
+                  });
+                  if (!values) return;
+                  runAction("onedrive", "seed_drive_cache", values).catch(() => {});
+                },
+              },
+            ]
+          : null;
+        showGraphStatusBanner(
+          payload?.warning || "Drive ID queued for background resolution.",
+          bannerMetaParts.filter(Boolean).join(" · "),
+          actions
+        );
+      } else if (fallback) {
+        const message = payload?.warning || "Using cached drive ID (Graph degraded)";
+        showGraphStatusBanner(message, bannerMetaParts.filter(Boolean).join(" · "));
+      } else if (source === "fallback") {
+        showGraphStatusBanner(
+          "Fallback resolver used (personal site path).",
+          bannerMetaParts.filter(Boolean).join(" · ")
+        );
+      } else if (graphStatusMessage && graphStatusMessage.textContent.includes("Using cached drive ID")) {
+        hideGraphStatusBanner();
+      }
+      if (cached) {
+        updateRunMeta(service, {
+          cache: { cached, fallback, last_verified_at: payload?.last_verified_at, source },
+        });
+      }
+    }
+    if (service === "onedrive" && action !== "get_user_drive_id") {
+      const pending = payload && typeof payload === "object" && payload.status === "pending";
+      if (pending) {
+        const drive = payload?.drive || {};
+        const verified = drive?.last_verified_at ? formatRelativeTime(drive.last_verified_at) : null;
+        const circuitRemaining = drive?.circuit?.remaining_seconds ? Number(drive.circuit.remaining_seconds) : null;
+        const nextRetrySeconds = Number.isFinite(Number(drive?.next_retry_seconds))
+          ? Number(drive.next_retry_seconds)
+          : Number.isFinite(Number(payload?.next_retry_seconds))
+            ? Number(payload.next_retry_seconds)
+            : null;
+        const bannerMetaParts = []
+          .concat(verified ? [`Last verified: ${verified}`] : [])
+          .concat(Number.isFinite(circuitRemaining) ? [`Cooldown: ${circuitRemaining}s`] : [])
+          .concat(Number.isFinite(nextRetrySeconds) ? [`Next retry: ${nextRetrySeconds}s`] : []);
+        showGraphStatusBanner(
+          payload?.warning || "Drive action queued; drive ID resolution pending.",
+          bannerMetaParts.filter(Boolean).join(" · ")
+        );
+      }
+    }
+    if (service === "sharepoint" && action === "list_sites") {
+      const fallback = Boolean(payload?.cache_fallback);
+      const verified = payload?.last_verified_at ? formatRelativeTime(payload.last_verified_at) : null;
+      const circuitRemaining = payload?.circuit?.remaining_seconds ? Number(payload.circuit.remaining_seconds) : null;
+      const bannerMetaParts = []
+        .concat(verified ? [`Last verified: ${verified}`] : [])
+        .concat(Number.isFinite(circuitRemaining) ? [`Cooldown: ${circuitRemaining}s`] : []);
+      if (fallback) {
+        const message = payload?.warning || "Using cached sites (Graph degraded)";
+        showGraphStatusBanner(message, bannerMetaParts.filter(Boolean).join(" · "));
+      }
+    }
+    const pendingStatus = payload && typeof payload === "object" && payload.status === "pending";
+    const onedrivePending = service === "onedrive" && pendingStatus;
     setOutputStatus(service, {
-      state: "ok",
-      text: `${label} complete`,
-      meta: `${modeText} · ${formatElapsed(elapsedMs)}`,
+      state: onedrivePending ? "warn" : "ok",
+      text: onedrivePending ? `${label} queued` : `${label} complete`,
+      meta: (() => {
+        if (service === "onedrive" && action === "get_user_drive_id" && payload && typeof payload === "object") {
+          return [
+            payload.status === "pending"
+              ? Number.isFinite(Number(payload.next_retry_seconds))
+                ? `Next retry: ${payload.next_retry_seconds}s`
+                : "Queued"
+              : null,
+            payload.cache_fallback ? "Cache fallback" : payload.cached ? "Cached" : null,
+            payload.source === "fallback" ? "Fallback resolver" : payload.source === "primary" ? "Primary resolver" : null,
+            modeText,
+            formatElapsed(elapsedMs),
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        if (onedrivePending) {
+          const drive = payload?.drive || {};
+          const nextRetrySeconds = Number.isFinite(Number(drive?.next_retry_seconds))
+            ? Number(drive.next_retry_seconds)
+            : Number.isFinite(Number(payload?.next_retry_seconds))
+              ? Number(payload.next_retry_seconds)
+              : null;
+          return [
+            Number.isFinite(nextRetrySeconds) ? `Next retry: ${nextRetrySeconds}s` : "Queued",
+            modeText,
+            formatElapsed(elapsedMs),
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        return `${modeText} · ${formatElapsed(elapsedMs)}`;
+      })(),
       running: false,
     });
     finalizeRunMeta(service, {
@@ -18789,10 +19327,16 @@ async function runAction(service, action, params = {}, options = {}) {
         data: payload,
       });
     }
-    stats.success += 1;
-    saveStats(stats);
-    updateMetrics();
-    showToast("Action completed");
+    if (!(service === "onedrive" && payload?.status === "pending")) {
+      stats.success += 1;
+      saveStats(stats);
+      updateMetrics();
+      showToast("Action completed");
+    } else {
+      saveStats(stats);
+      updateMetrics();
+      showToast(action === "get_user_drive_id" ? "Drive ID queued for warmup" : "Action queued");
+    }
     return { ok: true, data: payload };
   } catch (err) {
     if (err.name === "AbortError") {
@@ -21439,6 +21983,24 @@ if (workspaceImportButton && workspaceImportFile) {
     }
   });
 }
+
+// Service toolkit chips (outside Quick Actions) should be clickable.
+// Default behavior: open the matching runner with the action selected.
+// Some chips opt into immediate execution via data-run-now="true" (safe read-only utilities).
+document.querySelectorAll('.chip[data-service][data-action]').forEach((chip) => {
+  if (chip.dataset.bound === "true") return;
+  if (chip.closest("#quick-actions")) return; // handled by Quick Actions grid delegation
+  chip.dataset.bound = "true";
+  chip.addEventListener("click", () => {
+    const { service, action } = chip.dataset;
+    if (!service || !action) return;
+    if (chip.dataset.runNow === "true") {
+      runAction(service, action, {});
+      return;
+    }
+    openRunnerForAction(service, action);
+  });
+});
 
 document.querySelectorAll(".runner-run").forEach((button) => {
   button.addEventListener("click", async () => {

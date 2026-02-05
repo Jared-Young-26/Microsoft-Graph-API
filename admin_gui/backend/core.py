@@ -10,6 +10,8 @@ import secrets
 import shutil
 import uuid
 import threading
+import re
+from collections import deque, defaultdict
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +40,8 @@ from microsoft import (
     GraphAPIError,
     PowerShellCommandError,
     is_powershell_envelope,
+    set_trace_context,
+    reset_trace_context,
 )
 from .capabilities import (
     build_capability_registry,
@@ -46,6 +50,10 @@ from .capabilities import (
     LOCAL_SERVICES,
 )
 from platform_core import ExecutionTarget
+from platform_core.signal_providers import VisionUEyeProvider
+from platform_core.onedrive_drive_resolver import resolve_onedrive_drive_id
+from platform_core.graph_error_transparency import build_graph_error_response
+from platform_core.sharepoint_sites_resolver import list_sharepoint_sites_cached
 
 try:
     import keyring
@@ -222,6 +230,162 @@ from local_baselines import LocalBaselineClient
 from local_event_logs import LocalEventLogsClient
 from local_registry import LocalRegistryClient
 from remote_workflows import RemoteWorkflowClient
+
+
+# In-memory ring buffer for request traces (local-only). This keeps Graph failures and retry
+# behavior inspectable without requiring external logging infrastructure.
+GRAPH_TRACE_RING = deque(maxlen=500)
+GRAPH_RELIABILITY = {
+    "started_at": datetime.now(timezone.utc).isoformat(),
+    "totals": {
+        "traces": 0,
+        "failures": 0,
+        "retries": 0,
+        "retry_success": 0,
+        "status_429": 0,
+        "status_503": 0,
+    },
+    "by_route_group": {},
+}
+
+
+def _route_group(path: str | None) -> str:
+    if not path:
+        return "unknown"
+    value = str(path)
+    # Normalize full URLs to paths.
+    if "graph.microsoft.com" in value:
+        idx = value.find("/v1.0")
+        if idx != -1:
+            value = value[idx + len("/v1.0") :]
+    value = value.split("?", 1)[0]
+    value = value.strip()
+    if value.startswith("http"):
+        return "unknown"
+    if not value.startswith("/"):
+        value = f"/{value}"
+    parts = [p for p in value.split("/") if p]
+    if not parts:
+        return "root"
+    head = parts[0].lower()
+    if head == "users" and len(parts) >= 3 and parts[2].lower() == "drive":
+        return "onedrive.resolve_drive"
+    if head == "drives":
+        return "onedrive.drives"
+    if head == "sites":
+        return "sharepoint.sites"
+    return head
+
+
+def record_graph_trace(trace: dict) -> None:
+    if not isinstance(trace, dict):
+        return
+    GRAPH_TRACE_RING.append(trace)
+    GRAPH_RELIABILITY["totals"]["traces"] += 1
+    attempts = trace.get("attempts") if isinstance(trace.get("attempts"), list) else []
+    final_status = None
+    if attempts:
+        final_status = attempts[-1].get("status")
+    if final_status is None:
+        raw = trace.get("raw_graph") or {}
+        if isinstance(raw, dict):
+            final_status = raw.get("status")
+    if trace.get("failure_origin"):
+        GRAPH_RELIABILITY["totals"]["failures"] += 1
+    if isinstance(final_status, int):
+        if final_status == 429:
+            GRAPH_RELIABILITY["totals"]["status_429"] += 1
+        if final_status == 503:
+            GRAPH_RELIABILITY["totals"]["status_503"] += 1
+
+    had_retries = len(attempts) > 1
+    if had_retries:
+        GRAPH_RELIABILITY["totals"]["retries"] += 1
+    succeeded = isinstance(final_status, int) and final_status < 400
+    if had_retries and succeeded:
+        GRAPH_RELIABILITY["totals"]["retry_success"] += 1
+
+    group = _route_group(trace.get("path") or trace.get("url"))
+    by_group = GRAPH_RELIABILITY["by_route_group"].setdefault(
+        group,
+        {
+            "traces": 0,
+            "failures": 0,
+            "status_429": 0,
+            "status_503": 0,
+            "retries": 0,
+            "retry_success": 0,
+            "circuit_breaker": {"state": "closed", "open_until": None},
+        },
+    )
+    by_group["traces"] += 1
+    if trace.get("failure_origin"):
+        by_group["failures"] += 1
+    if isinstance(final_status, int):
+        if final_status == 429:
+            by_group["status_429"] += 1
+        if final_status == 503:
+            by_group["status_503"] += 1
+    if had_retries:
+        by_group["retries"] += 1
+    if had_retries and succeeded:
+        by_group["retry_success"] += 1
+    circuit = trace.get("circuit")
+    if isinstance(circuit, dict):
+        # Allow the client to surface current breaker state (open/closed) for the route group.
+        state = circuit.get("state")
+        remaining = circuit.get("remaining_seconds")
+        by_group["circuit_breaker"] = {
+            "state": state or ("open" if remaining else "closed"),
+            "remaining_seconds": remaining,
+            "route_group": circuit.get("route_group") or group,
+        }
+
+
+def list_graph_traces(*, limit: int = 50, ui_request_id: str | None = None, request_id: str | None = None) -> list[dict]:
+    items = list(GRAPH_TRACE_RING)
+    if ui_request_id:
+        items = [t for t in items if isinstance(t, dict) and str(t.get("ui_request_id") or "") == str(ui_request_id)]
+    if request_id:
+        def _has_request_id(trace: dict) -> bool:
+            attempts = trace.get("attempts") if isinstance(trace.get("attempts"), list) else []
+            for entry in attempts:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("request_id") == request_id:
+                    return True
+            raw = trace.get("raw_graph") or {}
+            if isinstance(raw, dict):
+                headers = raw.get("headers") or {}
+                if isinstance(headers, dict) and headers.get("request-id") == request_id:
+                    return True
+            return False
+
+        items = [t for t in items if isinstance(t, dict) and _has_request_id(t)]
+    if limit:
+        items = items[-int(limit) :]
+    items.reverse()
+    return items
+
+
+def graph_reliability_summary(limit_failures: int = 20) -> dict:
+    failures = [t for t in reversed(GRAPH_TRACE_RING) if isinstance(t, dict) and t.get("failure_origin")]
+    recent_failures = failures[: int(limit_failures)]
+    retry_total = GRAPH_RELIABILITY["totals"]["retries"] or 0
+    retry_success = GRAPH_RELIABILITY["totals"]["retry_success"] or 0
+    retry_success_rate = round((retry_success / retry_total) * 100.0, 1) if retry_total else None
+    runtime = None
+    try:
+        runtime = STATE.get_graph().get_runtime_state()
+    except Exception:
+        runtime = None
+    return {
+        "started_at": GRAPH_RELIABILITY.get("started_at"),
+        "totals": {**GRAPH_RELIABILITY.get("totals", {}), "retry_success_rate_percent": retry_success_rate},
+        "by_route_group": GRAPH_RELIABILITY.get("by_route_group", {}),
+        "recent_failures": recent_failures,
+        "runtime": runtime,
+    }
 
 
 def _read_config_file():
@@ -1161,9 +1325,9 @@ class BackendState:
             )
         elif service == "onedrive":
             graph = self.get_graph()
+            # Drive-scoped OneDrive actions can resolve drive IDs dynamically (cache-first)
+            # via the resolver. Keep the configured drive_id as an optional default.
             drive_id = cfg.onedrive_drive_id or ""
-            if not drive_id:
-                raise ValueError("ONEDRIVE_DRIVE_ID is required for OneDrive actions.")
             client = OneDriveClient(
                 graph,
                 drive_id=drive_id,
@@ -1274,6 +1438,9 @@ class BackendState:
 STATE = BackendState()
 SNAPSHOT_SCHEDULER = None
 _SCHEDULER_STARTED = False
+ONEDRIVE_CACHE_WARMER = None
+ONEDRIVE_WARMUP_SCHEDULER = None
+_ONEDRIVE_WARMUP_STARTED = False
 
 
 def ensure_snapshot_scheduler():
@@ -1289,6 +1456,27 @@ def ensure_snapshot_scheduler():
             SNAPSHOT_SCHEDULER = scheduler_cls(STATE)
         SNAPSHOT_SCHEDULER.start()
         _SCHEDULER_STARTED = True
+    except Exception:
+        return
+
+
+def ensure_onedrive_cache_warmup_scheduler():
+    global _ONEDRIVE_WARMUP_STARTED
+    global ONEDRIVE_CACHE_WARMER
+    global ONEDRIVE_WARMUP_SCHEDULER
+    if _ONEDRIVE_WARMUP_STARTED:
+        return
+    runner_cls = globals().get("OneDriveCacheWarmupRunner")
+    scheduler_cls = globals().get("OneDriveCacheWarmupScheduler")
+    if runner_cls is None or scheduler_cls is None:
+        return
+    try:
+        if ONEDRIVE_CACHE_WARMER is None:
+            ONEDRIVE_CACHE_WARMER = runner_cls(STATE)
+        if ONEDRIVE_WARMUP_SCHEDULER is None:
+            ONEDRIVE_WARMUP_SCHEDULER = scheduler_cls(ONEDRIVE_CACHE_WARMER)
+        ONEDRIVE_WARMUP_SCHEDULER.start()
+        _ONEDRIVE_WARMUP_STARTED = True
     except Exception:
         return
 
@@ -1622,6 +1810,163 @@ def _graph_check(service=None):
             checks[svc] = {"ok": False, "message": str(exc), "latency_ms": elapsed_ms}
     ok = all(check.get("ok") for check in checks.values()) if checks else True
     return {"ok": ok, "checks": checks}
+
+
+def _graph_control_diagnostic(payload: dict | None = None) -> dict:
+    """Run a controlled set of Graph calls to distinguish Graph vs SPO/OD backend vs dashboard logic.
+
+    This is intentionally read-only and keeps all request/response artifacts for rapid 5xx forensics.
+    """
+
+    payload = payload or {}
+    graph = STATE.get_graph()
+
+    # Determine the failing request. Prefer explicit input, then fall back to the most recent failure trace.
+    method = (payload.get("method") or "GET").upper()
+    path = payload.get("path") or payload.get("url") or None
+    params = payload.get("params") if isinstance(payload.get("params"), dict) else None
+    service = payload.get("service") or None
+
+    if not path:
+        # Find the most recent Graph failure with a path.
+        for trace in reversed(GRAPH_TRACE_RING):
+            if not isinstance(trace, dict):
+                continue
+            if not trace.get("failure_origin"):
+                continue
+            trace_path = trace.get("path") or trace.get("url")
+            if not trace_path:
+                continue
+            path = trace_path
+            method = (trace.get("method") or method).upper()
+            trace_params = trace.get("params")
+            if isinstance(trace_params, dict):
+                params = trace_params
+            service = trace.get("service") or service
+            break
+
+    if not path:
+        raise ValueError("No failing Graph request supplied and no recent failure trace available.")
+
+    def _run_once(label: str, req_method: str, req_path: str, req_params: dict | None, *, ignore_circuit: bool = False) -> dict:
+        start = time.monotonic()
+        try:
+            response = getattr(graph, req_method.lower())(
+                req_path,
+                params=req_params,
+                max_attempts=1,
+                ignore_circuit_breaker=ignore_circuit,
+            )
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            raw_headers = dict(response.headers or {})
+            body_text = None
+            try:
+                body_text = response.text
+            except Exception:
+                body_text = None
+            body_json = None
+            if body_text:
+                try:
+                    body_json = json.loads(body_text)
+                except Exception:
+                    body_json = None
+            return {
+                "label": label,
+                "ok": True,
+                "status_code": response.status_code,
+                "duration_ms": elapsed_ms,
+                "raw_graph": {
+                    "status": response.status_code,
+                    "headers": sanitize_payload(raw_headers),
+                    "body": body_text,
+                    "body_json": body_json,
+                },
+            }
+        except GraphAPIError as exc:
+            from platform_core.graph_error_transparency import build_graph_error_response
+
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            error_payload = build_graph_error_response(exc, service="system", action="graph_control_diagnostic")
+            error_payload["duration_ms"] = error_payload.get("duration_ms") or elapsed_ms
+            return {
+                "label": label,
+                "ok": False,
+                "status_code": error_payload.get("status_code"),
+                "duration_ms": elapsed_ms,
+                "error": error_payload,
+            }
+
+    waits = payload.get("wait_schedule_seconds") or [0, 2, 4, 8, 16]
+    if not isinstance(waits, list):
+        waits = [0, 2, 4, 8, 16]
+
+    attempts = []
+    for idx, wait_s in enumerate(waits):
+        try:
+            wait_s_val = float(wait_s or 0)
+        except Exception:
+            wait_s_val = 0
+        if wait_s_val > 0:
+            time.sleep(wait_s_val)
+        label = f"failing_call_{idx + 1}"
+        attempts.append(
+            {
+                "attempt": idx + 1,
+                "wait_seconds": wait_s_val,
+                **_run_once(label, method, path, params, ignore_circuit=False),
+            }
+        )
+
+    controls = [
+        _run_once("control_users", "GET", "/users", {"$top": 1}, ignore_circuit=True),
+        _run_once("control_groups", "GET", "/groups", {"$top": 1}, ignore_circuit=True),
+    ]
+
+    failing_failures = [a for a in attempts if not a.get("ok")]
+    controls_ok = all(item.get("ok") for item in controls)
+    likely_spo_only = bool(failing_failures) and controls_ok
+
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "target": {"method": method, "path": path, "params": sanitize_payload(params or {}), "service": service},
+        "attempts": attempts,
+        "controls": controls,
+        "summary": {
+            "failing_call_failures": len(failing_failures),
+            "controls_ok": controls_ok,
+            "likely_spo_od_only_failure": likely_spo_only,
+        },
+        "runtime": None,
+    }
+
+    try:
+        report["runtime"] = graph.get_runtime_state()
+    except Exception:
+        report["runtime"] = None
+
+    # Persist as evidence artifact for ticketing / internal escalation.
+    evidence = None
+    try:
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump(report, handle, indent=2)
+            temp_path = handle.name
+        evidence = _record_evidence(
+            "graph_control_diagnostic",
+            temp_path,
+            subject_ids=[],
+            description="Graph control call diagnostic results",
+            meta={"service": service, "path": path, "method": method},
+        )
+    except Exception:
+        evidence = None
+
+    if evidence:
+        report["evidence"] = evidence
+        report["artifact"] = evidence.get("artifact")
+
+    return report
 
 
 def _health_check():
@@ -2140,6 +2485,11 @@ ACTIONS = {
     "onedrive": {
         "list_drive_items": {"method": "list_drive_items"},
         "get_user_drive_id": {"method": "get_user_drive_id"},
+        "drive_cache_status": {"method": "drive_cache_status"},
+        "warm_drive_cache": {"method": "warm_drive_cache"},
+        "seed_drive_cache": {"method": "seed_drive_cache", "required": ["user_upn", "drive_id"]},
+        "requeue_drive_resolution": {"method": "requeue_drive_resolution", "required": ["user_upn"]},
+        "force_live_resolve": {"method": "force_live_resolve", "required": ["user_upn"]},
         "create_upload_session": {"method": "create_upload_session", "required": ["item_path"]},
         "list_personal_sites": {"method": "list_personal_sites_powershell"},
         "update_item": {"method": "update_item", "required": ["item_id", "updates"]},
@@ -2188,12 +2538,14 @@ ACTIONS = {
     },
     "entra": {
         "list_users": {"method": "list_users", "defaults": {"top": 10}},
+        "get_user": {"method": "get_user", "required": ["user_id"]},
         "create_user": {
             "method": "create_user",
             "required": ["user_principal_name", "display_name", "password"],
         },
         "update_user": {"method": "update_user", "required": ["user_id", "updates"]},
         "list_groups": {"method": "list_groups", "defaults": {"top": 10}},
+        "get_group": {"method": "get_group", "required": ["group_id"]},
         "create_group": {
             "method": "create_group",
             "required": ["display_name"],
@@ -3098,6 +3450,81 @@ def _list_snapshot_events(canonical_ids=None, limit=50):
     return STATE.snapshot_store.list_events(canonical_ids=canonical_ids, limit=limit)
 
 
+VISION_U_EYE_PROVIDER = VisionUEyeProvider()
+VISION_U_EYE_SIGNAL_NAME = VISION_U_EYE_PROVIDER.namespace
+
+
+def _ingest_vision_u_eye_visual_signal(payload: dict) -> dict:
+    """Ingest a Vision-U-Eye perception event as a stored signal.
+
+    Contract boundary: the payload is stored without field renames.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Vision-U-Eye payload must be an object.")
+    if not VISION_U_EYE_PROVIDER.validate(payload):
+        raise ValueError("Vision-U-Eye payload failed contract validation (contracts/visual_signal.v1.json).")
+
+    endpoint_id = payload.get("endpoint_id")
+    session_id = payload.get("session_id")
+    event_id = payload.get("event_id") or uuid.uuid4().hex
+    time_value = payload.get("timestamp_utc") or datetime.now(timezone.utc).isoformat()
+    if not endpoint_id or not session_id:
+        raise ValueError("Vision-U-Eye payload missing endpoint_id or session_id.")
+
+    # Resolve a stable canonical subject for correlation (device:<endpoint_id>).
+    subject = STATE.entity_resolver.resolve_subject("device", {"endpoint_id": endpoint_id})
+    canonical_id = subject.canonical_id
+
+    stored = STATE.snapshot_store.add_event_ignore(
+        event_id=event_id,
+        time=time_value,
+        kind="signal",
+        source="vision_u_eye",
+        service="vision_u_eye",
+        signal_name=VISION_U_EYE_SIGNAL_NAME,
+        canonical_ids=[canonical_id],
+        event=payload,
+    )
+    return {
+        "ok": True,
+        "stored": stored,
+        "event_id": event_id,
+        "canonical_id": canonical_id,
+        "endpoint_id": endpoint_id,
+        "session_id": session_id,
+    }
+
+
+def _list_vision_u_eye_visual_signals(
+    *,
+    endpoint_id: str | None = None,
+    session_id: str | None = None,
+    canonical_id: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 50,
+) -> dict:
+    resolved_id = canonical_id
+    if not resolved_id and endpoint_id:
+        subject = STATE.entity_resolver.resolve_subject("device", {"endpoint_id": endpoint_id})
+        resolved_id = subject.canonical_id
+    events = STATE.snapshot_store.list_events_by_signal(
+        VISION_U_EYE_SIGNAL_NAME,
+        canonical_id=resolved_id,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    if session_id:
+        events = [evt for evt in events if isinstance(evt, dict) and evt.get("session_id") == session_id]
+    return {
+        "ok": True,
+        "count": len(events),
+        "canonical_id": resolved_id,
+        "events": events,
+    }
+
+
 def _list_symptom_templates():
     return list_symptom_templates()
 
@@ -3453,8 +3880,10 @@ def _capture_snapshots(payload):
 
             if tier1_probe_plan:
                 outcomes = result.get("probe_outcomes") or []
+                # Escalate only when Tier 0 had high-severity failures. Missing modules/permissions
+                # (coverage gaps) should not automatically trigger Tier 1.
                 should_escalate = any(
-                    entry.get("severity") == "high" or entry.get("error_class")
+                    entry.get("severity") == "high"
                     for entry in outcomes
                     if isinstance(entry, dict)
                 )
@@ -3659,6 +4088,313 @@ class SnapshotScheduler:
                 sleep_seconds = 300
             self._stop.wait(timeout=sleep_seconds)
 
+
+class OneDriveCacheWarmupRunner:
+    """Background warmup for OneDrive driveId resolution (cache priming)."""
+
+    def __init__(self, state: "BackendState"):
+        self.state = state
+        self._lock = threading.Lock()
+        self._thread = None
+        self._running = False
+        self._last_summary = None
+        self._last_run_at = None
+        self._last_error = None
+        self._run_id = None
+
+    def is_running(self) -> bool:
+        with self._lock:
+            return bool(self._running)
+
+    def status(self) -> dict:
+        with self._lock:
+            return {
+                "running": bool(self._running),
+                "run_id": self._run_id,
+                "last_run_at": self._last_run_at,
+                "last_summary": self._last_summary,
+                "last_error": self._last_error,
+            }
+
+    def _default_upns(self, limit: int = 50) -> list[str]:
+        tenant_id = self.state.config.tenant_id or ""
+        if not tenant_id:
+            return []
+        try:
+            return self.state.snapshot_store.list_onedrive_drive_cache_upns(tenant_id=tenant_id, limit=limit)
+        except Exception:
+            return []
+
+    def warm_now(self, *, upns: list[str] | None = None, max_items: int = 50) -> dict:
+        upns = [str(item).strip() for item in (upns or []) if str(item).strip()]
+        if not upns:
+            upns = self._default_upns(limit=max_items)
+
+        with self._lock:
+            if self._running:
+                return {"ok": True, "started": False, "running": True, "run_id": self._run_id, "count": len(upns)}
+            self._running = True
+            self._run_id = uuid.uuid4().hex
+            self._last_error = None
+            self._thread = threading.Thread(
+                target=self._run,
+                kwargs={"upns": upns, "max_items": max_items, "run_id": self._run_id},
+                daemon=True,
+            )
+            self._thread.start()
+            return {"ok": True, "started": True, "running": True, "run_id": self._run_id, "count": len(upns)}
+
+    def process_pending(self, *, limit: int = 10) -> dict:
+        """Process pending drive-id resolutions that are due.
+
+        This is intentionally small-batch and sequential to avoid amplifying upstream 5xx storms.
+        """
+
+        tenant_id = self.state.config.tenant_id or ""
+        if not tenant_id:
+            return {"ok": True, "processed": 0, "ok_count": 0, "failed": 0, "failures": []}
+
+        cfg_file = _read_config_file()
+        ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
+        stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
+        budget_s = int(cfg_file.get("onedrive_drive_resolve_budget_s") or 45)
+        pending_max = int(cfg_file.get("onedrive_drive_pending_max_attempts") or 10)
+
+        try:
+            due = self.state.snapshot_store.claim_due_onedrive_drive_pending(
+                tenant_id=tenant_id, limit=int(limit or 10), max_attempts=pending_max
+            )
+        except Exception:
+            return {"ok": True, "processed": 0, "ok_count": 0, "failed": 0, "failures": []}
+
+        processed = 0
+        ok_count = 0
+        failures = []
+        for item in due or []:
+            identifier = str(item.get("user_upn") or "").strip()
+            if not identifier:
+                continue
+            processed += 1
+            try:
+                resolved = resolve_onedrive_drive_id(
+                    store=self.state.snapshot_store,
+                    graph=self.state.get_graph(),
+                    tenant_id=tenant_id,
+                    user_upn_or_id=identifier,
+                    # Scheduler/worker should bypass the pending short-circuit and attempt a live resolution.
+                    force_live=True,
+                    spo_admin_url=self.state.config.spo_admin_url,
+                    ttl_days=ttl_days,
+                    stale_window_days=stale_days,
+                    max_budget_s=budget_s,
+                    pending_max_attempts=pending_max,
+                )
+                if isinstance(resolved, dict) and resolved.get("status") == "pending":
+                    live_error = resolved.get("live_error") if isinstance(resolved, dict) else None
+                    error_class = live_error.get("error_class") if isinstance(live_error, dict) else "pending"
+                    failures.append(
+                        {
+                            "upn": identifier,
+                            "error": (live_error.get("error") if isinstance(live_error, dict) else None)
+                            or resolved.get("warning")
+                            or "Drive ID queued (pending).",
+                            "error_class": error_class,
+                        }
+                    )
+                else:
+                    ok_count += 1
+            except GraphAPIError as exc:
+                failures.append(
+                    {"upn": identifier, "error": str(exc), "error_class": getattr(exc, "error_class", None)}
+                )
+                # Throttle retries for non-enqueued failures to avoid tight retry loops.
+                try:
+                    self.state.snapshot_store.enqueue_onedrive_drive_pending(
+                        tenant_id=tenant_id,
+                        user_upn=identifier,
+                        delay_seconds=300,
+                        last_error=str(exc),
+                        last_error_class=getattr(exc, "error_class", None),
+                        max_attempts=pending_max,
+                    )
+                except Exception:
+                    pass
+            except Exception as exc:
+                failures.append({"upn": identifier, "error": str(exc), "error_class": "unknown"})
+                try:
+                    self.state.snapshot_store.enqueue_onedrive_drive_pending(
+                        tenant_id=tenant_id,
+                        user_upn=identifier,
+                        delay_seconds=300,
+                        last_error=str(exc),
+                        last_error_class="unknown",
+                        max_attempts=pending_max,
+                    )
+                except Exception:
+                    pass
+
+        if failures:
+            failures = failures[:10]
+        return {"ok": True, "processed": processed, "ok_count": ok_count, "failed": len(failures), "failures": failures}
+
+    def _run(self, *, upns: list[str], max_items: int, run_id: str):
+        cfg_file = _read_config_file()
+        ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
+        stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
+        budget_s = int(cfg_file.get("onedrive_drive_resolve_budget_s") or 45)
+        stop_on_errors = {"transient_upstream_persistent", "circuit_open"}
+
+        ok_count = 0
+        fail_count = 0
+        failures = []
+        attempted = 0
+        started_at = datetime.now(timezone.utc).isoformat()
+        for upn in (upns or [])[: max(1, int(max_items or 50))]:
+            attempted += 1
+            try:
+                # Only force live when cache is missing or expired.
+                entry = self.state.snapshot_store.get_onedrive_drive_cache(
+                    tenant_id=self.state.config.tenant_id or "",
+                    user_upn=upn,
+                    allow_expired=True,
+                    stale_window_days=stale_days,
+                )
+                force_live = True if not entry or entry.get("expired") else False
+                resolved = resolve_onedrive_drive_id(
+                    store=self.state.snapshot_store,
+                    graph=self.state.get_graph(),
+                    tenant_id=self.state.config.tenant_id or "",
+                    user_upn_or_id=upn,
+                    force_live=force_live,
+                    spo_admin_url=self.state.config.spo_admin_url,
+                    ttl_days=ttl_days,
+                    stale_window_days=stale_days,
+                    max_budget_s=budget_s,
+                )
+                if isinstance(resolved, dict) and resolved.get("status") == "pending":
+                    fail_count += 1
+                    live_error = resolved.get("live_error") if isinstance(resolved, dict) else None
+                    error_class = None
+                    error_text = resolved.get("warning") if isinstance(resolved, dict) else None
+                    if isinstance(live_error, dict):
+                        error_class = live_error.get("error_class")
+                        error_text = live_error.get("error") or error_text
+                    failures.append(
+                        {
+                            "upn": upn,
+                            "error": error_text or "Drive ID queued (pending).",
+                            "error_class": error_class or "pending",
+                        }
+                    )
+                    if (error_class or "") in stop_on_errors:
+                        break
+                else:
+                    ok_count += 1
+            except GraphAPIError as exc:
+                fail_count += 1
+                failures.append({"upn": upn, "error": str(exc), "error_class": getattr(exc, "error_class", None)})
+                if getattr(exc, "error_class", None) in stop_on_errors:
+                    break
+            except Exception as exc:
+                fail_count += 1
+                failures.append({"upn": upn, "error": str(exc), "error_class": "unknown"})
+
+        ended_at = datetime.now(timezone.utc).isoformat()
+        summary = {
+            "run_id": run_id,
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "attempted": attempted,
+            "ok": ok_count,
+            "failed": fail_count,
+            "failures": failures[:10],
+        }
+
+        try:
+            self.state.snapshot_store.add_event(
+                event_id=uuid.uuid4().hex,
+                time=ended_at,
+                kind="onedrive.cache_warmup",
+                source="scheduler",
+                service="onedrive",
+                signal_name="onedrive_cache_warmup",
+                canonical_ids=[],
+                event=summary,
+            )
+        except Exception:
+            pass
+
+        with self._lock:
+            self._running = False
+            self._last_run_at = ended_at
+            self._last_summary = summary
+            self._last_error = None
+
+
+class OneDriveCacheWarmupScheduler:
+    def __init__(self, runner: OneDriveCacheWarmupRunner):
+        self.runner = runner
+        self._thread = None
+        self._stop = threading.Event()
+
+    def _load_schedule(self):
+        data = _read_config_file()
+        schedule = data.get("onedrive_cache_warmup") or {}
+        enabled = bool(schedule.get("enabled", False))
+        interval = int(schedule.get("interval_minutes") or 1440)
+        upns = schedule.get("upns") or []
+        max_items = int(schedule.get("max_items") or 50)
+        return enabled, interval, upns, max_items
+
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                enabled, interval, upns, max_items = self._load_schedule()
+
+                # Always try to drain pending items in small batches so user-driven lookups eventually resolve.
+                try:
+                    cfg = _read_config_file()
+                    pending_batch = int(cfg.get("onedrive_drive_pending_batch") or 10)
+                except Exception:
+                    pending_batch = 10
+                try:
+                    self.runner.process_pending(limit=pending_batch)
+                except Exception:
+                    pass
+
+                if enabled:
+                    # Run the scheduled warmup when due (interval_minutes since last run).
+                    due = True
+                    status = self.runner.status()
+                    last_run_at = status.get("last_run_at")
+                    if isinstance(last_run_at, str) and last_run_at:
+                        try:
+                            last = datetime.fromisoformat(last_run_at.replace("Z", "+00:00"))
+                            if last.tzinfo is None:
+                                last = last.replace(tzinfo=timezone.utc)
+                            delta = datetime.now(timezone.utc) - last
+                            due = delta.total_seconds() >= max(60, int(interval or 1440) * 60)
+                        except Exception:
+                            due = True
+                    if due:
+                        self.runner.warm_now(upns=list(upns or []), max_items=max_items)
+
+                # Tick frequently so pending retries are responsive; warmup schedule is gated by `due`.
+                sleep_seconds = 60
+            except Exception:
+                sleep_seconds = 60
+            self._stop.wait(timeout=sleep_seconds)
+
 def get_action_source(service, action):
     if service in LOCAL_SERVICES:
         return "powershell"
@@ -3667,6 +4403,28 @@ def get_action_source(service, action):
     if "powershell" in method:
         return "powershell"
     return "graph"
+
+
+class _OneDriveCacheClient:
+    """Placeholder client so cache-only OneDrive actions can share the dispatch path.
+
+    The real implementation lives in dispatch_task's service/action special-cases.
+    """
+
+    def drive_cache_status(self, **_kwargs):
+        return None
+
+    def warm_drive_cache(self, **_kwargs):
+        return None
+
+    def seed_drive_cache(self, **_kwargs):
+        return None
+
+    def requeue_drive_resolution(self, **_kwargs):
+        return None
+
+    def force_live_resolve(self, **_kwargs):
+        return None
 
 
 ACTION_ENDPOINTS = {
@@ -3772,6 +4530,8 @@ def dispatch_task(service, action, params=None, target=None):
                 result = _global_admin_check(data.get("user_id") or data.get("upn"))
             elif action == "security_posture":
                 result = _security_posture()
+            elif action == "graph_control_diagnostic":
+                result = _graph_control_diagnostic(data)
             else:
                 raise ValueError(f"Unknown action '{action}' for service '{service}'")
         except Exception as exc:
@@ -3972,26 +4732,107 @@ def dispatch_task(service, action, params=None, target=None):
                 updates[field] = payload.pop(field)
         if updates:
             payload["updates"] = updates
+
+    # UI/contract-friendly aliases for common identifiers.
+    # (Keeps older tiles working without forcing users to memorize parameter names.)
+    if service == "entra" and action == "get_user":
+        if payload.get("id") and not payload.get("user_id"):
+            payload["user_id"] = payload.pop("id")
+    if service == "entra" and action == "get_group":
+        if payload.get("id") and not payload.get("group_id"):
+            payload["group_id"] = payload.pop("id")
+    if service == "onedrive" and action == "seed_drive_cache":
+        if payload.get("upn") and not payload.get("user_upn"):
+            payload["user_upn"] = payload.pop("upn")
+        if payload.get("user") and not payload.get("user_upn"):
+            payload["user_upn"] = payload.pop("user")
+        if payload.get("id") and not payload.get("drive_id"):
+            payload["drive_id"] = payload.pop("id")
+    if service == "onedrive" and action in ("requeue_drive_resolution", "force_live_resolve"):
+        if payload.get("user_id") and not payload.get("user_upn"):
+            payload["user_upn"] = payload.pop("user_id")
+        if payload.get("upn") and not payload.get("user_upn"):
+            payload["user_upn"] = payload.pop("upn")
+        if payload.get("user") and not payload.get("user_upn"):
+            payload["user_upn"] = payload.pop("user")
     for key in required:
         if not payload.get(key):
             raise ValueError(f"Missing required parameter: {key}")
 
-    if service == "onedrive" and action == "get_user_drive_id":
-        cfg = STATE.config
-        client = OneDriveClient(
-            STATE.get_graph(),
-            drive_id=cfg.onedrive_drive_id or "",
-            powershell_options={"session": STATE.powershell, "admin_url": cfg.spo_admin_url},
-        )
+    if service == "onedrive" and action in (
+        "get_user_drive_id",
+        "drive_cache_status",
+        "warm_drive_cache",
+        "seed_drive_cache",
+        "requeue_drive_resolution",
+        "force_live_resolve",
+    ):
+        if action == "get_user_drive_id":
+            cfg = STATE.config
+            client = OneDriveClient(
+                STATE.get_graph(),
+                drive_id=cfg.onedrive_drive_id or "",
+                powershell_options={"session": STATE.powershell, "admin_url": cfg.spo_admin_url},
+            )
+        else:
+            client = _OneDriveCacheClient()
     else:
         client = STATE.get_client(service, execution_target)
     method = getattr(client, spec["method"])
     call_params = {**spec.get("defaults", {}), **payload}
-    if "user_id" in inspect.signature(method).parameters and "user_id" not in call_params:
-        if STATE.config.graph_user_id:
-            call_params["user_id"] = STATE.config.graph_user_id
-        else:
-            raise ValueError("GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in .env.")
+    if "user_id" in inspect.signature(method).parameters:
+        user_val = call_params.get("user_id")
+        if user_val is None or str(user_val).strip() == "":
+            if STATE.config.graph_user_id:
+                call_params["user_id"] = STATE.config.graph_user_id
+            else:
+                raise ValueError("GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in .env.")
+
+    # OneDrive drive-scoped actions can resolve drive IDs dynamically (cache-first), avoiding the
+    # need to pre-configure ONEDRIVE_DRIVE_ID for common workflows (ex: list root items).
+    onedrive_drive_resolution = None
+    if service == "onedrive" and action in ("list_drive_items", "create_upload_session", "update_item"):
+        cfg_file = _read_config_file()
+        ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
+        stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
+        budget_s = int(cfg_file.get("onedrive_drive_resolve_budget_s") or 45)
+        pending_max = int(cfg_file.get("onedrive_drive_pending_max_attempts") or 10)
+        force_live = bool(call_params.get("force_live") or call_params.get("refresh") or False)
+
+        drive_id = str(call_params.get("drive_id") or "").strip() or str(STATE.config.onedrive_drive_id or "").strip()
+        if not drive_id:
+            user_hint = str(call_params.get("user_id") or STATE.config.graph_user_id or "").strip()
+            if not user_hint:
+                raise ValueError(
+                    "GRAPH_USER_ID is required for OneDrive actions when ONEDRIVE_DRIVE_ID is not set. "
+                    "Set GRAPH_USER_ID in Settings or provide a user_id parameter."
+                )
+            onedrive_drive_resolution = resolve_onedrive_drive_id(
+                store=STATE.snapshot_store,
+                graph=STATE.get_graph(),
+                tenant_id=STATE.config.tenant_id or "",
+                user_upn_or_id=user_hint,
+                force_live=force_live,
+                spo_admin_url=STATE.config.spo_admin_url,
+                ttl_days=ttl_days,
+                stale_window_days=stale_days,
+                max_budget_s=budget_s,
+                pending_max_attempts=pending_max,
+            )
+            drive_id = str(
+                onedrive_drive_resolution.get("drive_id") or onedrive_drive_resolution.get("id") or ""
+            ).strip()
+
+        # If we have a drive id (from config or resolver), run the drive-scoped action with a per-call
+        # OneDrive client to avoid cross-request driveId leakage.
+        if drive_id:
+            cfg = STATE.config
+            client = OneDriveClient(
+                STATE.get_graph(),
+                drive_id=drive_id,
+                powershell_options={"session": STATE.powershell, "admin_url": cfg.spo_admin_url},
+            )
+            method = getattr(client, spec["method"])
     request_payload = sanitize_payload(call_params)
     request_payload["_target"] = execution_target.model_dump()
     target = _build_snapshot_target(call_params)
@@ -4009,7 +4850,216 @@ def dispatch_task(service, action, params=None, target=None):
                 inputs=request_payload,
             )
     try:
-        result = method(**call_params)
+        if service == "onedrive" and action == "drive_cache_status":
+            ensure_onedrive_cache_warmup_scheduler()
+            cfg_file = _read_config_file()
+            stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
+            tenant_id = STATE.config.tenant_id or ""
+            stats = STATE.snapshot_store.get_onedrive_drive_cache_stats(
+                tenant_id=tenant_id, stale_window_days=stale_days
+            )
+            pending_stats = STATE.snapshot_store.get_onedrive_drive_pending_stats(tenant_id=tenant_id)
+            result = {
+                "tenant_id": tenant_id,
+                "stale_window_days": stale_days,
+                "cache": stats,
+                "pending": pending_stats,
+                "warmup": ONEDRIVE_CACHE_WARMER.status() if ONEDRIVE_CACHE_WARMER else {"running": False},
+            }
+        elif service == "onedrive" and action == "requeue_drive_resolution":
+            tenant_id = STATE.config.tenant_id or ""
+            user_upn = str(call_params.get("user_upn") or "").strip().lower()
+            delay_s = call_params.get("delay_seconds") or call_params.get("delay") or 5
+            result = STATE.snapshot_store.requeue_onedrive_drive_pending(
+                tenant_id=tenant_id,
+                user_upn=user_upn,
+                delay_seconds=int(delay_s or 5),
+            )
+        elif service == "onedrive" and action == "force_live_resolve":
+            cfg_file = _read_config_file()
+            ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
+            stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
+            budget_s = int(cfg_file.get("onedrive_drive_resolve_budget_s") or 45)
+            pending_max = int(cfg_file.get("onedrive_drive_pending_max_attempts") or 10)
+            ignore_circuit = bool(
+                call_params.get("ignore_circuit_breaker")
+                or call_params.get("ignore_circuit")
+                or False
+            )
+            identifier = str(call_params.get("user_upn") or "").strip()
+            try:
+                result = resolve_onedrive_drive_id(
+                    store=STATE.snapshot_store,
+                    graph=STATE.get_graph(),
+                    tenant_id=STATE.config.tenant_id or "",
+                    user_upn_or_id=identifier,
+                    force_live=True,
+                    spo_admin_url=STATE.config.spo_admin_url,
+                    ttl_days=ttl_days,
+                    stale_window_days=stale_days,
+                    max_budget_s=budget_s,
+                    pending_max_attempts=pending_max,
+                    ignore_circuit_breaker=ignore_circuit,
+                )
+            except GraphAPIError as exc:
+                status = getattr(exc, "status_code", None)
+                transient = getattr(exc, "error_class", None) in (
+                    "circuit_open",
+                    "transient_upstream",
+                    "transient_upstream_persistent",
+                    "throttling",
+                ) or status in (429, 502, 503, 504)
+                if not transient:
+                    raise
+                pending = STATE.snapshot_store.enqueue_onedrive_drive_pending(
+                    tenant_id=STATE.config.tenant_id or "",
+                    user_upn=identifier,
+                    delay_seconds=int(getattr(exc, "retry_after", None) or 120),
+                    last_error=str(exc),
+                    last_error_class=getattr(exc, "error_class", None),
+                    max_attempts=pending_max,
+                )
+                next_run_at = pending.get("next_run_at") if isinstance(pending, dict) else None
+                next_retry_seconds = None
+                if isinstance(next_run_at, str) and next_run_at:
+                    try:
+                        parsed = datetime.fromisoformat(next_run_at.replace("Z", "+00:00"))
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=timezone.utc)
+                        next_retry_seconds = max(
+                            0, int((parsed - datetime.now(timezone.utc)).total_seconds())
+                        )
+                    except Exception:
+                        next_retry_seconds = None
+                result = {
+                    "status": "pending",
+                    "warning": "Live resolution failed; queued background retry.",
+                    "pending": pending,
+                    "next_retry_seconds": next_retry_seconds,
+                    "circuit": getattr(exc, "circuit", None),
+                    "live_error": build_graph_error_response(exc, service="onedrive", action="get_user_drive_id"),
+                    "source": "pending",
+                }
+        elif service == "onedrive" and action in ("list_drive_items", "create_upload_session", "update_item"):
+            # Drive-scoped OneDrive calls may be blocked until a driveId is known. If the resolver
+            # queued a background retry, return a pending payload instead of throwing/issuing a bad request.
+            if (
+                isinstance(onedrive_drive_resolution, dict)
+                and onedrive_drive_resolution.get("status") == "pending"
+                and not onedrive_drive_resolution.get("drive_id")
+                and not onedrive_drive_resolution.get("id")
+            ):
+                drive_warning = onedrive_drive_resolution.get("warning") if isinstance(onedrive_drive_resolution, dict) else None
+                result = {
+                    "status": "pending",
+                    "warning": drive_warning
+                    or "Drive ID resolution queued; retry after the cache warmer resolves the drive.",
+                    "drive": onedrive_drive_resolution,
+                }
+            else:
+                invoke_params = dict(call_params)
+                invoke_params.pop("user_id", None)
+                invoke_params.pop("drive_id", None)
+                invoke_params.pop("force_live", None)
+                invoke_params.pop("refresh", None)
+                result = method(**invoke_params)
+        elif service == "onedrive" and action == "warm_drive_cache":
+            ensure_onedrive_cache_warmup_scheduler()
+            cfg_file = _read_config_file()
+            raw_upns = call_params.get("upns") or call_params.get("upn_list") or None
+            upns = []
+            if isinstance(raw_upns, str):
+                parts = [p.strip() for p in re.split(r"[,\n\r\t ]+", raw_upns) if p.strip()]
+                upns = parts
+            elif isinstance(raw_upns, (list, tuple, set)):
+                upns = [str(item).strip() for item in raw_upns if str(item).strip()]
+            max_items = int(call_params.get("max_items") or cfg_file.get("onedrive_cache_warmup_max_items") or 50)
+            if not ONEDRIVE_CACHE_WARMER:
+                raise RuntimeError("OneDrive cache warmer not initialized.")
+            result = ONEDRIVE_CACHE_WARMER.warm_now(upns=upns, max_items=max_items)
+        elif service == "onedrive" and action == "get_user_drive_id":
+            cfg_file = _read_config_file()
+            ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
+            stale_days = int(cfg_file.get("onedrive_drive_cache_stale_days") or 30)
+            budget_s = int(cfg_file.get("onedrive_drive_resolve_budget_s") or 45)
+            pending_max = int(cfg_file.get("onedrive_drive_pending_max_attempts") or 10)
+            force_live = bool(call_params.pop("force_live", False) or call_params.pop("refresh", False))
+            result = resolve_onedrive_drive_id(
+                store=STATE.snapshot_store,
+                graph=STATE.get_graph(),
+                tenant_id=STATE.config.tenant_id or "",
+                user_upn_or_id=str(call_params.get("user_id") or ""),
+                force_live=force_live,
+                spo_admin_url=STATE.config.spo_admin_url,
+                ttl_days=ttl_days,
+                stale_window_days=stale_days,
+                max_budget_s=budget_s,
+                pending_max_attempts=pending_max,
+            )
+        elif service == "onedrive" and action == "seed_drive_cache":
+            cfg_file = _read_config_file()
+            ttl_days = int(cfg_file.get("onedrive_drive_cache_ttl_days") or 14)
+            tenant_id = STATE.config.tenant_id or ""
+            user_upn = str(call_params.get("user_upn") or "").strip().lower()
+            drive_id = str(call_params.get("drive_id") or "").strip()
+            web_url = call_params.get("web_url") or call_params.get("webUrl")
+            drive_type = call_params.get("drive_type") or call_params.get("driveType")
+            user_object_id = call_params.get("user_object_id") or call_params.get("userObjectId")
+            now_iso = datetime.now(timezone.utc).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=max(1, ttl_days))).isoformat()
+            STATE.snapshot_store.upsert_onedrive_drive_cache(
+                tenant_id=tenant_id,
+                user_upn=user_upn,
+                user_object_id=user_object_id,
+                drive_id=drive_id,
+                web_url=web_url,
+                drive_type=drive_type,
+                last_verified_at=now_iso,
+                expires_at=expires_at,
+                source="manual",
+            )
+            try:
+                STATE.snapshot_store.clear_onedrive_drive_pending(tenant_id=tenant_id, user_upn=user_upn)
+            except Exception:
+                pass
+            result = {
+                "id": drive_id,
+                "drive_id": drive_id,
+                "webUrl": web_url,
+                "driveType": drive_type,
+                "cached": True,
+                "cache_fallback": False,
+                "cached_stale": False,
+                "last_verified_at": now_iso,
+                "expires_at": expires_at,
+                "source": "manual",
+                "tenant_id": tenant_id,
+                "user_upn": user_upn,
+                "user_object_id": user_object_id,
+            }
+        elif service == "sharepoint" and action == "list_sites":
+            cfg_file = _read_config_file()
+            ttl_seconds = int(cfg_file.get("sharepoint_sites_cache_ttl_seconds") or 7200)
+            max_pages = int(cfg_file.get("sharepoint_list_sites_max_pages") or 10)
+            max_items = int(cfg_file.get("sharepoint_list_sites_max_items") or 500)
+            budget_s = int(cfg_file.get("sharepoint_list_sites_budget_s") or 60)
+            max_attempts = int(cfg_file.get("sharepoint_list_sites_max_attempts") or 4)
+            search_term = str(call_params.get("search") or "*")
+            force_live = bool(call_params.pop("force_live", False) or call_params.pop("refresh", False))
+            result = list_sharepoint_sites_cached(
+                store=STATE.snapshot_store,
+                graph=STATE.get_graph(),
+                tenant_id=STATE.config.tenant_id or "",
+                search_term=search_term,
+                force_live=force_live,
+                ttl_seconds=ttl_seconds,
+                max_pages=max_pages,
+                max_items=max_items,
+                max_budget_s=budget_s,
+                max_attempts=max_attempts,
+            )
+        else:
+            result = method(**call_params)
     except Exception as exc:
         if snapshot_enabled:
             _store_snapshot(

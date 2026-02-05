@@ -157,6 +157,7 @@
             <div class="banner-title">Graph status degraded</div>
             <div class="banner-message" id="graph-status-message"></div>
             <div class="banner-meta" id="graph-status-meta"></div>
+            <div class="banner-actions" id="graph-status-actions"></div>
           </div>
           <button class="ghost small" id="graph-status-dismiss" type="button">Dismiss</button>
         </div>
@@ -344,6 +345,12 @@
               <button class="chip" data-service="onedrive" data-action="list_drive_items">List root items</button>
               <button class="chip" data-service="onedrive" data-action="create_upload_session">Create upload session</button>
               <button class="chip" data-service="onedrive" data-action="list_personal_sites">List personal sites (PS)</button>
+              <button class="chip" data-service="onedrive" data-action="drive_cache_status" data-run-now="true">
+                Drive cache status
+              </button>
+              <button class="chip" data-service="onedrive" data-action="warm_drive_cache" data-run-now="true">
+                Warm drive cache now
+              </button>
             </div>
           </div>
           <div class="card form-card" data-panel="onedrive">

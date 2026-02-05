@@ -357,6 +357,24 @@ class SnapshotEngine:
                 probe_payloads.append({"probe": getattr(result, "probe", "unknown")})
 
         snapshot_payload = snapshot.model_dump(by_alias=True)
+
+        # Optional external signals (validated via contracts/*).
+        from .signal_providers import VISION_U_EYE_PROVIDER, attach_signal
+
+        signals = context.get("signals") if isinstance(context, dict) else None
+        if isinstance(signals, dict):
+            visual_payload = signals.get("visual")
+            if isinstance(visual_payload, dict):
+                try:
+                    attach_signal(snapshot_payload, VISION_U_EYE_PROVIDER, visual_payload)
+                    self.store.upsert_snapshot_signal(
+                        snapshot_id=snapshot_id,
+                        signal_name=VISION_U_EYE_PROVIDER.name,
+                        provider_version=VISION_U_EYE_PROVIDER.version,
+                        payload=visual_payload,
+                    )
+                except Exception:
+                    pass
         snapshot_payload["probe_results"] = probe_payloads
         if symptom_id:
             snapshot_payload["symptom_id"] = symptom_id
@@ -417,7 +435,10 @@ class SnapshotEngine:
                 if isinstance(result, dict):
                     severity = result.get("severity")
                     error_class = result.get("error_class")
-                if severity == "high" or error_class:
+                # Escalate only for truly high-severity failures; coverage gaps (missing
+                # modules/permissions) and transient upstream issues should not trigger
+                # additional snapshots automatically.
+                if severity == "high":
                     critical = True
                     break
             if critical:

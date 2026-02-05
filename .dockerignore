@@ -1,0 +1,17 @@
+.git
+.gitignore
+.env
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+node_modules/
+
+# Local admin GUI state (never ship)
+admin_gui/backend/config.json
+admin_gui/backend/*.sqlite
+admin_gui/backend/*.jsonl
+admin_gui/backend/topology_history.json
+admin_gui/backend/artifacts/
