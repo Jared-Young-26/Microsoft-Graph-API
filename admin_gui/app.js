@@ -40,11 +40,44 @@ const workspaceEmpty = document.getElementById("workspace-empty");
 const workspaceTemplates = document.getElementById("workspace-templates");
 let diffImpactOverrides = {};
 let activeIncidentId = null;
+let activeInvestigationId = null;
+let activeInvestigationEventId = null;
+let activeInvestigationAutoCapture = false;
+let activeInvestigationContext = {};
+let activeInvestigationContextSig = "[]";
+let activeInvestigationDetail = null;
+let activeInvestigationEvents = [];
+let activeInvestigationSummaryForId = null;
+let activeInvestigationSummaryDirty = false;
+let activeInvestigationSummaryLastSaved = "";
+let activeInvestigationNextStepsSeq = 0;
+let selectTriggerIdSeq = 0;
+const INVESTIGATION_CONTEXT_DEFAULTS = {
+  user_id: ["user_upn", "user_id"],
+  user_upn: ["user_upn"],
+  userprincipalname: ["user_upn"],
+  user_principal_name: ["user_upn"],
+  upn: ["user_upn"],
+  mailbox: ["mailbox_smtp"],
+  mailbox_smtp: ["mailbox_smtp"],
+  shared_mailbox: ["mailbox_smtp"],
+  device: ["device_name"],
+  device_name: ["device_name"],
+  hostname: ["device_name"],
+  host: ["device_name"],
+  computer: ["device_name"],
+  managed_device_id: ["managed_device_id"],
+  drive_id: ["drive_id"],
+  site_id: ["site_id"],
+  team_id: ["team_id"],
+  channel_id: ["channel_id"],
+  environment_id: ["environment_id"],
+  subscription_id: ["subscription_id"],
+};
 const snapshotDiffCache = new Map();
 const reportDiffCache = new Map();
 const SECTION_ALIASES = {
   incidents: "reports",
-  snapshotcapture: "reports",
   quickactions: "dashboard",
   healthcheck: "settings",
   auditlog: "settings",
@@ -53,6 +86,7 @@ const SECTION_ALIASES = {
 const MODE_MAP = {
   dashboard: "observe",
   incidents: "observe",
+  investigations: "observe",
   workspaces: "observe",
   baselines: "analyze",
   healthcheck: "configure",
@@ -83,7 +117,6 @@ const MODE_MAP = {
   ssh: "act",
   fileserver: "act",
   actionpacks: "act",
-  snapshotcapture: "act",
   quickactions: "act",
   settings: "configure",
   help: "learn",
@@ -290,6 +323,27 @@ const incidentLookbackInput = document.getElementById("incident-lookback");
 const incidentStartInput = document.getElementById("incident-start");
 const incidentEndInput = document.getElementById("incident-end");
 const incidentSymptomInput = document.getElementById("incident-symptom");
+const investigationRefreshButton = document.getElementById("investigation-refresh");
+const investigationCreateButton = document.getElementById("investigation-create");
+const investigationNewTitle = document.getElementById("investigation-new-title");
+const investigationList = document.getElementById("investigation-list");
+const investigationEmptyNote = document.getElementById("investigation-empty");
+const investigationTimeline = document.getElementById("investigation-timeline");
+const investigationMeta = document.getElementById("investigation-meta");
+const investigationCaptureSnapshotButton = document.getElementById("investigation-capture-snapshot");
+const investigationAttachOutputButton = document.getElementById("investigation-attach-output");
+const investigationAutoCaptureToggle = document.getElementById("investigation-auto-capture");
+const investigationNextStepsList = document.getElementById("investigation-next-steps");
+const investigationNextStepsEmpty = document.getElementById("investigation-next-steps-empty");
+const investigationDetail = document.getElementById("investigation-detail");
+const investigationNoteInput = document.getElementById("investigation-note");
+const investigationAddNoteButton = document.getElementById("investigation-add-note");
+const investigationSummaryInput = document.getElementById("investigation-summary");
+const investigationGenerateSummaryButton = document.getElementById("investigation-generate-summary");
+const investigationSummarySaveButton = document.getElementById("investigation-summary-save");
+const investigationContextInput = document.getElementById("investigation-context");
+const investigationContextReloadButton = document.getElementById("investigation-context-reload");
+const investigationContextSaveButton = document.getElementById("investigation-context-save");
 const reportDiffSelectA = document.getElementById("report-diff-a");
 const reportDiffSelectB = document.getElementById("report-diff-b");
 const reportDiffRunButton = document.getElementById("report-diff-run");
@@ -425,9 +479,9 @@ const SENSITIVE_PARAM_KEYS = new Set([
 const subtitles = {
   dashboard: "Graph-first operations with PowerShell fallback",
   incidents: "Incident workspace, timeline, and evidence",
+  investigations: "Focused timeline + context workspace",
   workspaces: "Saved multi-block dashboards",
   actionpacks: "Run multi-step workflows",
-  snapshotcapture: "Draft snapshots built from collected results",
   quickactions: "Dashboard shortcuts and pinned tasks",
   healthcheck: "System health, readiness, and diagnostics",
   auditlog: "Audit trail and system events",
@@ -463,9 +517,9 @@ const subtitles = {
 
 const serviceLabels = {
   incidents: "Incidents",
+  investigations: "Investigations",
   workspaces: "Workspaces",
   actionpacks: "Action Packs",
-  snapshotcapture: "Draft Snapshots",
   quickactions: "Quick Actions",
   healthcheck: "Health Check",
   auditlog: "Audit Log",
@@ -825,7 +879,44 @@ const ACTIONS_UI = {
     },
   },
   teams: {
-    list_joined_teams: { label: "List joined teams", mode: "graph", fields: [] },
+    list_teams: {
+      label: "List teams",
+      mode: "graph",
+      fields: [
+        { key: "top", label: "Top", type: "number", placeholder: "50" },
+        { key: "select", label: "Select fields (comma-separated, optional)", placeholder: "id,displayName,description" },
+      ],
+    },
+    get_team: {
+      label: "Get team",
+      mode: "graph",
+      fields: [{ key: "team_id", label: "Team ID" }],
+    },
+    list_joined_teams: { label: "List joined teams (delegated)", mode: "graph", fields: [] },
+    list_team_members: {
+      label: "List team members",
+      mode: "graph",
+      fields: [{ key: "team_id", label: "Team ID" }],
+    },
+    add_member: {
+      label: "Add member",
+      mode: "graph",
+      fields: [
+        { key: "team_id", label: "Team ID" },
+        { key: "user_id", label: "User ID / UPN" },
+        { key: "roles", label: "Roles (comma-separated, optional)", placeholder: "owner" },
+      ],
+      risk: "caution",
+    },
+    remove_member: {
+      label: "Remove member",
+      mode: "graph",
+      confirmTyped: "member_id",
+      fields: [
+        { key: "team_id", label: "Team ID" },
+        { key: "member_id", label: "Member ID or UPN" },
+      ],
+    },
     list_channels: {
       label: "List channels",
       mode: "graph",
@@ -850,6 +941,31 @@ const ACTIONS_UI = {
       ],
     },
     list_teams_admin: { label: "List teams (admin)", mode: "powershell", fields: [] },
+    ps_list_policies: { label: "List policies (PS)", mode: "powershell", fields: [] },
+    ps_get_user_policy_assignments: {
+      label: "Get user policy assignments (PS)",
+      mode: "powershell",
+      fields: [{ key: "user_upn", label: "User UPN" }],
+    },
+    ps_assign_user_policy: {
+      label: "Assign user policy (PS)",
+      mode: "powershell",
+      confirmTyped: "user_upn",
+      fields: [
+        { key: "user_upn", label: "User UPN" },
+        { key: "policy_type", label: "Policy type", placeholder: "messaging|meeting|calling" },
+        { key: "policy_name", label: "Policy name", placeholder: "Global or Tag:PolicyName" },
+      ],
+    },
+    ps_remove_user_policy: {
+      label: "Remove user policy (PS)",
+      mode: "powershell",
+      confirmTyped: "user_upn",
+      fields: [
+        { key: "user_upn", label: "User UPN" },
+        { key: "policy_type", label: "Policy type", placeholder: "messaging|meeting|calling" },
+      ],
+    },
   },
   entra: {
     list_users: {
@@ -858,6 +974,14 @@ const ACTIONS_UI = {
       fields: [
         { key: "top", label: "Top", type: "number", placeholder: "10" },
         { key: "select", label: "Select fields (comma-separated)" },
+      ],
+    },
+    get_user: {
+      label: "Get user",
+      mode: "graph",
+      fields: [
+        { key: "user_id", label: "User ID / UPN" },
+        { key: "select", label: "Select fields (comma-separated, optional)", placeholder: "id,displayName,userPrincipalName,accountEnabled" },
       ],
     },
     create_user: {
@@ -869,6 +993,25 @@ const ACTIONS_UI = {
         { key: "password", label: "Temporary password" },
         { key: "account_enabled", label: "Account enabled", type: "checkbox", defaultChecked: true },
       ],
+    },
+    update_user: {
+      label: "Update user",
+      mode: "graph",
+      fields: [
+        { key: "user_id", label: "User ID / UPN" },
+        { key: "displayName", label: "Display name (optional)" },
+        { key: "jobTitle", label: "Job title (optional)" },
+        { key: "department", label: "Department (optional)" },
+        { key: "officeLocation", label: "Office location (optional)" },
+        { key: "mobilePhone", label: "Mobile phone (optional)" },
+        { key: "businessPhones", label: "Business phones (comma-separated, optional)", placeholder: "+1 555 0100, +1 555 0101" },
+      ],
+    },
+    delete_user: {
+      label: "Delete user",
+      mode: "graph",
+      confirmTyped: "user_id",
+      fields: [{ key: "user_id", label: "User ID / UPN" }],
     },
     list_groups: {
       label: "List groups",
@@ -1027,8 +1170,36 @@ const ACTIONS_UI = {
       fields: [{ key: "resource_group", label: "Resource group (optional)" }],
     },
   },
-  defender: {},
-  powerplatform: {},
+  defender: {
+    secure_score_summary: {
+      label: "Defender secure score summary",
+      mode: "arm",
+      fields: [{ key: "subscription_id", label: "Azure subscription ID (optional)" }],
+    },
+    recommendations_list: {
+      label: "Defender recommendations list",
+      mode: "arm",
+      fields: [
+        { key: "subscription_id", label: "Azure subscription ID (optional)" },
+        { key: "max_items", label: "Max items", type: "number", placeholder: "50" },
+      ],
+    },
+  },
+  powerplatform: {
+    list_environments: {
+      label: "List environments",
+      mode: "powerplatform",
+      fields: [{ key: "max_items", label: "Max items", type: "number", placeholder: "200" }],
+    },
+    list_flows: {
+      label: "List flows in environment",
+      mode: "powerplatform",
+      fields: [
+        { key: "environment_id", label: "Environment ID" },
+        { key: "max_items", label: "Max items", type: "number", placeholder: "50" },
+      ],
+    },
+  },
   reports: {
     user_audit: {
       label: "User audit report",
@@ -5979,6 +6150,141 @@ async function fetchIncidents(limit = 50) {
   }
 }
 
+async function createInvestigation(payload) {
+  try {
+    const res = await fetch("/api/investigations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to create investigation");
+    return data.data;
+  } catch (err) {
+    showToast(err.message || "Investigation creation failed");
+    return null;
+  }
+}
+
+async function planSymptomTier0(payload) {
+  try {
+    const res = await fetch("/api/symptoms/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to plan symptom triage");
+    return data.data || null;
+  } catch (err) {
+    showToast(err.message || "Failed to plan symptom triage");
+    return null;
+  }
+}
+
+async function fetchInvestigations(limit = 50) {
+  try {
+    const res = await fetch(`/api/investigations?limit=${limit}`);
+    const data = await res.json();
+    if (!data.ok) return [];
+    return data.data || [];
+  } catch (err) {
+    return [];
+  }
+}
+
+async function fetchInvestigation(investigationId) {
+  if (!investigationId) return null;
+  try {
+    const res = await fetch(`/api/investigations/${encodeURIComponent(investigationId)}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function updateInvestigation(investigationId, updates) {
+  if (!investigationId) return null;
+  try {
+    const res = await fetch(`/api/investigations/${encodeURIComponent(investigationId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ updates: updates || {} }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to update investigation");
+    return data.data || null;
+  } catch (err) {
+    showToast(err.message || "Failed to update investigation");
+    return null;
+  }
+}
+
+async function fetchInvestigationContext(investigationId) {
+  if (!investigationId) return null;
+  try {
+    const res = await fetch(`/api/investigations/${encodeURIComponent(investigationId)}/context`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function updateInvestigationContext(investigationId, context) {
+  if (!investigationId) return null;
+  try {
+    const res = await fetch(`/api/investigations/${encodeURIComponent(investigationId)}/context`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: context || {} }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to update context");
+    return data.data || null;
+  } catch (err) {
+    showToast(err.message || "Failed to update context");
+    return null;
+  }
+}
+
+async function addInvestigationNote(investigationId, note) {
+  if (!investigationId || !note) return null;
+  try {
+    const res = await fetch(`/api/investigations/${encodeURIComponent(investigationId)}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to add note");
+    return data.data;
+  } catch (err) {
+    showToast(err.message || "Failed to add note");
+    return null;
+  }
+}
+
+async function addInvestigationEvent(investigationId, payload) {
+  if (!investigationId) return null;
+  try {
+    const res = await fetch(`/api/investigations/${encodeURIComponent(investigationId)}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Failed to add event");
+    return data.data;
+  } catch (err) {
+    showToast(err.message || "Failed to add event");
+    return null;
+  }
+}
+
 async function renderIncidentReportSelect() {
   if (!incidentReportSelect) return;
   const incidents = await fetchIncidents();
@@ -6001,6 +6307,973 @@ async function renderIncidentReportSelect() {
   if (activeIncidentId) {
     incidentReportSelect.value = activeIncidentId;
   }
+}
+
+async function renderInvestigations() {
+  if (!investigationList) return;
+  const investigations = await fetchInvestigations(25);
+  investigationList.innerHTML = "";
+  if (investigationEmptyNote) {
+    investigationEmptyNote.style.display = investigations.length ? "none" : "block";
+  }
+  investigations.forEach((inv) => {
+    const row = document.createElement("div");
+    row.classList.add("deleted-pack-row");
+    const title = document.createElement("div");
+    title.classList.add("deleted-pack-name");
+    title.textContent = inv.title || inv.investigation_id;
+    const meta = document.createElement("div");
+    meta.classList.add("deleted-pack-meta");
+    meta.textContent = `${inv.status || "open"} · ${inv.created_at || ""}`;
+    const actions = document.createElement("div");
+    actions.classList.add("deleted-pack-actions");
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.classList.add("ghost", "small");
+    openBtn.textContent = "Open";
+    openBtn.addEventListener("click", async () => {
+      await openInvestigation(inv.investigation_id);
+    });
+    actions.appendChild(openBtn);
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.appendChild(actions);
+    investigationList.appendChild(row);
+  });
+  if (activeInvestigationId) {
+    await openInvestigation(activeInvestigationId, { silent: true });
+  } else if (investigations.length) {
+    // Default to the most recent for convenience.
+    await openInvestigation(investigations[0].investigation_id, { silent: true });
+  } else {
+    activeInvestigationId = null;
+    activeInvestigationEventId = null;
+    setActiveInvestigationContext({});
+    activeInvestigationDetail = null;
+    activeInvestigationEvents = [];
+    activeInvestigationSummaryForId = null;
+    activeInvestigationSummaryDirty = false;
+    activeInvestigationSummaryLastSaved = "";
+    if (investigationSummaryInput) investigationSummaryInput.value = "";
+    if (investigationMeta) investigationMeta.textContent = "No active investigation.";
+    if (investigationTimeline) {
+      investigationTimeline.innerHTML = "";
+      const empty = document.createElement("li");
+      empty.classList.add("empty");
+      empty.textContent = "No investigation selected.";
+      investigationTimeline.appendChild(empty);
+    }
+    if (investigationContextInput) investigationContextInput.value = "{}";
+    syncInvestigationAutoCapture({});
+    setOutput("investigation-workspace", { ok: true, message: "No active investigation." });
+  }
+}
+
+function buildInvestigationSummary(detail) {
+  if (!detail || typeof detail !== "object") return null;
+  return {
+    investigation_id: detail.investigation_id,
+    title: detail.title,
+    status: detail.status,
+    created_at: detail.created_at,
+    updated_at: detail.updated_at,
+    tags: Array.isArray(detail.tags) ? detail.tags : [],
+    context: detail.context && typeof detail.context === "object" && !Array.isArray(detail.context) ? detail.context : {},
+    events_count: Array.isArray(detail.events) ? detail.events.length : 0,
+  };
+}
+
+function syncInvestigationAutoCapture(context) {
+  const enabled = Boolean(context && typeof context === "object" ? context.auto_capture_runs : false);
+  activeInvestigationAutoCapture = enabled;
+  if (investigationAutoCaptureToggle) {
+    investigationAutoCaptureToggle.checked = enabled;
+  }
+}
+
+function syncInvestigationSummaryPanel(investigationId, notesText) {
+  if (!investigationSummaryInput) return;
+  const incoming = String(notesText || "");
+  if (activeInvestigationSummaryForId !== investigationId) {
+    activeInvestigationSummaryForId = investigationId;
+    activeInvestigationSummaryDirty = false;
+    activeInvestigationSummaryLastSaved = incoming;
+    investigationSummaryInput.value = incoming;
+    return;
+  }
+  // Avoid clobbering operator edits while the investigation auto-refreshes.
+  if (activeInvestigationSummaryDirty) return;
+  if (investigationSummaryInput.value !== incoming) {
+    activeInvestigationSummaryLastSaved = incoming;
+    investigationSummaryInput.value = incoming;
+  }
+}
+
+function _investigationContextSignature(ctx) {
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) return "[]";
+  const pairs = Object.entries(ctx)
+    .filter(([key, value]) => {
+      if (!key) return false;
+      if (value === undefined || value === null) return false;
+      if (typeof value === "string" && value.trim() === "") return false;
+      // Avoid signatures exploding when context stores nested objects.
+      if (typeof value === "object") return false;
+      return true;
+    })
+    .map(([key, value]) => [String(key), String(value)]);
+  pairs.sort((a, b) => a[0].localeCompare(b[0]));
+  return JSON.stringify(pairs);
+}
+
+function isSensitiveFieldKey(key) {
+  const k = String(key || "").toLowerCase();
+  if (!k) return false;
+  return (
+    k.includes("password") ||
+    k.includes("secret") ||
+    k.includes("token") ||
+    k.includes("client_secret") ||
+    k.includes("refresh_token") ||
+    k.includes("access_token")
+  );
+}
+
+function _contextKeysForRunnerField(field) {
+  if (!field) return [];
+  if (field.context_key) return [String(field.context_key)];
+  if (Array.isArray(field.context_keys) && field.context_keys.length) {
+    return field.context_keys.map((k) => String(k)).filter(Boolean);
+  }
+  const fallback = INVESTIGATION_CONTEXT_DEFAULTS[String(field.key || "").toLowerCase()];
+  return Array.isArray(fallback) ? fallback : [];
+}
+
+function _getContextValue(keys) {
+  if (!activeInvestigationId) return null;
+  const ctx = activeInvestigationContext || {};
+  for (const key of keys || []) {
+    const value = ctx?.[key];
+    if (value === undefined || value === null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function prefillRunnerInputFromContext(field, input, wrapper) {
+  if (!activeInvestigationId) return false;
+  if (!field || !input || !wrapper) return false;
+  if (input.type === "checkbox") return false;
+  if (isSensitiveFieldKey(field.key)) return false;
+  if (String(input.value || "").trim() !== "") return false;
+  const keys = _contextKeysForRunnerField(field);
+  if (!keys.length) return false;
+  const value = _getContextValue(keys);
+  if (!value) return false;
+  input.value = value;
+  wrapper.classList.add("prefilled");
+  input.title = "Prefilled from investigation context";
+  return true;
+}
+
+function autofillRunnerFormsFromContext() {
+  if (!activeInvestigationId) return;
+  document.querySelectorAll(".runner .runner-fields").forEach((container) => {
+    container.querySelectorAll(".field").forEach((wrapper) => {
+      const key = wrapper.dataset.field;
+      if (!key) return;
+      const input = wrapper.querySelector("input, textarea, select");
+      if (!input) return;
+      // Use a synthetic field descriptor so we can reuse the same mapping rules.
+      prefillRunnerInputFromContext({ key }, input, wrapper);
+    });
+  });
+}
+
+function setActiveInvestigationContext(context) {
+  const ctx =
+    context && typeof context === "object" && !Array.isArray(context) ? context : {};
+  const sig = _investigationContextSignature(ctx);
+  const changed = sig !== activeInvestigationContextSig;
+  activeInvestigationContext = ctx;
+  activeInvestigationContextSig = sig;
+  if (changed) {
+    autofillRunnerFormsFromContext();
+  }
+}
+
+function shouldAutoCaptureRuns() {
+  return Boolean(activeInvestigationId && activeInvestigationAutoCapture);
+}
+
+function getActiveSectionKey() {
+  const active = document.querySelector(".nav-link.active");
+  return active?.dataset?.section || resolveSectionFromPath();
+}
+
+function stripInternalParams(params) {
+  const cleaned = {};
+  if (!params || typeof params !== "object") return cleaned;
+  Object.entries(params).forEach(([key, value]) => {
+    if (!key || String(key).startsWith("_")) return;
+    cleaned[key] = value;
+  });
+  return cleaned;
+}
+
+function summarizeOutputForTimeline(output, normalized) {
+  const summary = {};
+  if (normalized && typeof normalized === "object") {
+    if (normalized.entity) summary.entity = normalized.entity;
+    if (Number.isFinite(normalized.count)) summary.count = normalized.count;
+  }
+  const estimated = estimateItemCount(output);
+  if (summary.count === undefined && Number.isFinite(estimated)) summary.count = estimated;
+  if (!summary.entity && output && typeof output === "object" && !Array.isArray(output)) {
+    if (output.entity) summary.entity = output.entity;
+    if (output.kind) summary.kind = output.kind;
+  }
+  return summary;
+}
+
+function trimOutputForTimeline(value, depth = 0, meta = { truncated: false }) {
+  if (value === null || value === undefined) return value;
+  if (depth > 6) {
+    meta.truncated = true;
+    return "[truncated]";
+  }
+  if (Array.isArray(value)) {
+    const maxItems = 50;
+    const trimmed = value.slice(0, maxItems).map((entry) => trimOutputForTimeline(entry, depth + 1, meta));
+    if (value.length > maxItems) meta.truncated = true;
+    return trimmed;
+  }
+  if (typeof value === "object") {
+    const out = {};
+    const entries = Object.entries(value);
+    const maxKeys = 200;
+    entries.slice(0, maxKeys).forEach(([key, val]) => {
+      out[key] = trimOutputForTimeline(val, depth + 1, meta);
+    });
+    if (entries.length > maxKeys) meta.truncated = true;
+    return out;
+  }
+  return value;
+}
+
+function buildEvidenceRefsForRun(meta) {
+  const refs = [];
+  if (!meta || typeof meta !== "object") return refs;
+  if (meta.ui_request_id) refs.push({ kind: "ui_request", id: meta.ui_request_id });
+  if (meta.request_id) refs.push({ kind: "graph_request", id: meta.request_id });
+  if (meta.correlation_id) refs.push({ kind: "graph_correlation", id: meta.correlation_id });
+  return refs;
+}
+
+async function maybeAutoCaptureRun(service) {
+  if (!shouldAutoCaptureRuns()) return;
+  if (!service) return;
+  const meta = lastRunMeta?.[service];
+  if (!meta || !meta.ended_at) return;
+
+  const outputRaw = sanitizeParams(lastOutputs?.[service]);
+  const trimMeta = { truncated: false };
+  const output = trimOutputForTimeline(outputRaw, 0, trimMeta);
+  const normalized = meta.normalized && typeof meta.normalized === "object" ? meta.normalized : null;
+
+  const summaryPrefix = meta.cancelled ? "Cancelled" : meta.ok ? "Ran" : "Failed";
+  const label = meta.label || `${service}.${meta.action || "run"}`;
+
+  const payload = {
+    kind: "action_run",
+    summary: `${summaryPrefix}: ${label}`,
+    data: {
+      captured_at: new Date().toISOString(),
+      service,
+      action: meta.action || null,
+      action_id: meta.action ? `${service}.${meta.action}` : service,
+      ok: meta.ok ?? null,
+      cancelled: meta.cancelled ?? null,
+      http_status: meta.http_status ?? null,
+      failure_source: meta.failure_source || null,
+      failure_outcome: meta.failure_outcome || null,
+      error: meta.error || null,
+      hint: meta.hint || null,
+      elapsed_ms: meta.elapsed_ms ?? null,
+      ui_request_id: meta.ui_request_id || null,
+      request_id: meta.request_id || null,
+      correlation_id: meta.correlation_id || null,
+      execution_target: meta.execution_target || null,
+      inputs: stripInternalParams(meta.params || {}),
+      output_summary: summarizeOutputForTimeline(outputRaw, normalized),
+      evidence_refs: buildEvidenceRefsForRun(meta),
+      normalized,
+      output,
+      output_truncated: Boolean(trimMeta.truncated),
+    },
+  };
+
+  const created = await addInvestigationEvent(activeInvestigationId, payload);
+  if (!created) return;
+  // Keep the investigation timeline fresh even if the operator is currently on another page.
+  // (Timeline will be ready when they switch back to Investigations.)
+  await openInvestigation(activeInvestigationId, { silent: true });
+}
+
+function extractEvidenceItemsFromPayload(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  if (Array.isArray(payload.evidence)) return payload.evidence.filter((item) => item && typeof item === "object");
+  if (Array.isArray(payload.items)) return payload.items.filter((item) => item && typeof item === "object");
+  return [];
+}
+
+async function maybeAutoCaptureEvidenceToInvestigation(service, action, payload) {
+  if (!activeInvestigationId) return;
+  const items = extractEvidenceItemsFromPayload(payload);
+  if (!items.length) return;
+  const label = action ? `${service}.${action}` : String(service || "action");
+  const summary = `Evidence stored: ${label} (${items.length})`;
+  const created = await addInvestigationEvent(activeInvestigationId, {
+    kind: "evidence",
+    summary,
+    data: {
+      captured_at: new Date().toISOString(),
+      service,
+      action: action || null,
+      evidence: items,
+    },
+  });
+  if (!created) return;
+  await openInvestigation(activeInvestigationId, { silent: true });
+}
+
+const UPN_REGEX = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/i;
+const GUID_REGEX = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+const SITE_ID_REGEX = /^[^,]+,[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12},[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isLikelyUpn(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return UPN_REGEX.test(trimmed);
+}
+
+function isLikelyGuid(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return GUID_REGEX.test(trimmed);
+}
+
+function isLikelySiteId(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return SITE_ID_REGEX.test(trimmed);
+}
+
+function isLikelyDriveId(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (/^b![a-z0-9_-]{6,}$/i.test(trimmed)) return true;
+  return isLikelyGuid(trimmed);
+}
+
+function normalizeUpn(value) {
+  if (!value) return "";
+  return String(value).trim().toLowerCase();
+}
+
+function formatPromoteValue(value, maxLen = 44) {
+  const raw = value === null || value === undefined ? "" : String(value);
+  const trimmed = raw.trim();
+  if (trimmed.length <= maxLen) return trimmed;
+  return `${trimmed.slice(0, maxLen - 1)}…`;
+}
+
+function extractContextUpdatesFromRecord(record) {
+  if (!record || typeof record !== "object") return {};
+  const obj = record;
+
+  const upn =
+    obj.userPrincipalName ||
+    obj.user_principal_name ||
+    obj.upn ||
+    obj.user_upn ||
+    obj.mail ||
+    obj.email ||
+    null;
+  const mailbox =
+    obj.primarySmtpAddress ||
+    obj.primary_smtp_address ||
+    obj.mailbox_smtp ||
+    obj.smtp ||
+    obj.mailbox ||
+    null;
+  const deviceName = obj.deviceName || obj.device_name || obj.hostname || obj.computerName || null;
+  const managedDeviceId = obj.managedDeviceId || obj.managed_device_id || obj.managedDeviceID || null;
+
+  const driveCandidate = obj.drive_id || obj.driveId || obj.driveID || null;
+  const siteCandidate = obj.site_id || obj.siteId || obj.siteID || null;
+
+  const updates = {};
+  if (mailbox && isLikelyUpn(mailbox)) {
+    updates.mailbox_smtp = normalizeUpn(mailbox);
+  } else if (upn && isLikelyUpn(upn)) {
+    updates.user_upn = normalizeUpn(upn);
+  }
+
+  // Only treat "id" as a user object id when this record looks like a user.
+  const idCandidate = obj.user_id || obj.userId || obj.user_object_id || obj.objectId || obj.id || null;
+  if (updates.user_upn && idCandidate && isLikelyGuid(String(idCandidate))) {
+    updates.user_id = String(idCandidate).trim();
+  }
+
+  if (driveCandidate && isLikelyDriveId(String(driveCandidate))) {
+    updates.drive_id = String(driveCandidate).trim();
+  } else if (!updates.user_upn && !updates.mailbox_smtp && obj.driveType && obj.id && isLikelyDriveId(String(obj.id))) {
+    updates.drive_id = String(obj.id).trim();
+  }
+
+  if (siteCandidate && isLikelySiteId(String(siteCandidate))) {
+    updates.site_id = String(siteCandidate).trim();
+  } else if (!updates.user_upn && !updates.mailbox_smtp && obj.webUrl && obj.id && isLikelySiteId(String(obj.id))) {
+    updates.site_id = String(obj.id).trim();
+  }
+
+  if (deviceName && typeof deviceName === "string") {
+    const normalized = deviceName.trim();
+    if (normalized && normalized.length <= 128) updates.device_name = normalized;
+  }
+  if (managedDeviceId && isLikelyGuid(String(managedDeviceId))) {
+    updates.managed_device_id = String(managedDeviceId).trim();
+  }
+
+  // Fallback: pick up well-known keys directly.
+  if (!updates.user_upn && !updates.mailbox_smtp) {
+    Object.entries(obj).some(([key, val]) => {
+      if (typeof val !== "string") return false;
+      const lowered = String(key).toLowerCase();
+      const candidate = val.trim();
+      if (!candidate) return false;
+      if (lowered.includes("userprincipalname") || lowered === "upn" || lowered.endsWith("_upn")) {
+        if (isLikelyUpn(candidate)) {
+          updates.user_upn = normalizeUpn(candidate);
+          return true;
+        }
+      }
+      if (lowered.includes("smtp") || lowered.includes("mailbox")) {
+        if (isLikelyUpn(candidate)) {
+          updates.mailbox_smtp = normalizeUpn(candidate);
+          return true;
+        }
+      }
+      if (lowered.includes("drive") && lowered.includes("id")) {
+        if (isLikelyDriveId(candidate)) {
+          updates.drive_id = candidate;
+          return true;
+        }
+      }
+      if (lowered.includes("site") && lowered.includes("id")) {
+        if (isLikelySiteId(candidate)) {
+          updates.site_id = candidate;
+          return true;
+        }
+      }
+      return false;
+    });
+  }
+  return updates;
+}
+
+function extractPromoteCandidates(data, limit = 8) {
+  const candidates = [];
+  const seen = new Set();
+  const push = (label, preview, updates) => {
+    if (!updates || typeof updates !== "object") return;
+    const signature = JSON.stringify(updates);
+    if (seen.has(signature)) return;
+    seen.add(signature);
+    candidates.push({ label, preview, updates });
+  };
+
+  const queue = [{ value: data, depth: 0 }];
+  let visited = 0;
+  const maxVisited = 800;
+  const maxDepth = 6;
+
+  while (queue.length && candidates.length < limit && visited < maxVisited) {
+    const { value, depth } = queue.shift();
+    visited += 1;
+    if (value === null || value === undefined) continue;
+    if (depth > maxDepth) continue;
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (isLikelyUpn(trimmed)) {
+        push("Set as User", trimmed, { user_upn: normalizeUpn(trimmed) });
+      } else if (isLikelyGuid(trimmed)) {
+        // We can't safely infer what a GUID refers to without key context; skip here.
+      }
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      value.slice(0, 25).forEach((entry) => queue.push({ value: entry, depth: depth + 1 }));
+      continue;
+    }
+
+    if (typeof value === "object") {
+      const updates = extractContextUpdatesFromRecord(value);
+      if (updates.user_upn) push("Set as User", updates.user_upn, updates);
+      if (updates.mailbox_smtp) push("Set as Mailbox", updates.mailbox_smtp, updates);
+      if (updates.device_name) push("Set as Device", updates.device_name, updates);
+      if (updates.managed_device_id) push("Set as Managed device", updates.managed_device_id, updates);
+      if (updates.drive_id) push("Set as Drive", updates.drive_id, updates);
+      if (updates.site_id) push("Set as Site", updates.site_id, updates);
+
+      Object.values(value)
+        .slice(0, 40)
+        .forEach((entry) => queue.push({ value: entry, depth: depth + 1 }));
+    }
+  }
+
+  return candidates.slice(0, limit);
+}
+
+async function promoteToInvestigationContext(updates, { toastLabel } = {}) {
+  if (!activeInvestigationId) {
+    showToast("Open an investigation first");
+    return false;
+  }
+  const existing = parseInvestigationContextTextarea();
+  const merged = { ...(existing || {}) };
+  Object.entries(updates || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    const text = String(value).trim();
+    if (!text) return;
+    merged[key] = text;
+  });
+  const result = await updateInvestigationContext(activeInvestigationId, merged);
+  if (!result) return false;
+  const ctx = result.context && typeof result.context === "object" && !Array.isArray(result.context) ? result.context : merged;
+  if (investigationContextInput) {
+    investigationContextInput.value = JSON.stringify(ctx, null, 2);
+  }
+  syncInvestigationAutoCapture(ctx);
+  await openInvestigation(activeInvestigationId, { silent: true });
+  const keys = Object.keys(updates || {});
+  const message = toastLabel
+    ? `${toastLabel} promoted to context`
+    : keys.length
+      ? `Context updated: ${keys.join(", ")}`
+      : "Context updated";
+  showToast(message);
+  return true;
+}
+
+function ensureOutputPromoteBar(service) {
+  const pre = getOutputPanel(service);
+  const card = pre?.closest(".output-card");
+  if (!card) return null;
+  let bar = card.querySelector(`.output-promote[data-output-promote="${service}"]`);
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.classList.add("output-promote");
+    bar.dataset.outputPromote = service;
+    card.appendChild(bar);
+  }
+  // Ensure bar sits above the tabbed panels once the output view is enhanced.
+  const panels = card.querySelector(".output-panels");
+  if (panels && bar.nextSibling !== panels) {
+    card.insertBefore(bar, panels);
+  }
+  return bar;
+}
+
+function updateOutputPromoteBar(service, parsed) {
+  const bar = ensureOutputPromoteBar(service);
+  if (!bar) return;
+  if (!activeInvestigationId) {
+    bar.style.display = "none";
+    return;
+  }
+  const candidates = extractPromoteCandidates(parsed, 8);
+  if (!candidates.length) {
+    bar.style.display = "none";
+    return;
+  }
+  bar.style.display = "flex";
+  bar.innerHTML = "";
+  const label = document.createElement("span");
+  label.classList.add("output-promote-label");
+  label.textContent = "Promote:";
+  bar.appendChild(label);
+  candidates.forEach((cand) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.classList.add("ghost", "small");
+    btn.textContent = `${cand.label} · ${formatPromoteValue(cand.preview)}`;
+    btn.addEventListener("click", async () => {
+      await promoteToInvestigationContext(cand.updates, { toastLabel: cand.label });
+    });
+    bar.appendChild(btn);
+  });
+}
+
+function refreshAllOutputPromoteBars() {
+  Object.entries(lastOutputs || {}).forEach(([service, output]) => {
+    updateOutputPromoteBar(service, output);
+  });
+}
+
+function renderInvestigationTimeline(events) {
+  if (!investigationTimeline) return;
+  investigationTimeline.innerHTML = "";
+  if (!activeInvestigationId) {
+    const empty = document.createElement("li");
+    empty.classList.add("empty");
+    empty.textContent = "No investigation selected.";
+    investigationTimeline.appendChild(empty);
+    return;
+  }
+  if (!events || !events.length) {
+    const empty = document.createElement("li");
+    empty.classList.add("empty");
+    empty.textContent = "No timeline events yet.";
+    investigationTimeline.appendChild(empty);
+    return;
+  }
+
+  const formatTime = (value) => {
+    if (!value) return "--";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  };
+
+  events.forEach((evt) => {
+    const li = document.createElement("li");
+    li.dataset.eventId = evt.event_id || "";
+    if (evt.event_id && evt.event_id === activeInvestigationEventId) {
+      li.classList.add("active");
+    }
+    const time = document.createElement("div");
+    time.classList.add("time");
+    time.textContent = formatTime(evt.time);
+    const details = document.createElement("details");
+    details.classList.add("timeline-details");
+    const summaryEl = document.createElement("summary");
+    summaryEl.classList.add("timeline-summary");
+    const title = document.createElement("div");
+    title.textContent = evt.summary || evt.kind || "Event";
+    const meta = document.createElement("div");
+    meta.classList.add("activity-meta");
+    meta.textContent = evt.kind ? `Kind: ${evt.kind}` : "Kind: event";
+    summaryEl.appendChild(title);
+    summaryEl.appendChild(meta);
+    details.appendChild(summaryEl);
+
+    const payload = evt && typeof evt === "object" ? evt.data ?? {} : {};
+    const actions = document.createElement("div");
+    actions.classList.add("timeline-actions");
+    if (evt.kind === "snapshot") {
+      const snapshotId = payload?.snapshot_id || payload?.snapshotId || null;
+      if (snapshotId) {
+        const viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.classList.add("ghost", "small");
+        viewBtn.textContent = "View snapshot";
+        viewBtn.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const snap = await fetchSnapshotEngineSnapshot(snapshotId);
+          if (!snap) {
+            showToast("Snapshot not found");
+            return;
+          }
+          setOutput("investigation-workspace", snap);
+          showToast("Snapshot loaded");
+        });
+        const link = document.createElement("a");
+        link.classList.add("ghost", "small");
+        link.href = `/api/snapshots/engine/${encodeURIComponent(snapshotId)}`;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "Open JSON";
+        actions.appendChild(viewBtn);
+        actions.appendChild(link);
+      }
+    } else if (evt.kind === "evidence") {
+      const evidenceItems = Array.isArray(payload?.evidence) ? payload.evidence : Array.isArray(payload?.items) ? payload.items : [];
+      const first = evidenceItems.find((item) => item?.artifact?.url);
+      if (first?.artifact?.url) {
+        const link = document.createElement("a");
+        link.classList.add("ghost", "small");
+        link.href = first.artifact.url;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "Open artifact";
+        actions.appendChild(link);
+      }
+    }
+
+    if (actions.children.length) {
+      details.appendChild(actions);
+    }
+
+    const pre = document.createElement("pre");
+    pre.classList.add("timeline-json");
+    try {
+      pre.textContent = JSON.stringify(payload, null, 2);
+    } catch (err) {
+      pre.textContent = String(payload);
+    }
+    details.appendChild(pre);
+
+    summaryEl.addEventListener("click", () => {
+      activeInvestigationEventId = evt.event_id || null;
+      renderInvestigationTimeline(events);
+      setOutput("investigation-workspace", evt);
+    });
+
+    li.appendChild(time);
+    li.appendChild(details);
+    investigationTimeline.appendChild(li);
+  });
+}
+
+function findMostRecentRunMeta() {
+  let latest = null;
+  let latestTs = 0;
+  Object.entries(lastRunMeta).forEach(([service, meta]) => {
+    if (!meta || typeof meta !== "object") return;
+    // Only attach completed runs (ended_at is set by finalizeRunMeta()).
+    if (!meta.ended_at) return;
+    const ts = new Date(meta.ended_at).getTime();
+    if (Number.isNaN(ts)) return;
+    if (ts >= latestTs) {
+      latestTs = ts;
+      latest = { service, meta };
+    }
+  });
+  return latest;
+}
+
+async function attachLastOutputToInvestigation() {
+  if (!activeInvestigationId) {
+    showToast("Open an investigation first");
+    return;
+  }
+  const picked = findMostRecentRunMeta();
+  if (!picked) {
+    showToast("No completed outputs to attach yet");
+    return;
+  }
+  const { service, meta } = picked;
+  const output = sanitizeParams(lastOutputs[service]);
+  const payload = {
+    kind: "action_run",
+    summary: meta.label || `${service}.${meta.action || "run"}`,
+    data: {
+      attached_at: new Date().toISOString(),
+      service,
+      action: meta.action || null,
+      label: meta.label || null,
+      mode: meta.mode || null,
+      ok: meta.ok ?? null,
+      error: meta.error || null,
+      started_at: meta.started_at || null,
+      ended_at: meta.ended_at || null,
+      elapsed_ms: meta.elapsed_ms ?? null,
+      http_status: meta.http_status ?? null,
+      request_id: meta.request_id || null,
+      execution_target: meta.execution_target || null,
+      params: meta.params || {},
+      output,
+    },
+  };
+  const created = await addInvestigationEvent(activeInvestigationId, payload);
+  if (!created) return;
+  await openInvestigation(activeInvestigationId, { silent: true });
+  showToast("Pinned output to timeline");
+}
+
+function parseInvestigationContextTextarea() {
+  const raw = (investigationContextInput?.value || "").trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch (err) {
+    return {};
+  }
+}
+
+function defaultSnapshotKindForContext(ctx) {
+  if (ctx.user_upn || ctx.user_id) return "user";
+  if (ctx.device_name || ctx.managed_device_id) return "device";
+  if (ctx.dc_name) return "dc";
+  if (ctx.mailbox_smtp) return "mailbox";
+  if (ctx.site_id) return "site";
+  if (ctx.drive_id) return "drive";
+  return "user";
+}
+
+function defaultSnapshotIdentifierForKind(kind, ctx) {
+  if (!ctx || typeof ctx !== "object") return "";
+  if (kind === "user") return (ctx.user_upn || ctx.user_id || "").trim();
+  if (kind === "device") return (ctx.device_name || ctx.managed_device_id || "").trim();
+  if (kind === "dc") return (ctx.dc_name || "").trim();
+  if (kind === "dns_server") return (ctx.dns_server || "").trim();
+  if (kind === "dhcp_server") return (ctx.dhcp_server || "").trim();
+  if (kind === "file_server") return (ctx.file_server || "").trim();
+  if (kind === "print_server") return (ctx.print_server || "").trim();
+  if (kind === "mailbox") return (ctx.mailbox_smtp || "").trim();
+  if (kind === "site") return (ctx.site_id || "").trim();
+  if (kind === "drive") return (ctx.drive_id || "").trim();
+  return "";
+}
+
+function buildSnapshotSubjectFromModal(kind, identifier) {
+  const value = (identifier || "").trim();
+  const subjectKind = (kind || "").trim();
+  if (!subjectKind) return null;
+
+  // Admin host is always local; a stable alias avoids generating random canonical IDs.
+  if (subjectKind === "admin_host") {
+    return { kind: "admin_host", identifiers: { hostname: value || "local" } };
+  }
+
+  if (!value) return { kind: subjectKind, identifiers: {} };
+
+  if (subjectKind === "user") {
+    const alias = value.includes("@") ? "upn" : "objectId";
+    return { kind: "user", identifiers: { [alias]: value } };
+  }
+
+  const aliasType = isIpAddress(value) ? "ip" : "hostname";
+  return { kind: subjectKind, identifiers: { [aliasType]: value } };
+}
+
+async function captureSnapshotForActiveInvestigation() {
+  if (!activeInvestigationId) {
+    showToast("Open an investigation first");
+    return;
+  }
+  const ctx = parseInvestigationContextTextarea();
+  const defaultKind = defaultSnapshotKindForContext(ctx);
+  const values = await openFormModal({
+    title: "Capture snapshot",
+    subtitle: "Collect a point-in-time snapshot for the current investigation",
+    fields: [
+      {
+        key: "kind",
+        label: "Subject kind",
+        type: "select",
+        required: true,
+        value: defaultKind,
+        options: [
+          { value: "user", label: "User" },
+          { value: "device", label: "Device" },
+          { value: "dc", label: "Domain controller" },
+          { value: "dns_server", label: "DNS server" },
+          { value: "dhcp_server", label: "DHCP server" },
+          { value: "file_server", label: "File server" },
+          { value: "print_server", label: "Print server" },
+          { value: "admin_host", label: "Admin host (local)" },
+        ],
+      },
+      {
+        key: "identifier",
+        label: "Identifier",
+        required: false,
+        value: defaultSnapshotIdentifierForKind(defaultKind, ctx),
+        placeholder: defaultKind === "user" ? "user@contoso.com or object ID" : "hostname or IP",
+        hint: "Use the investigation context where possible. This will also populate entity aliases for future diffs.",
+      },
+      {
+        key: "profile",
+        label: "Profile",
+        type: "select",
+        required: true,
+        value: "core",
+        options: [
+          { value: "core", label: "Core (fast)" },
+          { value: "troubleshoot", label: "Troubleshoot" },
+          { value: "deep", label: "Deep (expensive)" },
+        ],
+      },
+    ],
+    confirmLabel: "Capture",
+    cancelLabel: "Cancel",
+    size: "medium",
+  });
+  if (!values) return;
+
+  if (values.kind !== "admin_host" && !String(values.identifier || "").trim()) {
+    showToast("Enter an identifier for this snapshot");
+    return;
+  }
+
+  const subject = buildSnapshotSubjectFromModal(values.kind, values.identifier);
+  if (!subject) {
+    showToast("Invalid snapshot subject");
+    return;
+  }
+
+  const profile = values.profile || "core";
+  const capture = await captureSnapshots([subject], profile, {
+    source: "investigation",
+    service: "investigations",
+    investigation_id: activeInvestigationId,
+  });
+  if (!capture) {
+    showToast("Snapshot capture failed");
+    return;
+  }
+  setOutput("investigation-workspace", { kind: "snapshot_capture", profile, subject, capture });
+  showToast("Snapshot captured");
+}
+
+async function openInvestigation(investigationId, { silent = false } = {}) {
+  if (!investigationId) return;
+  const detail = await fetchInvestigation(investigationId);
+  if (!detail) {
+    if (!silent) showToast("Investigation not found");
+    return;
+  }
+  activeInvestigationDetail = detail;
+  activeInvestigationId = investigationId;
+  if (investigationMeta) {
+    const title = detail.title || detail.investigation_id;
+    const status = detail.status || "open";
+    const updated = detail.updated_at ? `Updated ${formatRelativeTime(detail.updated_at)}` : "";
+    investigationMeta.textContent = `${title} · ${status}${updated ? ` · ${updated}` : ""}`;
+  }
+  const ctx = detail.context && typeof detail.context === "object" && !Array.isArray(detail.context) ? detail.context : {};
+  setActiveInvestigationContext(ctx);
+  if (investigationContextInput) {
+    investigationContextInput.value = JSON.stringify(ctx, null, 2);
+    syncInvestigationAutoCapture(ctx);
+  }
+  syncInvestigationSummaryPanel(investigationId, detail.notes);
+  const events = Array.isArray(detail.events) ? detail.events : [];
+  activeInvestigationEvents = events;
+  // Default selection: latest event when present; otherwise show the investigation summary.
+  if (events.length) {
+    const latest = events[events.length - 1];
+    activeInvestigationEventId = latest?.event_id || null;
+    setOutput("investigation-workspace", latest);
+  } else {
+    activeInvestigationEventId = null;
+    setOutput("investigation-workspace", buildInvestigationSummary(detail) || detail);
+  }
+  renderInvestigationTimeline(events);
+  refreshAllOutputPromoteBars();
+  if (!silent) showToast("Investigation opened");
 }
 
 async function fetchIncidentGraph(incidentId) {
@@ -6069,6 +7342,18 @@ async function compareGoldenBaseline(snapshotId) {
     return data.data || null;
   } catch (err) {
     showToast("Golden diff failed");
+    return null;
+  }
+}
+
+async function fetchSnapshotEngineSnapshot(snapshotId) {
+  if (!snapshotId) return null;
+  try {
+    const res = await fetch(`/api/snapshots/engine/${encodeURIComponent(snapshotId)}`);
+    const data = await res.json();
+    if (!data.ok) return null;
+    return data.data || null;
+  } catch (err) {
     return null;
   }
 }
@@ -6149,6 +7434,65 @@ async function refreshSymptomTemplates() {
   renderSymptomTemplates();
 }
 
+function extractSnapshotIdsFromCapture(captureResult) {
+  if (!captureResult || typeof captureResult !== "object") return [];
+  const results = Array.isArray(captureResult.results) ? captureResult.results : [];
+  const snapshots = [];
+  results.forEach((entry) => {
+    if (!entry || typeof entry !== "object" || !entry.ok) return;
+    const result = entry.result && typeof entry.result === "object" ? entry.result : null;
+    const snapshotId = result?.snapshot_id;
+    if (!snapshotId) return;
+    snapshots.push({
+      snapshot_id: snapshotId,
+      event_id: result?.event_id || null,
+      canonical_id: result?.canonical_id || null,
+      profile: result?.profile || captureResult.profile || null,
+      subject_kind: result?.subject_kind || entry?.subject?.kind || null,
+      escalated: Boolean(entry.escalated),
+      subject: entry.subject || null,
+    });
+  });
+  return snapshots;
+}
+
+async function maybeAutoCaptureSnapshotsToInvestigation(captureResult, meta = {}) {
+  if (!activeInvestigationId) return;
+  const snapshots = extractSnapshotIdsFromCapture(captureResult);
+  if (!snapshots.length) return;
+  const capturedAt = new Date().toISOString();
+  const source = meta?.context?.source || meta?.context?.service || null;
+  const packName = meta?.context?.pack_name || null;
+  const phase = meta?.context?.phase || null;
+  for (const snap of snapshots) {
+    const kind = snap.subject_kind || "subject";
+    const prof = snap.profile || meta.profile || "core";
+    const labelParts = []
+      .concat(source === "action_pack" ? ["Action pack snapshot"] : ["Snapshot captured"])
+      .concat(packName ? [packName] : [])
+      .concat(phase ? [`(${phase})`] : [])
+      .concat(snap.escalated ? ["(escalated)"] : [])
+      .concat([`${kind} · ${prof}`]);
+    const summary = labelParts.filter(Boolean).join(" ");
+    await addInvestigationEvent(activeInvestigationId, {
+      kind: "snapshot",
+      summary,
+      data: {
+        captured_at: capturedAt,
+        snapshot_id: snap.snapshot_id,
+        snapshot_url: `/api/snapshots/engine/${snap.snapshot_id}`,
+        canonical_id: snap.canonical_id,
+        profile: prof,
+        subject_kind: kind,
+        escalated: snap.escalated,
+        subject: snap.subject,
+        context: meta?.context || null,
+      },
+    });
+  }
+  await openInvestigation(activeInvestigationId, { silent: true });
+}
+
 async function captureSnapshots(subjects, profile = "core", context = {}, incidentId = null) {
   if (!subjects || !subjects.length) return null;
   const incident = incidentId || activeIncidentId || null;
@@ -6160,7 +7504,9 @@ async function captureSnapshots(subjects, profile = "core", context = {}, incide
     });
     const data = await res.json();
     if (!data.ok) return null;
-    return data.data || null;
+    const capture = data.data || null;
+    await maybeAutoCaptureSnapshotsToInvestigation(capture, { profile, context });
+    return capture;
   } catch (err) {
     return null;
   }
@@ -6181,7 +7527,9 @@ async function captureIncidentSnapshots(issue) {
     });
     const data = await res.json();
     if (!data.ok) return null;
-    return data.data || null;
+    const capture = data.data || null;
+    await maybeAutoCaptureSnapshotsToInvestigation(capture, { profile: "core", context: { source: "incident" } });
+    return capture;
   } catch (err) {
     return null;
   }
@@ -9380,14 +10728,90 @@ async function addLatestResultToDraft(service) {
   showToast("Added result to draft");
 }
 
-function updateRunnerDraftButton(service) {
+function _isInvestigationRunCaptured(meta) {
+  if (!activeInvestigationId) return false;
+  if (!meta || typeof meta !== "object") return false;
+  const uiRequestId = meta.ui_request_id || null;
+  const requestId = meta.request_id || null;
+  const correlationId = meta.correlation_id || null;
+  if (!uiRequestId && !requestId && !correlationId) return false;
+  const events = Array.isArray(activeInvestigationEvents) ? activeInvestigationEvents : [];
+  return events.some((evt) => {
+    if (!evt || evt.kind !== "action_run") return false;
+    const data = evt.data && typeof evt.data === "object" ? evt.data : {};
+    return (
+      (uiRequestId && data.ui_request_id === uiRequestId) ||
+      (requestId && data.request_id === requestId) ||
+      (correlationId && data.correlation_id === correlationId)
+    );
+  });
+}
+
+async function pinLatestResultToInvestigation(service) {
+  if (!hasDraftableResult(service)) {
+    showToast("Run an action first to pin its result.");
+    return;
+  }
+  if (!activeInvestigationId) {
+    showToast("Open an investigation first");
+    setSection("investigations");
+    return;
+  }
+  const meta = lastRunMeta?.[service] || null;
+  if (meta && _isInvestigationRunCaptured(meta)) {
+    showToast("Already captured in timeline");
+    return;
+  }
+  const output = sanitizeParams(lastOutputs?.[service]);
+  const label = meta?.label || `${service}.${meta?.action || "run"}`;
+  const payload = {
+    kind: "action_run",
+    summary: `Pinned: ${label}`,
+    data: {
+      attached_at: new Date().toISOString(),
+      service,
+      action: meta?.action || null,
+      label: meta?.label || null,
+      mode: meta?.mode || null,
+      ok: meta?.ok ?? null,
+      cancelled: meta?.cancelled ?? null,
+      failure_source: meta?.failure_source || null,
+      failure_outcome: meta?.failure_outcome || null,
+      error: meta?.error || null,
+      started_at: meta?.started_at || null,
+      ended_at: meta?.ended_at || null,
+      elapsed_ms: meta?.elapsed_ms ?? null,
+      http_status: meta?.http_status ?? null,
+      ui_request_id: meta?.ui_request_id || null,
+      request_id: meta?.request_id || null,
+      correlation_id: meta?.correlation_id || null,
+      execution_target: meta?.execution_target || null,
+      params: stripInternalParams(meta?.params || {}),
+      output,
+    },
+  };
+  const created = await addInvestigationEvent(activeInvestigationId, payload);
+  if (!created) return;
+  await openInvestigation(activeInvestigationId, { silent: true });
+  showToast("Pinned to investigation timeline");
+}
+
+function updateRunnerPinButton(service) {
   const form = document.querySelector(`.runner[data-service="${service}"]`);
   if (!form) return;
-  const button = form.querySelector(".runner-draft");
+  const button = form.querySelector(".runner-pin");
   if (!button) return;
   const enabled = hasDraftableResult(service);
   button.disabled = !enabled;
-  button.title = enabled ? "Add latest result to draft" : "Run an action first to add its result";
+  if (!enabled) {
+    button.title = "Run an action first to pin its result";
+    return;
+  }
+  if (!activeInvestigationId) {
+    button.title = "Open an investigation to pin results to its timeline";
+    return;
+  }
+  button.title = "Pin latest result to the active investigation timeline";
 }
 
 async function finalizeDraftSnapshot() {
@@ -14033,13 +15457,23 @@ function updateRouteForSection(section) {
     }
     return;
   }
+  if (section === "investigations") {
+    if (!window.location.pathname.startsWith("/investigations")) {
+      window.history.pushState({ section }, "", "/investigations");
+    }
+    return;
+  }
   if (section === "workspaces") {
     if (!window.location.pathname.startsWith("/workspaces")) {
       window.history.pushState({ section }, "", "/workspaces");
     }
     return;
   }
-  if (window.location.pathname.startsWith("/help") || window.location.pathname.startsWith("/workspaces")) {
+  if (
+    window.location.pathname.startsWith("/help") ||
+    window.location.pathname.startsWith("/workspaces") ||
+    window.location.pathname.startsWith("/investigations")
+  ) {
     window.history.pushState({ section }, "", "/");
   }
 }
@@ -14047,6 +15481,7 @@ function updateRouteForSection(section) {
 function resolveSectionFromPath() {
   if (window.location.pathname.startsWith("/help")) return "help";
   if (window.location.pathname.startsWith("/workspaces")) return "workspaces";
+  if (window.location.pathname.startsWith("/investigations")) return "investigations";
   return "dashboard";
 }
 
@@ -18806,9 +20241,122 @@ function setOutput(service, content) {
   renderTable(service, parsed);
   renderExplanation(service, parsed);
   renderGraph(service, parsed);
+  updateOutputPromoteBar(service, parsed);
+  if (service === "investigation-workspace") {
+    renderInvestigationNextSteps(parsed);
+  }
   if (service === "reports") {
     updateReportExportOptions(parsed);
   }
+}
+
+function _lookupActionLabel(service, action) {
+  const meta = ACTIONS_UI?.[service]?.[action];
+  return meta?.label || `${service}.${action}`;
+}
+
+function renderInvestigationNextStepsList(suggestions) {
+  if (!investigationNextStepsList) return;
+  investigationNextStepsList.innerHTML = "";
+  const items = Array.isArray(suggestions) ? suggestions : [];
+  if (investigationNextStepsEmpty) {
+    if (!items.length) {
+      investigationNextStepsEmpty.textContent =
+        "No suggestions yet. Select a timeline event to generate recommendations.";
+    }
+    investigationNextStepsEmpty.style.display = items.length ? "none" : "block";
+  }
+  if (!items.length) return;
+
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.classList.add("next-step");
+    const body = document.createElement("div");
+    const title = document.createElement("div");
+    title.classList.add("next-step-title");
+    title.textContent = _lookupActionLabel(item.service, item.action);
+    body.appendChild(title);
+    if (item.reason) {
+      const reason = document.createElement("div");
+      reason.classList.add("next-step-reason");
+      reason.textContent = String(item.reason);
+      body.appendChild(reason);
+    }
+
+    const actions = document.createElement("div");
+    actions.classList.add("next-step-actions");
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.classList.add("ghost", "small");
+    openBtn.textContent = "Open";
+    openBtn.addEventListener("click", () => {
+      openRunnerForAction(item.service, item.action, item.params || {});
+    });
+    actions.appendChild(openBtn);
+
+    row.appendChild(body);
+    row.appendChild(actions);
+    investigationNextStepsList.appendChild(row);
+  });
+}
+
+async function resolveInvestigationNextStepsPayload(payload, seq) {
+  if (!payload || typeof payload !== "object") return payload;
+  // Snapshot event in the investigation timeline: fetch snapshot data so we can
+  // inspect the lens for meaningful signals (sign-in failures, CA blocks, etc.).
+  if (payload.kind === "snapshot") {
+    const snapshotId = payload?.data?.snapshot_id;
+    if (snapshotId) {
+      const snap = await fetchSnapshotEngineSnapshot(snapshotId);
+      if (seq !== activeInvestigationNextStepsSeq) return null;
+      return snap || payload;
+    }
+  }
+
+  // Snapshot capture result wrapper from the investigation "Capture snapshot" button.
+  if (payload.kind === "snapshot_capture") {
+    const snapshots = extractSnapshotIdsFromCapture(payload.capture);
+    if (snapshots.length) {
+      const preferred = snapshots.find((s) => s.subject_kind === "user") || snapshots[0];
+      const snapshotId = preferred?.snapshot_id;
+      if (snapshotId) {
+        const snap = await fetchSnapshotEngineSnapshot(snapshotId);
+        if (seq !== activeInvestigationNextStepsSeq) return null;
+        return snap || payload;
+      }
+    }
+  }
+
+  return payload;
+}
+
+function renderInvestigationNextSteps(payload) {
+  if (!investigationNextStepsList) return;
+  if (!activeInvestigationId) {
+    renderInvestigationNextStepsList([]);
+    return;
+  }
+  if (!window.GraphAdminNextSteps || typeof window.GraphAdminNextSteps.suggest !== "function") {
+    renderInvestigationNextStepsList([]);
+    return;
+  }
+
+  const seq = ++activeInvestigationNextStepsSeq;
+  if (investigationNextStepsEmpty) {
+    investigationNextStepsEmpty.textContent = "Analyzing selected output...";
+    investigationNextStepsEmpty.style.display = "block";
+  }
+  investigationNextStepsList.innerHTML = "";
+
+  Promise.resolve(resolveInvestigationNextStepsPayload(payload, seq))
+    .then((resolved) => {
+      if (!resolved) return;
+      const out = window.GraphAdminNextSteps.suggest(resolved);
+      renderInvestigationNextStepsList(out?.suggestions || []);
+    })
+    .catch(() => {
+      renderInvestigationNextStepsList([]);
+    });
 }
 
 function extractArtifact(content) {
@@ -18972,7 +20520,7 @@ function unwrapEnvelopeData(payload) {
 
 async function confirmAction(service, action, params = {}) {
   const meta = ACTIONS_UI?.[service]?.[action];
-  if (!meta?.confirm) return true;
+  if (!meta?.confirm && !meta?.confirmTyped) return true;
   const label = meta.label || `${service}.${action}`;
   const risk = formatRiskLabel(getActionRisk(service, action));
   const detailKeys = [
@@ -18995,6 +20543,30 @@ async function confirmAction(service, action, params = {}) {
     .filter(Boolean);
   const detailBlock = details.length ? `\n\n${details.join("\n")}` : "";
   const message = `Risk: ${risk}\nConfirm ${label}?${detailBlock}`;
+  if (meta.confirmTyped) {
+    const key = typeof meta.confirmTyped === "string" ? meta.confirmTyped : "target";
+    const expected = String(params?.[key] || "").trim();
+    if (!expected) {
+      showToast("Missing confirmation target");
+      return false;
+    }
+    const typed = await promptModal({
+      title: "Type to confirm",
+      subtitle: label,
+      label: `Type exactly to confirm (${key})`,
+      defaultValue: "",
+      required: true,
+      hint: expected,
+      confirmLabel: risk === "Dangerous" ? "Delete" : "Confirm",
+      cancelLabel: "Cancel",
+    });
+    if (typed === null) return false;
+    if (String(typed).trim().toLowerCase() !== expected.toLowerCase()) {
+      showToast("Confirmation did not match");
+      return false;
+    }
+    return true;
+  }
   const confirmed = await confirmModal({
     title: "Confirm action",
     message,
@@ -19134,6 +20706,8 @@ async function runAction(service, action, params = {}, options = {}) {
         elapsed_ms: elapsedMs,
       });
       setOutput(service, data);
+      // Opt-in investigation capture (stores the failure payload + metadata).
+      await maybeAutoCaptureRun(service);
       const source = errorMeta.failureSource || data.failure_source || data.failure_origin || null;
       const outcome = errorMeta.failureOutcome || data.failure_outcome || null;
       const sourceLabel = source ? String(source).replace(/_/g, " ") : "";
@@ -19149,7 +20723,9 @@ async function runAction(service, action, params = {}, options = {}) {
       updateMetrics();
       return { ok: false, data };
     }
+    updateRunMeta(service, { normalized: sanitizeParams(data.normalized || null) });
     const payload = unwrapEnvelopeData(data.data);
+    await maybeAutoCaptureEvidenceToInvestigation(service, action, payload);
     if (shouldStoreContext(service, action)) {
       lastActionContext[service] = { action, params };
     }
@@ -19358,6 +20934,7 @@ async function runAction(service, action, params = {}, options = {}) {
       updateMetrics();
       showToast(action === "get_user_drive_id" ? "Drive ID queued for warmup" : "Action queued");
     }
+    await maybeAutoCaptureRun(service);
     return { ok: true, data: payload };
   } catch (err) {
     if (err.name === "AbortError") {
@@ -19390,7 +20967,7 @@ async function runAction(service, action, params = {}, options = {}) {
       activeRequests.delete(service);
       setRunnerRunning(service, false);
     }
-    updateRunnerDraftButton(service);
+    updateRunnerPinButton(service);
   }
 }
 
@@ -19437,9 +21014,8 @@ function openRunnerForAction(service, action, params = {}) {
     }
     input.value = params[key];
   });
-  if (select) {
-    select.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
+  const scrollTarget = form.querySelector(".action-select-shell") || select || form;
+  scrollTarget.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function loadPresets() {
@@ -19777,6 +21353,8 @@ function modeLabel(mode) {
   if (mode === "powershell") return "PowerShell";
   if (mode === "ssh") return "SSH";
   if (mode === "local") return "Local";
+  if (mode === "arm") return "ARM";
+  if (mode === "powerplatform") return "Power Platform";
   return "Graph";
 }
 
@@ -19886,7 +21464,9 @@ function addRiskBadge(container, risk) {
 function addChipBadge(chip, mode) {
   const badge = document.createElement("span");
   badge.classList.add("badge");
-  badge.classList.add(mode === "powershell" ? "ps" : "graph");
+  if (mode === "powershell") badge.classList.add("ps");
+  else if (mode === "arm") badge.classList.add("arm");
+  else badge.classList.add("graph");
   badge.textContent = modeLabel(mode);
   chip.appendChild(badge);
 }
@@ -20115,7 +21695,7 @@ function populateRunner(service) {
   const actionsRow = form.querySelector(".runner-actions");
   if (actionsRow) actionsRow.classList.add("execution-bar");
   let cancelButton = form.querySelector(".runner-cancel");
-  let draftButton = form.querySelector(".runner-draft");
+  let pinButton = form.querySelector(".runner-pin");
   if (!cancelButton && actionsRow) {
     cancelButton = document.createElement("button");
     cancelButton.type = "button";
@@ -20129,19 +21709,19 @@ function populateRunner(service) {
     cancelButton.dataset.bound = "true";
     cancelButton.addEventListener("click", () => cancelAction(service));
   }
-  if (!draftButton && actionsRow) {
-    draftButton = document.createElement("button");
-    draftButton.type = "button";
-    draftButton.classList.add("ghost", "small", "runner-draft");
-    draftButton.dataset.service = service;
-    draftButton.textContent = "Add result to draft";
-    actionsRow.appendChild(draftButton);
+  if (!pinButton && actionsRow) {
+    pinButton = document.createElement("button");
+    pinButton.type = "button";
+    pinButton.classList.add("ghost", "small", "runner-pin");
+    pinButton.dataset.service = service;
+    pinButton.textContent = "Pin to investigation";
+    actionsRow.appendChild(pinButton);
   }
-  if (draftButton && !draftButton.dataset.bound) {
-    draftButton.dataset.bound = "true";
-    draftButton.addEventListener("click", () => addLatestResultToDraft(service));
+  if (pinButton && !pinButton.dataset.bound) {
+    pinButton.dataset.bound = "true";
+    pinButton.addEventListener("click", () => pinLatestResultToInvestigation(service));
   }
-  if (draftButton) updateRunnerDraftButton(service);
+  if (pinButton) updateRunnerPinButton(service);
 
   if (!Object.keys(actions).length) {
     select.innerHTML = "";
@@ -20292,6 +21872,7 @@ function populateRunner(service) {
         if (field.placeholder) {
           input.placeholder = field.placeholder;
         }
+        prefillRunnerInputFromContext(field, input, wrapper);
         wrapper.appendChild(input);
       }
       container.appendChild(wrapper);
@@ -20303,6 +21884,157 @@ function populateRunner(service) {
   attachAdvancedControls(service);
   updatePresetOptions(service);
   select.addEventListener("change", () => updatePresetOptions(service));
+  upgradeRunnerActionSelect(select);
+}
+
+function upgradeRunnerActionSelect(select) {
+  if (!select) return;
+  if (select.dataset.upgraded === "true") {
+    const shell = select.closest(".select-shell");
+    if (shell && typeof shell._syncActionSelect === "function") {
+      shell._syncActionSelect();
+    }
+    return;
+  }
+  select.dataset.upgraded = "true";
+  const label = select.closest("label");
+  const shell = document.createElement("div");
+  shell.classList.add("select-shell", "action-select-shell");
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.classList.add("select-trigger", "action-select-trigger");
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  // Some browsers (notably macOS) can still try to activate the hidden native <select>
+  // when the control sits inside a <label>. Make the label explicitly target the trigger
+  // button so label activation never opens the OS select popover.
+  trigger.id = `select-trigger-${++selectTriggerIdSeq}`;
+  if (label) label.htmlFor = trigger.id;
+  const triggerLabel = document.createElement("span");
+  triggerLabel.classList.add("select-trigger-label");
+  const triggerCaret = document.createElement("span");
+  triggerCaret.classList.add("select-trigger-caret");
+  triggerCaret.textContent = "▾";
+  trigger.appendChild(triggerLabel);
+  trigger.appendChild(triggerCaret);
+
+  const menu = document.createElement("div");
+  menu.classList.add("select-menu", "action-select-menu");
+  menu.setAttribute("role", "listbox");
+
+  // Wrap the native select so existing code can still read/write `select.value`,
+  // but user interaction happens through the themed dropdown (opens downward).
+  select.classList.add("native-select-hidden");
+  // Ensure the native control can't steal clicks (browser <select> popovers can open upward on macOS).
+  select.style.display = "none";
+  // Also swallow any synthetic activation in case the browser still dispatches events to it.
+  select.addEventListener("mousedown", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+  select.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+  select.tabIndex = -1;
+  if (label) {
+    label.insertBefore(shell, select);
+  } else {
+    select.parentNode.insertBefore(shell, select);
+  }
+  shell.appendChild(trigger);
+  // Keep the menu inside the shell so CSS can reliably anchor it below the trigger.
+  // (Rendering at document root + manual positioning caused "drop-up" illusions when the
+  // menu was opened scrolled to a selected option.)
+  shell.appendChild(menu);
+  shell.appendChild(select);
+
+  const close = () => {
+    shell.classList.remove("open");
+    trigger.setAttribute("aria-expanded", "false");
+  };
+  const open = () => {
+    shell.classList.add("open");
+    trigger.setAttribute("aria-expanded", "true");
+    // Force a classic "drop-down" placement even if stale CSS or browser quirks
+    // attempt to treat the menu like a drop-up.
+    menu.style.top = "calc(100% + 8px)";
+    menu.style.bottom = "auto";
+    // Default to showing the start of the list. This makes the control feel like a
+    // classic dropdown (it always "drops down" and doesn't appear to open above
+    // the trigger just because the list is long).
+    menu.scrollTop = 0;
+    // Some browsers will try to scroll the selected option into view when a long
+    // listbox opens. Force the initial position to the top.
+    requestAnimationFrame(() => {
+      menu.scrollTop = 0;
+    });
+  };
+  const toggle = () => (shell.classList.contains("open") ? close() : open());
+
+  const sync = () => {
+    const selected = select.selectedOptions?.[0]?.textContent || "";
+    triggerLabel.textContent = selected || "Select action";
+    menu.innerHTML = "";
+    Array.from(select.options || []).forEach((opt) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.classList.add("select-option");
+      item.textContent = opt.textContent;
+      item.dataset.value = opt.value;
+      if (opt.value === select.value) item.classList.add("selected");
+      item.addEventListener("click", (ev) => {
+        // Swallow the event so parent <label> wrappers (and global click handlers)
+        // never try to activate the hidden native <select>.
+        ev.preventDefault();
+        ev.stopPropagation();
+        select.value = opt.value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        close();
+      });
+      menu.appendChild(item);
+    });
+  };
+  shell._syncActionSelect = sync;
+
+  // Prevent the click from bubbling to the <label> wrapper. Some browsers will
+  // still try to activate the hidden native <select> when a descendant is
+  // clicked, which can cause the OS dropdown to "drop up" even though we render
+  // our own menu.
+  const swallow = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+
+  trigger.addEventListener("mousedown", swallow);
+  trigger.addEventListener("pointerdown", swallow);
+  trigger.addEventListener("click", (ev) => {
+    swallow(ev);
+    toggle();
+  });
+
+  // Close on outside click / escape.
+  window.addEventListener("click", (ev) => {
+    if (!shell.contains(ev.target) && !menu.contains(ev.target)) close();
+  });
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") close();
+  });
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (shell.classList.contains("open")) close();
+    },
+    // Don't capture scroll events from nested overflow containers (like the dropdown itself),
+    // otherwise scrolling the option list would immediately close the menu.
+    { passive: true }
+  );
+  window.addEventListener("resize", () => {
+    if (shell.classList.contains("open")) close();
+  });
+
+  select.addEventListener("change", sync);
+  sync();
 }
 
 function readRunnerParams(service) {
@@ -21291,6 +23023,301 @@ if (incidentRunFixButton) {
   });
 }
 
+if (investigationRefreshButton) {
+  investigationRefreshButton.addEventListener("click", () => {
+    renderInvestigations();
+  });
+}
+
+if (investigationCreateButton) {
+  investigationCreateButton.addEventListener("click", async () => {
+    if (!symptomTemplates.length) {
+      await refreshSymptomTemplates();
+    }
+    const symptomOptions = [
+      { value: "", label: "Manual (no symptom template)" },
+      ...symptomTemplates.map((template) => ({
+        value: template.symptom_id,
+        label: template.display_name || template.symptom_id,
+      })),
+    ];
+    const values = await openFormModal({
+      title: "New investigation",
+      subtitle: "Optionally run Tier-0 triage from a symptom template.",
+      confirmLabel: "Create",
+      cancelLabel: "Cancel",
+      fields: [
+        {
+          key: "title",
+          label: "Title",
+          value: (investigationNewTitle?.value || "").trim() || "Investigation",
+          required: true,
+          placeholder: "Investigation title",
+        },
+        {
+          key: "symptom_id",
+          label: "Symptom template (optional)",
+          type: "select",
+          value: "",
+          options: symptomOptions,
+        },
+        {
+          key: "user_upn",
+          label: "User UPN (optional)",
+          value: "",
+          placeholder: "user@contoso.com",
+        },
+        {
+          key: "device_name",
+          label: "Device name/IP (optional)",
+          value: "",
+          placeholder: "DEVICE-123 or 10.0.0.5",
+        },
+      ],
+    });
+    if (!values) return;
+
+    const title = String(values.title || "").trim() || "Investigation";
+    const symptomId = String(values.symptom_id || "").trim();
+    const userUpn = String(values.user_upn || "").trim();
+    const deviceName = String(values.device_name || "").trim();
+    const context = {
+      ...(symptomId ? { symptom_id: symptomId } : {}),
+      ...(userUpn ? { user_upn: userUpn } : {}),
+      ...(deviceName ? { device_name: deviceName } : {}),
+    };
+    const created = await createInvestigation({ title, context });
+    if (!created) return;
+    if (investigationNewTitle) investigationNewTitle.value = "";
+    await openInvestigation(created.investigation_id, { silent: true });
+    await renderInvestigations();
+    showToast("Investigation created");
+
+    if (!symptomId) return;
+
+    // Tier-0 triage snapshots: derive subjects from the symptom template and run
+    // only Tier-0 probes (no auto-escalation to Tier-1 during creation).
+    const plan = await planSymptomTier0({
+      symptom_id: symptomId,
+      issue: {
+        user: userUpn || null,
+        device: deviceName || null,
+      },
+    });
+    if (!plan) return;
+
+    const subjects = Array.isArray(plan.subjects) ? plan.subjects : [];
+    const probePlan = Array.isArray(plan.probe_plan) ? plan.probe_plan : [];
+    const profile = plan.profile || "core";
+    if (!subjects.length) {
+      await addInvestigationEvent(created.investigation_id, {
+        kind: "note",
+        summary: `Tier-0 triage skipped · ${plan.display_name || symptomId}`,
+        data: {
+          symptom_id: symptomId,
+          reason: "No subjects could be derived. Provide a user/device or configure snapshot catalog targets.",
+        },
+      });
+      await openInvestigation(created.investigation_id, { silent: true });
+      showToast("No subjects available for Tier-0 triage");
+      return;
+    }
+
+    await addInvestigationEvent(created.investigation_id, {
+      kind: "action_run",
+      summary: `Tier-0 triage · ${plan.display_name || symptomId}`,
+      data: {
+        symptom_id: symptomId,
+        symptom_display: plan.display_name || null,
+        tier: "tier0",
+        subjects_count: subjects.length,
+        inputs: {
+          user_upn: userUpn || null,
+          device_name: deviceName || null,
+        },
+      },
+    });
+    await openInvestigation(created.investigation_id, { silent: true });
+    showToast("Running Tier-0 triage…");
+    const capture = await captureSnapshots(subjects, profile, {
+      source: "investigation",
+      symptom_id: symptomId,
+      symptom_tier: "tier0",
+      probe_plan: probePlan,
+    });
+    if (capture) {
+      showToast("Tier-0 triage complete");
+      setOutput("investigation-workspace", capture);
+    } else {
+      showToast("Tier-0 triage failed");
+    }
+  });
+}
+
+if (investigationAddNoteButton) {
+  investigationAddNoteButton.addEventListener("click", async () => {
+    if (!activeInvestigationId) {
+      showToast("Open an investigation first");
+      return;
+    }
+    const note = (investigationNoteInput?.value || "").trim();
+    if (!note) {
+      showToast("Enter a note first");
+      return;
+    }
+    const result = await addInvestigationNote(activeInvestigationId, note);
+    if (!result) return;
+    if (investigationNoteInput) investigationNoteInput.value = "";
+    await openInvestigation(activeInvestigationId, { silent: true });
+    showToast("Note added");
+  });
+}
+
+if (investigationAttachOutputButton) {
+  investigationAttachOutputButton.addEventListener("click", async () => {
+    await attachLastOutputToInvestigation();
+  });
+}
+
+if (investigationCaptureSnapshotButton) {
+  investigationCaptureSnapshotButton.addEventListener("click", async () => {
+    await captureSnapshotForActiveInvestigation();
+  });
+}
+
+if (investigationSummaryInput) {
+  investigationSummaryInput.addEventListener("input", () => {
+    const current = String(investigationSummaryInput.value || "");
+    activeInvestigationSummaryDirty = current !== String(activeInvestigationSummaryLastSaved || "");
+  });
+}
+
+if (investigationGenerateSummaryButton) {
+  investigationGenerateSummaryButton.addEventListener("click", async () => {
+    if (!activeInvestigationId) {
+      showToast("Open an investigation first");
+      return;
+    }
+    if (!window.GraphAdminInvestigationSummary || typeof window.GraphAdminInvestigationSummary.buildSummary !== "function") {
+      showToast("Summary engine not loaded");
+      return;
+    }
+    const title = activeInvestigationDetail?.title || activeInvestigationDetail?.investigation_id || "Investigation summary";
+    const text = window.GraphAdminInvestigationSummary.buildSummary(activeInvestigationEvents, activeInvestigationContext, { title });
+    if (investigationSummaryInput) {
+      investigationSummaryInput.value = text || "";
+      activeInvestigationSummaryDirty = true;
+    }
+    showToast("Summary generated");
+  });
+}
+
+if (investigationSummarySaveButton) {
+  investigationSummarySaveButton.addEventListener("click", async () => {
+    if (!activeInvestigationId) {
+      showToast("Open an investigation first");
+      return;
+    }
+    const notes = String(investigationSummaryInput?.value || "");
+    const updated = await updateInvestigation(activeInvestigationId, { notes });
+    if (!updated) return;
+    activeInvestigationSummaryLastSaved = notes;
+    activeInvestigationSummaryDirty = false;
+    // Refresh full investigation detail for accurate timestamps and persistence.
+    await openInvestigation(activeInvestigationId, { silent: true });
+    showToast("Summary saved");
+  });
+}
+
+if (investigationAutoCaptureToggle) {
+  investigationAutoCaptureToggle.addEventListener("change", async () => {
+    if (!activeInvestigationId) {
+      showToast("Open an investigation first");
+      investigationAutoCaptureToggle.checked = false;
+      activeInvestigationAutoCapture = false;
+      return;
+    }
+    let ctx = {};
+    const raw = (investigationContextInput?.value || "").trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          showToast("Context must be a JSON object");
+          investigationAutoCaptureToggle.checked = activeInvestigationAutoCapture;
+          return;
+        }
+        ctx = parsed;
+      } catch (err) {
+        showToast("Invalid JSON context");
+        investigationAutoCaptureToggle.checked = activeInvestigationAutoCapture;
+        return;
+      }
+    }
+    ctx.auto_capture_runs = Boolean(investigationAutoCaptureToggle.checked);
+    const result = await updateInvestigationContext(activeInvestigationId, ctx);
+    if (!result) {
+      investigationAutoCaptureToggle.checked = activeInvestigationAutoCapture;
+      return;
+    }
+    const updated = result.context && typeof result.context === "object" && !Array.isArray(result.context) ? result.context : ctx;
+    if (investigationContextInput) {
+      investigationContextInput.value = JSON.stringify(updated, null, 2);
+    }
+    syncInvestigationAutoCapture(updated);
+    showToast(activeInvestigationAutoCapture ? "Auto-capture enabled" : "Auto-capture disabled");
+  });
+}
+
+if (investigationContextReloadButton) {
+  investigationContextReloadButton.addEventListener("click", async () => {
+    if (!activeInvestigationId) {
+      showToast("Open an investigation first");
+      return;
+    }
+    const data = await fetchInvestigationContext(activeInvestigationId);
+    if (!data) {
+      showToast("Failed to load context");
+      return;
+    }
+    const ctx = data.context && typeof data.context === "object" && !Array.isArray(data.context) ? data.context : {};
+    if (investigationContextInput) {
+      investigationContextInput.value = JSON.stringify(ctx, null, 2);
+    }
+    syncInvestigationAutoCapture(ctx);
+    showToast("Context reloaded");
+  });
+}
+
+if (investigationContextSaveButton) {
+  investigationContextSaveButton.addEventListener("click", async () => {
+    if (!activeInvestigationId) {
+      showToast("Open an investigation first");
+      return;
+    }
+    let ctx = {};
+    const raw = (investigationContextInput?.value || "").trim();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          showToast("Context must be a JSON object");
+          return;
+        }
+        ctx = parsed;
+      } catch (err) {
+        showToast("Invalid JSON context");
+        return;
+      }
+    }
+    const result = await updateInvestigationContext(activeInvestigationId, ctx);
+    if (!result) return;
+    // Refresh full investigation detail for accurate timestamps.
+    await openInvestigation(activeInvestigationId, { silent: true });
+    showToast("Context saved");
+  });
+}
+
 if (incidentReportLoadButton) {
   incidentReportLoadButton.addEventListener("click", () => {
     const id = incidentReportSelect?.value || activeIncidentId;
@@ -22216,5 +24243,6 @@ if (sshTerminalOutput) {
 renderIssues();
 renderIncidents();
 renderIncidentReportSelect();
+renderInvestigations();
 fetchTopologyHistory();
 refreshTopologyChangeViews();

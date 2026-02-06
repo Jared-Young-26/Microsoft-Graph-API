@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import hashlib
 import json
 import sqlite3
+import uuid
 
 
 def _now_iso() -> str:
@@ -140,6 +141,26 @@ class SnapshotSqlStore:
                 report_json TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS investigations (
+                investigation_id TEXT PRIMARY KEY,
+                title TEXT,
+                status TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                tags_json TEXT,
+                notes TEXT,
+                context_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS investigation_events (
+                event_id TEXT PRIMARY KEY,
+                investigation_id TEXT,
+                time TEXT,
+                kind TEXT,
+                summary TEXT,
+                data_json TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS snapshot_signals (
                 signal_name TEXT,
                 provider_version TEXT,
@@ -204,6 +225,8 @@ class SnapshotSqlStore:
             CREATE INDEX IF NOT EXISTS idx_incident_snapshots ON incident_snapshots (incident_id, snapshot_id);
             CREATE INDEX IF NOT EXISTS idx_incident_events ON incident_events (incident_id, event_id);
             CREATE INDEX IF NOT EXISTS idx_incident_reports_time ON incident_reports (updated_at);
+            CREATE INDEX IF NOT EXISTS idx_investigations_time ON investigations (created_at);
+            CREATE INDEX IF NOT EXISTS idx_investigation_events ON investigation_events (investigation_id, time);
             """
             )
             self._migrate_schema(conn)
@@ -284,6 +307,25 @@ class SnapshotSqlStore:
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         """Idempotent migrations for older snapshot DBs."""
+
+        # Investigations context (schema evolves independently from snapshots/events).
+        inv_cols = self._table_columns(conn, "investigations")
+        if inv_cols and "context_json" not in inv_cols:
+            try:
+                conn.execute("ALTER TABLE investigations ADD COLUMN context_json TEXT")
+            except Exception:
+                pass
+            inv_cols = self._table_columns(conn, "investigations")
+        if inv_cols and "context_json" in inv_cols:
+            try:
+                conn.execute(
+                    """
+                    UPDATE investigations
+                    SET context_json = COALESCE(NULLIF(context_json, ''), '{}')
+                    """
+                )
+            except Exception:
+                pass
 
         cols = self._table_columns(conn, "onedrive_drive_cache")
         if not cols:
@@ -1046,6 +1088,263 @@ class SnapshotSqlStore:
                 ),
             )
             conn.commit()
+
+    def create_investigation(
+        self,
+        investigation_id: str,
+        *,
+        title: Optional[str] = None,
+        status: str = "open",
+        created_at: Optional[str] = None,
+        updated_at: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        notes: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create an investigation record.
+
+        Investigations are a lightweight container for context + timeline entries
+        that can later be wired into auto-capture and auto-fill behavior.
+        """
+
+        if not investigation_id:
+            raise ValueError("investigation_id is required.")
+        now = _now_iso()
+        created = created_at or now
+        updated = updated_at or now
+        tags_json = _json_dumps(tags or [])
+        context_json = _json_dumps(context or {})
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO investigations (
+                    investigation_id,
+                    title,
+                    status,
+                    created_at,
+                    updated_at,
+                    tags_json,
+                    notes,
+                    context_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    investigation_id,
+                    title,
+                    status,
+                    created,
+                    updated,
+                    tags_json,
+                    notes,
+                    context_json,
+                ),
+            )
+            conn.commit()
+        return self.get_investigation(investigation_id) or {
+            "investigation_id": investigation_id,
+            "title": title,
+            "status": status,
+            "created_at": created,
+            "updated_at": updated,
+            "tags": tags or [],
+            "notes": notes,
+            "context": context or {},
+            "events": [],
+        }
+
+    def list_investigations(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List investigations (most recent first)."""
+
+        params: List[Any] = []
+        sql = "SELECT * FROM investigations ORDER BY created_at DESC"
+        if limit and limit > 0:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        results: List[Dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["tags"] = json.loads(item.get("tags_json") or "[]")
+            except Exception:
+                item["tags"] = []
+            item.pop("tags_json", None)
+            try:
+                item["context"] = json.loads(item.get("context_json") or "{}")
+            except Exception:
+                item["context"] = {}
+            item.pop("context_json", None)
+            results.append(item)
+        return results
+
+    def get_investigation(self, investigation_id: str) -> Optional[Dict[str, Any]]:
+        """Get an investigation and its timeline events."""
+
+        if not investigation_id:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM investigations WHERE investigation_id = ?",
+                (investigation_id,),
+            ).fetchone()
+            if not row:
+                return None
+            event_rows = conn.execute(
+                """
+                SELECT * FROM investigation_events
+                WHERE investigation_id = ?
+                ORDER BY time ASC
+                """,
+                (investigation_id,),
+            ).fetchall()
+        item = dict(row)
+        try:
+            item["tags"] = json.loads(item.get("tags_json") or "[]")
+        except Exception:
+            item["tags"] = []
+        item.pop("tags_json", None)
+        try:
+            item["context"] = json.loads(item.get("context_json") or "{}")
+        except Exception:
+            item["context"] = {}
+        item.pop("context_json", None)
+        events: List[Dict[str, Any]] = []
+        for ev in event_rows:
+            payload = dict(ev)
+            try:
+                payload["data"] = json.loads(payload.get("data_json") or "null")
+            except Exception:
+                payload["data"] = None
+            payload.pop("data_json", None)
+            events.append(payload)
+        item["events"] = events
+        return item
+
+    def get_investigation_context(self, investigation_id: str) -> Dict[str, Any]:
+        """Return the stored investigation context object (always a dict)."""
+
+        inv = self.get_investigation(investigation_id)
+        ctx = (inv or {}).get("context")
+        return ctx if isinstance(ctx, dict) else {}
+
+    def update_investigation_context(self, investigation_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Replace investigation context JSON (updates updated_at)."""
+
+        if not investigation_id:
+            raise ValueError("investigation_id is required.")
+        if not isinstance(context, dict):
+            raise ValueError("context must be an object.")
+        now = _now_iso()
+        payload = _json_dumps(context or {})
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE investigations SET context_json = ?, updated_at = ? WHERE investigation_id = ?",
+                (payload, now, investigation_id),
+            )
+            conn.commit()
+        return self.get_investigation_context(investigation_id)
+
+    def update_investigation(self, investigation_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update an investigation record (title/status/tags/notes).
+
+        This is intentionally minimal: investigations are primarily a context +
+        timeline container, but operators need a stable place to store narrative
+        notes (e.g., an auto-generated summary) without polluting the timeline.
+        """
+
+        if not investigation_id:
+            raise ValueError("investigation_id is required.")
+        if not isinstance(updates, dict):
+            raise ValueError("updates must be an object.")
+        fields: List[str] = []
+        params: List[Any] = []
+
+        if "title" in updates:
+            fields.append("title = ?")
+            params.append(updates.get("title"))
+        if "status" in updates:
+            fields.append("status = ?")
+            params.append(updates.get("status"))
+        if "notes" in updates:
+            fields.append("notes = ?")
+            params.append(updates.get("notes"))
+        if "tags" in updates:
+            tags = updates.get("tags")
+            if tags is None:
+                tags = []
+            if not isinstance(tags, list):
+                raise ValueError("tags must be a list.")
+            fields.append("tags_json = ?")
+            params.append(_json_dumps(tags))
+
+        now = _now_iso()
+        fields.append("updated_at = ?")
+        params.append(now)
+        params.append(investigation_id)
+
+        with self._connect() as conn:
+            if fields:
+                conn.execute(
+                    f"UPDATE investigations SET {', '.join(fields)} WHERE investigation_id = ?",
+                    params,
+                )
+                conn.commit()
+        return self.get_investigation(investigation_id)
+
+    def add_investigation_event(
+        self,
+        investigation_id: str,
+        *,
+        kind: str,
+        summary: Optional[str] = None,
+        data: Optional[Dict[str, Any]] = None,
+        time_iso: Optional[str] = None,
+        event_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Append an event to an investigation timeline."""
+
+        if not investigation_id:
+            raise ValueError("investigation_id is required.")
+        if not kind:
+            raise ValueError("kind is required.")
+        eid = event_id or uuid.uuid4().hex
+        time_val = time_iso or _now_iso()
+        data_json = _json_dumps(data or {})
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO investigation_events (
+                    event_id,
+                    investigation_id,
+                    time,
+                    kind,
+                    summary,
+                    data_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    eid,
+                    investigation_id,
+                    time_val,
+                    kind,
+                    summary,
+                    data_json,
+                ),
+            )
+            conn.execute(
+                "UPDATE investigations SET updated_at = ? WHERE investigation_id = ?",
+                (time_val, investigation_id),
+            )
+            conn.commit()
+        return {
+            "event_id": eid,
+            "investigation_id": investigation_id,
+            "time": time_val,
+            "kind": kind,
+            "summary": summary,
+            "data": data or {},
+        }
 
     def update_incident(self, incident_id: str, updates: Dict[str, Any]) -> None:
         """Update incident."""

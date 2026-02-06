@@ -225,6 +225,8 @@ from sharepoint import SharePointClient
 from teams import TeamsClient
 from entra import EntraClient
 from azure import AzureClient
+from defender import DefenderClient
+from powerplatform import PowerPlatformClient
 from purview import PurviewClient
 from local_ad import LocalADClient
 from local_endpoint import LocalEndpointClient
@@ -1434,6 +1436,12 @@ class BackendState:
                     "subscription_id": cfg.azure_subscription_id,
                 },
             )
+        elif service == "defender":
+            graph = self.get_graph()
+            client = DefenderClient(graph, subscription_id=cfg.azure_subscription_id)
+        elif service == "powerplatform":
+            graph = self.get_graph()
+            client = PowerPlatformClient(graph)
         elif service == "purview":
             graph = self.get_graph()
             client = PurviewClient(
@@ -1556,7 +1564,10 @@ GRAPH_CHECKS = {
     "exchange": {"path": "/users/{user_id}/mailFolders", "params": {"$top": 1}},
     "onedrive": {"path": "/users/{user_id}/drive", "params": {"$select": "id"}},
     "sharepoint": {"path": "/sites", "params": {"search": "*", "$top": 1}},
-    "teams": {"path": "/teams", "params": {"$top": 1}},
+    "teams": {
+        "path": "/groups",
+        "params": {"$filter": "resourceProvisioningOptions/Any(x:x eq 'Team')", "$top": 1},
+    },
     "entra": {"path": "/users", "params": {"$top": 1}},
 }
 
@@ -2623,21 +2634,54 @@ ACTIONS = {
         },
     },
     "teams": {
+        # Delegated-only convenience; app-only tenants should use list_teams.
         "list_joined_teams": {"method": "list_joined_teams"},
+        "list_teams": {"method": "list_teams", "defaults": {"top": 50}},
+        "get_team": {"method": "get_team", "required": ["team_id"]},
         "list_channels": {"method": "list_channels", "required": ["team_id"]},
+        "list_team_members": {"method": "list_team_members", "required": ["team_id"]},
         "create_channel": {"method": "create_channel", "required": ["team_id", "display_name"]},
+        "add_member": {"method": "add_member", "required": ["team_id", "user_id"], "list_fields": ["roles"]},
+        "remove_member": {"method": "remove_member", "required": ["team_id", "member_id"]},
         "list_chat_messages": {"method": "list_chat_messages", "required": ["chat_id"]},
         "list_teams_admin": {"method": "list_teams_powershell"},
+        "ps_list_policies": {"method": "list_policies_powershell"},
+        "ps_get_user_policy_assignments": {
+            "method": "get_user_policy_assignments_powershell",
+            "required": ["user_upn"],
+        },
+        "ps_assign_user_policy": {
+            "method": "assign_user_policy_powershell",
+            "required": ["user_upn", "policy_type", "policy_name"],
+        },
+        "ps_remove_user_policy": {
+            "method": "remove_user_policy_powershell",
+            "required": ["user_upn", "policy_type"],
+        },
         "update_channel": {"method": "update_channel", "required": ["team_id", "channel_id", "updates"]},
     },
     "entra": {
         "list_users": {"method": "list_users", "defaults": {"top": 10}},
-        "get_user": {"method": "get_user", "required": ["user_id"]},
+        "get_user": {"method": "get_user", "required": ["user_id"], "list_fields": ["select"]},
         "create_user": {
             "method": "create_user",
             "required": ["user_principal_name", "display_name", "password"],
         },
-        "update_user": {"method": "update_user", "required": ["user_id", "updates"]},
+        "update_user": {
+            "method": "update_user",
+            "required": ["user_id", "updates"],
+            # Allow runner fields to send patch keys directly; dispatch_task will assemble `updates`.
+            "update_fields": [
+                "displayName",
+                "jobTitle",
+                "department",
+                "officeLocation",
+                "mobilePhone",
+                "businessPhones",
+            ],
+            "list_fields": ["businessPhones"],
+        },
+        "delete_user": {"method": "delete_user", "required": ["user_id"]},
         "list_groups": {"method": "list_groups", "defaults": {"top": 10}},
         "get_group": {"method": "get_group", "required": ["group_id"]},
         "create_group": {
@@ -2675,6 +2719,14 @@ ACTIONS = {
         "list_resource_groups": {"method": "list_resource_groups_powershell"},
         "list_virtual_machines": {"method": "list_virtual_machines_powershell"},
         "list_key_vaults": {"method": "list_key_vaults_powershell"},
+    },
+    "defender": {
+        "secure_score_summary": {"method": "secure_score_summary"},
+        "recommendations_list": {"method": "recommendations_list", "defaults": {"max_items": 50}},
+    },
+    "powerplatform": {
+        "list_environments": {"method": "list_environments", "defaults": {"max_items": 200}},
+        "list_flows": {"method": "list_flows", "required": ["environment_id"], "defaults": {"max_items": 50}},
     },
     "purview": {
         "list_retention_policies": {"method": "list_retention_policies_powershell"},
@@ -3648,6 +3700,203 @@ def _list_vision_u_eye_visual_signals(
 def _list_symptom_templates():
     """List symptom templates."""
     return list_symptom_templates()
+
+def _plan_symptom_tier0(payload: dict | None) -> dict:
+    """Build a Tier-0 snapshot plan for a symptom template.
+
+    This returns a deterministic "plan" that the UI can execute without
+    invoking Action Packs. It is used to create investigations from a symptom
+    template and immediately run Tier-0 triage snapshots (no auto-escalation).
+    """
+
+    if not isinstance(payload, dict):
+        raise ValueError("Plan payload must be an object.")
+    symptom_id = payload.get("symptom_id") or payload.get("id")
+    symptom_id = str(symptom_id or "").strip()
+    if not symptom_id:
+        raise ValueError("symptom_id is required.")
+    template = get_symptom_template(symptom_id)
+    if not template:
+        raise ValueError("Symptom template not found.")
+
+    issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else {}
+    merged = dict(issue)
+    # Allow callers to provide actor identifiers at the top level.
+    user = payload.get("user") or payload.get("upn") or payload.get("user_upn") or payload.get("user_id")
+    device = payload.get("device") or payload.get("hostname") or payload.get("ip") or payload.get("device_name")
+    if user and "user" not in merged and "upn" not in merged and "user_id" not in merged:
+        merged["user"] = user
+    if device and "device" not in merged and "hostname" not in merged and "ip" not in merged:
+        merged["device"] = device
+    merged["symptom_id"] = symptom_id
+    merged.setdefault("symptom", template.get("display_name") or symptom_id)
+
+    subjects = _derive_subjects_from_issue(merged, template=template)
+    probe_plan = (template.get("probe_plan") or {}).get("tier0") or []
+    profile = (template.get("snapshot_profiles") or {}).get("tier0") or "core"
+
+    return {
+        "symptom_id": symptom_id,
+        "display_name": template.get("display_name") or symptom_id,
+        "category": template.get("category") or "",
+        "profile": profile,
+        "probe_plan": probe_plan,
+        "subjects": subjects,
+        "expected_root_causes": template.get("expected_root_causes") or [],
+    }
+
+
+def _create_investigation(payload: dict | None):
+    """Create an investigation (minimum viable investigation container)."""
+    if not isinstance(payload, dict):
+        raise ValueError("Investigation payload must be an object.")
+    investigation_id = payload.get("investigation_id") or payload.get("id") or uuid.uuid4().hex
+    title = payload.get("title") or "Investigation"
+    status = payload.get("status") or "open"
+    tags = payload.get("tags") or []
+    notes = payload.get("notes") or None
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else None
+    created_at = payload.get("created_at") or datetime.now(timezone.utc).isoformat()
+    updated_at = payload.get("updated_at") or created_at
+    return STATE.snapshot_store.create_investigation(
+        investigation_id,
+        title=title,
+        status=status,
+        created_at=created_at,
+        updated_at=updated_at,
+        tags=tags if isinstance(tags, list) else [],
+        notes=notes,
+        context=sanitize_payload(_jsonable(context)) if isinstance(context, dict) else None,
+    )
+
+
+def _list_investigations(limit: int = 50):
+    """List investigations."""
+    return STATE.snapshot_store.list_investigations(limit=limit)
+
+
+def _get_investigation(investigation_id: str):
+    """Get an investigation and its timeline."""
+    return STATE.snapshot_store.get_investigation(investigation_id)
+
+def _update_investigation(investigation_id: str, payload: dict | None):
+    """Update an investigation record (title/status/tags/notes)."""
+
+    if not investigation_id:
+        raise ValueError("investigation_id is required.")
+    body = payload or {}
+    if not isinstance(body, dict):
+        raise ValueError("Update payload must be an object.")
+    updates = body.get("updates") if isinstance(body.get("updates"), dict) else body
+    if not isinstance(updates, dict):
+        raise ValueError("updates must be an object.")
+
+    allowed = {"title", "status", "tags", "notes"}
+    filtered = {k: v for k, v in updates.items() if k in allowed}
+    if "notes" in filtered and filtered["notes"] is not None:
+        filtered["notes"] = str(filtered["notes"])
+    if "title" in filtered and filtered["title"] is not None:
+        filtered["title"] = str(filtered["title"])
+    if "status" in filtered and filtered["status"] is not None:
+        filtered["status"] = str(filtered["status"])
+    if "tags" in filtered and filtered["tags"] is None:
+        filtered["tags"] = []
+    if "tags" in filtered and not isinstance(filtered["tags"], list):
+        raise ValueError("tags must be a list.")
+
+    # Guardrail: apply the same payload redaction rules used elsewhere so we
+    # don't accidentally persist secrets if an operator pastes them into notes.
+    filtered = sanitize_payload(_jsonable(filtered))
+    return STATE.snapshot_store.update_investigation(investigation_id, filtered)
+
+
+def _add_investigation_note(investigation_id: str, payload: dict | None):
+    """Append a note event to an investigation timeline."""
+    if not investigation_id:
+        raise ValueError("investigation_id is required.")
+    body = payload or {}
+    note = body.get("note") or body.get("text") or ""
+    note = str(note).strip()
+    if not note:
+        raise ValueError("note is required.")
+    return STATE.snapshot_store.add_investigation_event(
+        investigation_id,
+        kind="note",
+        summary="Note",
+        data={"note": note},
+    )
+
+
+def _add_investigation_event(investigation_id: str, payload: dict | None):
+    """Append a manual event to an investigation timeline.
+
+    This is the "escape hatch" for intentional, manual capture. It is used by
+    UI actions like "Attach last output" (which stores the last run metadata +
+    output under a single timeline entry).
+    """
+
+    if not investigation_id:
+        raise ValueError("investigation_id is required.")
+    body = payload or {}
+    if not isinstance(body, dict):
+        raise ValueError("Event payload must be an object.")
+
+    kind = str(body.get("kind") or "action_run").strip() or "action_run"
+    summary = str(body.get("summary") or body.get("label") or kind).strip() or kind
+    time_iso = body.get("time") or body.get("timestamp") or None
+
+    data = body.get("data")
+    if data is None:
+        data = {}
+    if not isinstance(data, dict):
+        data = {"value": data}
+
+    # Guardrail: sanitize stored event data to avoid persisting secrets.
+    sanitized = sanitize_payload(_jsonable(data))
+
+    allowed_kinds = {"action_run", "note", "snapshot", "evidence"}
+    if kind not in allowed_kinds:
+        # Keep the timeline consistent instead of storing arbitrary kinds.
+        kind = "evidence"
+
+    return STATE.snapshot_store.add_investigation_event(
+        investigation_id,
+        kind=kind,
+        summary=summary,
+        data=sanitized if isinstance(sanitized, dict) else {"value": sanitized},
+        time_iso=time_iso if isinstance(time_iso, str) and time_iso.strip() else None,
+    )
+
+
+def _get_investigation_context(investigation_id: str):
+    """Get stored investigation context."""
+    if not investigation_id:
+        raise ValueError("investigation_id is required.")
+    ctx = STATE.snapshot_store.get_investigation_context(investigation_id)
+    return {"investigation_id": investigation_id, "context": ctx if isinstance(ctx, dict) else {}}
+
+
+def _update_investigation_context(investigation_id: str, payload: dict | None):
+    """Replace stored investigation context (IDs/targets only; no secrets)."""
+    if not investigation_id:
+        raise ValueError("investigation_id is required.")
+    body = payload or {}
+    context = body.get("context") if isinstance(body, dict) else None
+    if context is None and isinstance(body, dict):
+        # Allow sending the context object as the root payload.
+        context = body
+    if not isinstance(context, dict):
+        raise ValueError("context must be an object.")
+
+    # Guardrail: investigation context is for identifiers, not secrets.
+    forbidden = ("secret", "token", "password", "client_secret", "access_key", "private_key")
+    for key in context.keys():
+        lowered = str(key).lower()
+        if any(word in lowered for word in forbidden):
+            raise ValueError(f"Forbidden context key: {key}")
+
+    updated = STATE.snapshot_store.update_investigation_context(investigation_id, context)
+    return {"investigation_id": investigation_id, "context": updated}
 
 
 def _create_incident(payload: dict | None):
@@ -4628,7 +4877,9 @@ class _LazyGraphProxy:
 ACTION_ENDPOINTS = {
     ("entra", "list_users"): "/users",
     ("entra", "get_user"): "/users/{id}",
+    ("entra", "create_user"): "/users",
     ("entra", "update_user"): "/users/{id}",
+    ("entra", "delete_user"): "/users/{id}",
     ("entra", "list_groups"): "/groups",
     ("entra", "get_group"): "/groups/{id}",
     ("entra", "update_group"): "/groups/{id}",
@@ -4645,7 +4896,16 @@ ACTION_ENDPOINTS = {
     ("sharepoint", "list_list_items"): "/sites/{site_id}/lists/{list_id}/items",
     ("sharepoint", "update_list_item_fields"): "/sites/{site_id}/lists/{list_id}/items/{item_id}",
     ("teams", "list_channels"): "/teams/{team_id}/channels",
+    ("teams", "list_teams"): "/groups?$filter=resourceProvisioningOptions/Any(x:x eq 'Team')",
+    ("teams", "get_team"): "/teams/{team_id}",
+    ("teams", "list_team_members"): "/teams/{team_id}/members",
+    ("teams", "add_member"): "/teams/{team_id}/members",
+    ("teams", "remove_member"): "/teams/{team_id}/members/{member_id}",
     ("teams", "update_channel"): "/teams/{team_id}/channels/{channel_id}",
+    ("defender", "secure_score_summary"): "arm:/subscriptions/{subscription_id}/providers/Microsoft.Security/secureScores",
+    ("defender", "recommendations_list"): "arm:/subscriptions/{subscription_id}/providers/Microsoft.Security/assessments",
+    ("powerplatform", "list_environments"): "bap:/providers/Microsoft.BusinessAppPlatform/scopes/admin/environments",
+    ("powerplatform", "list_flows"): "flow:/providers/Microsoft.ProcessSimple/scopes/admin/environments/{environment_id}/flows",
     ("reports", "user_audit"): "multi:/users,/memberOf,/licenseDetails,/auditLogs/signIns,/registeredDevices",
     ("reports", "sign_in_summary"): "/auditLogs/signIns",
     ("reports", "conditional_access_summary"): "/identity/conditionalAccess/policies",
@@ -4932,6 +5192,12 @@ def dispatch_task(service, action, params=None, target=None):
                 updates[field] = payload.pop(field)
         if updates:
             payload["updates"] = updates
+    # If an update allowlist exists, enforce it even when callers pass an `updates` dict directly.
+    # Also drop None values so "blank" fields don't accidentally overwrite existing values.
+    if update_fields and isinstance(payload.get("updates"), dict):
+        payload["updates"] = {k: v for k, v in payload["updates"].items() if k in update_fields and v is not None}
+        if not payload["updates"]:
+            payload.pop("updates", None)
 
     # UI/contract-friendly aliases for common identifiers.
     # (Keeps older tiles working without forcing users to memorize parameter names.)

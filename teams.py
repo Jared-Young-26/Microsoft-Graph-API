@@ -1,4 +1,5 @@
 from microsoft import ServiceClient, PowerShellModuleClient
+import re
 
 
 def _ps_quote(value):
@@ -67,6 +68,58 @@ class TeamsClient(ServiceClient):
         response = self.get("/me/joinedTeams")
         return response.json().get("value", [])
 
+    def list_teams(self, top=50, select=None):
+        """List Teams-enabled Microsoft 365 groups (app-friendly).
+
+        Notes:
+        - The Graph `/me/joinedTeams` endpoint is delegated-only and does not work for app-only auth.
+        - Listing all Teams is performed by filtering groups with the Teams provisioning option.
+        """
+
+        params = {
+            "$filter": "resourceProvisioningOptions/Any(x:x eq 'Team')",
+            "$top": top,
+        }
+        if select:
+            params["$select"] = select
+        response = self.get("/groups", params=params)
+        return response.json().get("value", [])
+
+    def _resolve_user_id(self, user_id_or_upn):
+        """Resolve a user object id from a UPN or id string."""
+
+        value = str(user_id_or_upn or "").strip()
+        if not value:
+            raise ValueError("user_id is required.")
+        if re.fullmatch(
+            r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}",
+            value,
+        ):
+            return value
+        response = self.get(f"/users/{value}", params={"$select": "id,userPrincipalName"})
+        body = response.json() if response is not None else {}
+        resolved = body.get("id")
+        if not resolved:
+            raise ValueError("Unable to resolve user id from identifier.")
+        return resolved
+
+    def _resolve_team_member_id(self, team_id, user_id_or_upn):
+        """Resolve a Teams membership id for a user within a team."""
+
+        user_id = self._resolve_user_id(user_id_or_upn)
+        members = self.list_team_members(team_id)
+        for member in members:
+            if not isinstance(member, dict):
+                continue
+            # The membership object typically includes `userId` for AAD members.
+            if member.get("userId") == user_id:
+                return member.get("id")
+            # Fallback: some payloads expose the bound user in OData.
+            odata_id = str(member.get("user@odata.bind") or "")
+            if user_id and user_id in odata_id:
+                return member.get("id")
+        raise ValueError("Unable to find membership id for user in team.")
+
     def get_team(self, team_id):
         """Get team."""
         response = self.get(f"/teams/{team_id}")
@@ -87,8 +140,27 @@ class TeamsClient(ServiceClient):
         response = self.post(f"/teams/{team_id}/members", json=payload)
         return response.json()
 
+    def add_member(self, team_id, user_id, roles=None):
+        """Add a member to a Team using a user id or UPN."""
+
+        user_id = self._resolve_user_id(user_id)
+        return self.add_team_member(team_id, user_id, roles=roles)
+
     def remove_team_member(self, team_id, membership_id):
         """Remove team member."""
+        self.delete(f"/teams/{team_id}/members/{membership_id}")
+        return True
+
+    def remove_member(self, team_id, member_id):
+        """Remove a member from a Team using membership id or user id/UPN."""
+
+        value = str(member_id or "").strip()
+        if not value:
+            raise ValueError("member_id is required.")
+        membership_id = value
+        # If the identifier looks like an email/UPN, resolve membership id first.
+        if "@" in value:
+            membership_id = self._resolve_team_member_id(team_id, value)
         self.delete(f"/teams/{team_id}/members/{membership_id}")
         return True
 
@@ -178,6 +250,88 @@ class TeamsClient(ServiceClient):
         """List teams powershell."""
         cmd = "Get-Team"
         return self._get_powershell(**powershell_options).run_json(cmd)
+
+    def list_policies_powershell(self, **powershell_options):
+        """List Teams messaging/meeting/calling policies (PowerShell-best)."""
+
+        script = r"""
+$policies = @()
+Get-CsTeamsMessagingPolicy | ForEach-Object {
+  $policies += [PSCustomObject]@{
+    name = $_.Identity
+    type = 'Messaging'
+    description = $_.Description
+    isGlobal = ($_.Identity -eq 'Global')
+  }
+}
+Get-CsTeamsMeetingPolicy | ForEach-Object {
+  $policies += [PSCustomObject]@{
+    name = $_.Identity
+    type = 'Meeting'
+    description = $_.Description
+    isGlobal = ($_.Identity -eq 'Global')
+  }
+}
+Get-CsTeamsCallingPolicy | ForEach-Object {
+  $policies += [PSCustomObject]@{
+    name = $_.Identity
+    type = 'Calling'
+    description = $_.Description
+    isGlobal = ($_.Identity -eq 'Global')
+  }
+}
+$policies
+"""
+        return self._get_powershell(**powershell_options).run_json(script)
+
+    def get_user_policy_assignments_powershell(self, user_upn, **powershell_options):
+        """Get Teams policy assignments for a user (PowerShell-best)."""
+
+        script = r"""
+$u = Get-CsOnlineUser -Identity $user_upn
+$rows = @()
+$rows += [PSCustomObject]@{ policyType = 'Messaging'; policyName = $u.TeamsMessagingPolicy }
+$rows += [PSCustomObject]@{ policyType = 'Meeting'; policyName = $u.TeamsMeetingPolicy }
+$rows += [PSCustomObject]@{ policyType = 'Calling'; policyName = $u.TeamsCallingPolicy }
+$rows
+"""
+        return self._get_powershell(**powershell_options).run_json(script, parameters={"user_upn": user_upn})
+
+    def assign_user_policy_powershell(self, user_upn, policy_type, policy_name, **powershell_options):
+        """Assign a Teams policy to a user (PowerShell-best)."""
+
+        script = r"""
+$type = ($policy_type | ForEach-Object { $_.ToString().Trim().ToLowerInvariant() })
+switch ($type) {
+  'messaging' { Grant-CsTeamsMessagingPolicy -Identity $user_upn -PolicyName $policy_name }
+  'meeting' { Grant-CsTeamsMeetingPolicy -Identity $user_upn -PolicyName $policy_name }
+  'calling' { Grant-CsTeamsCallingPolicy -Identity $user_upn -PolicyName $policy_name }
+  default { throw "Unknown policy_type '$policy_type'. Use messaging|meeting|calling." }
+}
+Get-CsOnlineUser -Identity $user_upn | Select-Object TeamsMessagingPolicy, TeamsMeetingPolicy, TeamsCallingPolicy
+"""
+        return self._get_powershell(**powershell_options).run_json(
+            script,
+            parameters={"user_upn": user_upn, "policy_type": policy_type, "policy_name": policy_name},
+        )
+
+    def remove_user_policy_powershell(self, user_upn, policy_type, **powershell_options):
+        """Remove (clear) an assigned Teams policy for a user (PowerShell-best)."""
+
+        script = r"""
+$type = ($policy_type | ForEach-Object { $_.ToString().Trim().ToLowerInvariant() })
+switch ($type) {
+  'messaging' { Grant-CsTeamsMessagingPolicy -Identity $user_upn -PolicyName $null }
+  'meeting' { Grant-CsTeamsMeetingPolicy -Identity $user_upn -PolicyName $null }
+  'calling' { Grant-CsTeamsCallingPolicy -Identity $user_upn -PolicyName $null }
+  default { throw "Unknown policy_type '$policy_type'. Use messaging|meeting|calling." }
+}
+Get-CsOnlineUser -Identity $user_upn | Select-Object TeamsMessagingPolicy, TeamsMeetingPolicy, TeamsCallingPolicy
+"""
+        return self._get_powershell(**powershell_options).run_json(
+            script,
+            parameters={"user_upn": user_upn, "policy_type": policy_type},
+        )
 
     def create_team_powershell(self, display_name, description=None, visibility=None, **powershell_options):
         """Create team powershell."""

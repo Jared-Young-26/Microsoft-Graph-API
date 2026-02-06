@@ -1,6 +1,44 @@
+# Secrets & environment
 .env
-__pycache__
-.venv
+.env.*
+*.secret
+*.secrets
+
+# Python / venv
+__pycache__/
+*.pyc
+.venv/
+
+# Local configs / profiles
+config.local.*
+profiles.local.*
+settings.local.json
+
+# Runtime data
+data/
+cache/
+snapshots/
+evidence/
+exports/
+incident_bundles/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+*.pslog
+
+# PowerShell artifacts
+*.clixml
+*.ps1xml
+Transcript*.txt
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
 
 # Local admin GUI state (do not commit)
 admin_gui/backend/config.json
@@ -8,3 +46,13 @@ admin_gui/backend/*.sqlite
 admin_gui/backend/*.jsonl
 admin_gui/backend/topology_history.json
 admin_gui/backend/artifacts/
+
+# Node / frontend build artifacts
+node_modules/
+dist/
+build/
+
+# SSH
+*.pem
+*.key
+*.ppk

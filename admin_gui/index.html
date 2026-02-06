@@ -26,6 +26,9 @@
           <button class="nav-link" data-section="incidents" data-scroll="incident-workspace">
             Incidents
           </button>
+          <button class="nav-link" data-section="investigations" data-scroll="investigation-workspace">
+            Investigations
+          </button>
           <button class="nav-link" data-section="workspaces">Workspaces</button>
 
           <div class="nav-group readonly" data-group="observe">
@@ -56,9 +59,6 @@
             <div class="nav-group-links">
               <div class="nav-subheader">Workflows</div>
               <button class="nav-link" data-section="actionpacks" data-scroll="action-pack-panel">Action Packs</button>
-              <button class="nav-link" data-section="snapshotcapture" data-scroll="draft-snapshots">
-                Draft Snapshots
-              </button>
               <button class="nav-link" data-section="quickactions" data-scroll="quick-actions-card">Quick Actions</button>
 
               <div class="nav-subheader">Microsoft 365 Cloud</div>
@@ -426,10 +426,11 @@
             <div class="card-title">Teams toolkit</div>
             <div class="card-subtitle">Teams, channels, chats</div>
             <div class="stack">
-              <button class="chip" data-service="teams" data-action="list_joined_teams">List teams</button>
+              <button class="chip" data-service="teams" data-action="list_teams">List teams</button>
+              <button class="chip" data-service="teams" data-action="list_team_members">List team members</button>
               <button class="chip" data-service="teams" data-action="create_channel">Create channel</button>
               <button class="chip" data-service="teams" data-action="list_chat_messages">List chat messages</button>
-              <button class="chip" data-service="teams" data-action="list_teams_admin">Teams admin (PS)</button>
+              <button class="chip" data-service="teams" data-action="ps_list_policies">Policies (PS)</button>
             </div>
           </div>
           <div class="card form-card" data-panel="teams">
@@ -466,6 +467,10 @@
             <div class="card-subtitle">Users, groups, apps</div>
             <div class="stack">
               <button class="chip" data-service="entra" data-action="list_users">List users</button>
+              <button class="chip" data-service="entra" data-action="get_user">Get user</button>
+              <button class="chip" data-service="entra" data-action="create_user">Create user</button>
+              <button class="chip" data-service="entra" data-action="update_user">Update user</button>
+              <button class="chip" data-service="entra" data-action="delete_user">Delete user</button>
               <button class="chip" data-service="entra" data-action="add_group_member">Add group member</button>
               <button class="chip" data-service="entra" data-action="list_service_principals">List service principals</button>
               <button class="chip" data-service="entra" data-action="set_user_license">Set user license (PS)</button>
@@ -545,7 +550,12 @@
             <div class="card-title">Defender for Cloud</div>
             <div class="card-subtitle">Security posture and cloud workload protection</div>
             <div class="stack">
-              <div class="note">No actions configured yet. Add Defender for Cloud endpoints when ready.</div>
+              <button class="chip" data-service="defender" data-action="secure_score_summary">
+                Secure score summary
+              </button>
+              <button class="chip" data-service="defender" data-action="recommendations_list">
+                Recommendations list
+              </button>
             </div>
           </div>
           <div class="card form-card" data-panel="defender">
@@ -574,7 +584,12 @@
             <div class="card-title">Power Platform</div>
             <div class="card-subtitle">Admin operations for Power Apps &amp; Power Automate</div>
             <div class="stack">
-              <div class="note">No actions configured yet. Add Power Platform admin endpoints when ready.</div>
+              <button class="chip" data-service="powerplatform" data-action="list_environments">
+                List environments
+              </button>
+              <button class="chip" data-service="powerplatform" data-action="list_flows">
+                List flows (environment)
+              </button>
             </div>
           </div>
           <div class="card form-card" data-panel="powerplatform">
@@ -1564,6 +1579,139 @@
             <pre class="output" data-output="incident"></pre>
             <button class="ghost small clear-output" data-output-target="incident">Clear</button>
           </div>
+          <div class="investigation-workspace" data-panel="investigations" data-display="grid" id="investigation-workspace">
+            <div class="card form-card investigation-timeline">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Investigation timeline</div>
+                  <div class="card-subtitle">Create or open an investigation, then review timeline events.</div>
+                </div>
+                <div class="card-actions">
+                  <button class="ghost small" id="investigation-capture-snapshot" type="button">Capture snapshot</button>
+                  <button class="ghost small" id="investigation-attach-output" type="button">Pin last output</button>
+                  <button class="ghost small" id="investigation-refresh">Refresh</button>
+                </div>
+              </div>
+
+              <div class="tile-section tile-config">
+                <div class="section-header">
+                  <div>
+                    <div class="card-title">Create</div>
+                    <div class="card-subtitle">Start a new investigation container.</div>
+                  </div>
+                </div>
+                <div class="tile-section-body tile-grid" style="grid-template-columns: minmax(0, 1fr) auto;">
+                  <label class="field wide">
+                    Title
+                    <input id="investigation-new-title" type="text" placeholder="Investigation title" />
+                  </label>
+                  <button class="primary" id="investigation-create">Create</button>
+                </div>
+              </div>
+
+              <div class="tile-section">
+                <div class="section-header">
+                  <div>
+                    <div class="card-title">Investigations</div>
+                    <div class="card-subtitle">Open one to load its timeline.</div>
+                  </div>
+                </div>
+                <div class="tile-section-body">
+                  <div id="investigation-list" class="deleted-pack-list"></div>
+                  <div class="note" id="investigation-empty" style="display:none;">
+                    No investigations yet. Create one to start capturing timeline entries.
+                  </div>
+                </div>
+              </div>
+
+              <div class="tile-section">
+                <div class="section-header">
+                  <div>
+                    <div class="card-title">Timeline</div>
+                    <div class="card-subtitle">Click an event to view details in the output panel.</div>
+                  </div>
+                </div>
+                <div class="tile-section-body">
+                  <ul class="timeline" id="investigation-timeline">
+                    <li class="empty">No investigation selected.</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div class="card output-card investigation-output">
+              <div class="card-title">Investigation output</div>
+              <div class="card-subtitle">Selected timeline event details</div>
+              <pre class="output" data-output="investigation-workspace" id="investigation-detail"></pre>
+              <button class="ghost small clear-output" data-output-target="investigation-workspace">Clear</button>
+            </div>
+
+            <div class="card form-card investigation-context">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Context</div>
+                  <div class="card-subtitle">Bound identifiers for the active investigation</div>
+                </div>
+              </div>
+              <div class="note" id="investigation-meta">No active investigation.</div>
+              <div class="toggle-row">
+                <label class="toggle">
+                  <input id="investigation-auto-capture" type="checkbox" />
+                  <span>Auto-capture runs</span>
+                </label>
+                <span class="toggle-meta">When enabled, every action run is appended to the timeline.</span>
+              </div>
+              <div class="tile-section">
+                <div class="section-header">
+                  <div>
+                    <div class="card-title">Suggested next steps</div>
+                    <div class="card-subtitle">Rules-based recommendations from the selected output.</div>
+                  </div>
+                </div>
+                <div class="tile-section-body">
+                  <div class="note" id="investigation-next-steps-empty">
+                    No suggestions yet. Select a timeline event to generate recommendations.
+                  </div>
+                  <div class="next-steps-list" id="investigation-next-steps"></div>
+                </div>
+              </div>
+              <div class="tile-section">
+                <div class="section-header">
+                  <div>
+                    <div class="card-title">Summary</div>
+                    <div class="card-subtitle">Rules-based narrative generated from the timeline (editable)</div>
+                  </div>
+                  <div class="card-actions">
+                    <button class="ghost small" id="investigation-generate-summary" type="button">Generate</button>
+                  </div>
+                </div>
+                <div class="tile-section-body">
+                  <label class="field wide">
+                    Summary (Markdown)
+                    <textarea id="investigation-summary" rows="10" placeholder="Generate a summary to turn the timeline into a readable story..."></textarea>
+                  </label>
+                  <div class="runner-actions">
+                    <button class="primary small" id="investigation-summary-save" type="button">Save summary</button>
+                  </div>
+                </div>
+              </div>
+              <div class="tile-grid" style="grid-template-columns: minmax(0, 1fr) auto;">
+                <label class="field wide">
+                  Note
+                  <input id="investigation-note" type="text" placeholder="Add a note to the timeline" />
+                </label>
+                <button class="ghost" id="investigation-add-note">Add note</button>
+              </div>
+              <label class="field wide">
+                Context (JSON)
+                <textarea id="investigation-context" rows="12" placeholder="{\"user_upn\": \"user@contoso.com\"}"></textarea>
+              </label>
+              <div class="runner-actions">
+                <button class="ghost small" id="investigation-context-reload">Reload context</button>
+                <button class="primary small" id="investigation-context-save">Save context</button>
+              </div>
+            </div>
+          </div>
           <div class="card form-card" data-panel="reports" id="incident-report">
             <div class="card-header tile-header">
               <div>
@@ -1807,107 +1955,6 @@
             <ul class="history-list" id="report-history-list"></ul>
             <input id="report-presets-import-file" type="file" accept=".json" hidden />
           </div>
-          <div class="card form-card" data-panel="reports" id="draft-snapshots">
-            <div class="card-header tile-header">
-              <div>
-                <div class="card-title">Draft snapshots</div>
-                <div class="card-subtitle">Collect results across panels, then finalize into a snapshot</div>
-              </div>
-              <div class="card-actions">
-                <div class="draft-header-actions">
-                  <button class="ghost small" id="draft-new">New draft</button>
-                  <button class="ghost small" id="draft-archive">Archive</button>
-                </div>
-              </div>
-            </div>
-            <div class="draft-status">Draft snapshot (not yet finalized)</div>
-
-            <div class="draft-section tile-section tile-config">
-              <div class="section-header">
-                <div>
-                  <div class="card-title">1. Define snapshot</div>
-                  <div class="card-subtitle">Choose the subject and profile for this draft</div>
-                </div>
-              </div>
-              <div class="draft-section-body tile-section-body draft-grid tile-grid">
-                <label class="field">
-                  Draft
-                  <select id="draft-select"></select>
-                </label>
-                <label class="field wide">
-                  Title
-                  <input id="draft-title" type="text" placeholder="User access investigation" />
-                </label>
-                <label class="field">
-                  Subject kind
-                  <select id="draft-subject-kind">
-                    <option value="user">User</option>
-                    <option value="device">Device</option>
-                    <option value="dc">Domain controller</option>
-                    <option value="dns_server">DNS server</option>
-                    <option value="dhcp_server">DHCP server</option>
-                    <option value="file_server">File server</option>
-                    <option value="print_server">Print server</option>
-                    <option value="admin_host">Admin host</option>
-                  </select>
-                </label>
-                <label class="field">
-                  Identifier
-                  <input id="draft-subject-value" type="text" placeholder="user@contoso.com or HOSTNAME/IP" />
-                </label>
-                <label class="field">
-                  Profile
-                  <select id="draft-profile">
-                    <option value="core">Core</option>
-                    <option value="troubleshoot">Troubleshoot</option>
-                    <option value="deep">Deep</option>
-                  </select>
-                </label>
-                <label class="field">
-                  Display name (optional)
-                  <input id="draft-subject-name" type="text" placeholder="Sales workstation" />
-                </label>
-              </div>
-            </div>
-
-            <div class="draft-section tile-section tile-primary">
-              <div class="section-header">
-                <div>
-                  <div class="card-title">2. Add context</div>
-                  <div class="card-subtitle">Capture intent and investigation notes</div>
-                </div>
-              </div>
-              <div class="draft-section-body tile-section-body">
-                <label class="field wide">
-                  Notes
-                  <textarea id="draft-notes" rows="4" placeholder="Why were these entries collected?"></textarea>
-                </label>
-              </div>
-            </div>
-
-            <div class="draft-section draft-entries tile-section tile-support">
-              <div class="section-header">
-                <div>
-                  <div class="card-title">Draft entries</div>
-                  <div class="card-subtitle">Evidence collected from task runs</div>
-                </div>
-              </div>
-              <div class="draft-section-body tile-section-body">
-                <div class="draft-empty" id="draft-empty">
-                  <div class="draft-empty-icon">◎</div>
-                  <div class="draft-empty-text">
-                    No entries yet. Run an action and click “Add result to draft” to collect evidence.
-                  </div>
-                </div>
-                <ul class="history-list" id="draft-entries-list"></ul>
-              </div>
-            </div>
-
-            <div class="tile-actions">
-              <button type="button" class="primary" id="draft-finalize">Finalize snapshot</button>
-              <button type="button" class="ghost" id="draft-clear">Clear entries</button>
-            </div>
-          </div>
           <div class="card" data-panel="reports" id="snapshot-history" data-workspace-block="snapshots.history">
             <div class="card-header">
               <div>
@@ -1995,26 +2042,32 @@
             <button class="ghost small clear-output" data-output-target="purview">Clear</button>
           </div>
 
-          <div class="card full" data-panel="settings">
-            <div class="card-title">Environment</div>
-            <div class="card-subtitle">Configure your local session</div>
-            <details class="profile-panel" id="profile-panel">
-              <summary>Saved configs</summary>
-              <div class="profile-bar">
-                <div class="profile-row">
-                  <label>
-                    Saved configs
-                    <select id="profile-select"></select>
-                  </label>
-                  <label>
-                    Profile name
-                    <input id="profile-name" type="text" placeholder="Client name" />
-                  </label>
-                  <div class="profile-actions">
-                    <button type="button" class="ghost small" id="profile-save">Save profile</button>
-                    <button type="button" class="primary small" id="profile-apply">Apply</button>
-                  </div>
-                </div>
+	          <div class="card full" data-panel="settings">
+	            <div class="card-title">Environment</div>
+	            <div class="card-subtitle">Configure your local session</div>
+	            <div class="profile-quickload" id="profile-quickload">
+	              <div class="profile-row">
+	                <label>
+	                  Load config
+	                  <select id="profile-select"></select>
+	                </label>
+	                <div class="profile-actions">
+	                  <button type="button" class="primary small" id="profile-apply">Apply</button>
+	                </div>
+	              </div>
+	            </div>
+	            <details class="profile-panel" id="profile-panel">
+	              <summary>Saved configs</summary>
+	              <div class="profile-bar">
+	                <div class="profile-row">
+	                  <label>
+	                    Profile name
+	                    <input id="profile-name" type="text" placeholder="Client name" />
+	                  </label>
+	                  <div class="profile-actions">
+	                    <button type="button" class="ghost small" id="profile-save">Save profile</button>
+	                  </div>
+	                </div>
                 <div class="profile-row secondary">
                   <div class="profile-actions">
                     <button type="button" class="ghost small" id="profile-delete">Delete</button>
@@ -2531,6 +2584,8 @@
     <div class="toast" id="toast">Action queued</div>
 
     <script src="triage.js"></script>
+    <script src="investigation_summary.js"></script>
+    <script src="next_steps.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timezone
 import sqlite3
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from .core import (
     STATE,
@@ -22,6 +22,15 @@ from .core import (
     _list_snapshot_events,
     _list_symptom_templates,
     _get_symptom_template,
+    _plan_symptom_tier0,
+    _create_investigation,
+    _list_investigations,
+    _get_investigation,
+    _update_investigation,
+    _add_investigation_note,
+    _add_investigation_event,
+    _get_investigation_context,
+    _update_investigation_context,
     _create_incident,
     _list_incidents,
     _get_incident,
@@ -55,8 +64,50 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Disable Flask's built-in static route so SPA fallbacks can handle deep links.
 app = Flask(__name__, static_folder=None)
+# Prevent stale UI assets (app.js/styles.css) from being served out of the browser cache.
+# This portal is local-first and changes frequently during development, so prefer correctness.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 ensure_snapshot_scheduler()
 ensure_onedrive_cache_warmup_scheduler()
+
+
+@app.after_request
+def _disable_caching(response):
+    """Disable caching so UI changes show up immediately without hard refresh."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+def _render_index_html() -> Response:
+    """Render index.html with a cache-busting query string for UI assets.
+
+    Some browsers can be stubborn about reusing cached local assets (especially
+    during rapid iteration). Adding a simple version query string makes it
+    unambiguous which build is loaded.
+    """
+
+    index_path = ROOT / "index.html"
+    html = index_path.read_text(encoding="utf-8")
+    try:
+        version = int(
+            max(
+                (ROOT / "styles.css").stat().st_mtime,
+                (ROOT / "app.js").stat().st_mtime,
+                (ROOT / "triage.js").stat().st_mtime,
+                (ROOT / "investigation_summary.js").stat().st_mtime,
+                (ROOT / "next_steps.js").stat().st_mtime,
+            )
+        )
+    except Exception:
+        version = int(index_path.stat().st_mtime)
+    qs = f"?v={version}"
+    html = html.replace('href="styles.css"', f'href="styles.css{qs}"')
+    html = html.replace('src="triage.js"', f'src="triage.js{qs}"')
+    html = html.replace('src="investigation_summary.js"', f'src="investigation_summary.js{qs}"')
+    html = html.replace('src="next_steps.js"', f'src="next_steps.js{qs}"')
+    html = html.replace('src="app.js"', f'src="app.js{qs}"')
+    return Response(html, mimetype="text/html")
 
 
 @app.get("/api/status")
@@ -569,6 +620,99 @@ def get_symptom(symptom_id):
     return jsonify({"ok": True, "data": data})
 
 
+@app.post("/api/symptoms/plan")
+def plan_symptom():
+    """Build a Tier-0 snapshot plan for a symptom template."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _plan_symptom_tier0(payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/investigations")
+def list_investigations():
+    """List investigations."""
+    limit = request.args.get("limit", type=int) or 50
+    data = _list_investigations(limit=limit)
+    return jsonify({"ok": True, "data": data})
+
+
+@app.post("/api/investigations")
+def create_investigation():
+    """Create investigation."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _create_investigation(payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/investigations/<investigation_id>")
+def get_investigation(investigation_id):
+    """Get investigation."""
+    data = _get_investigation(investigation_id)
+    if not data:
+        return jsonify({"ok": False, "error": "Investigation not found"}), 404
+    return jsonify({"ok": True, "data": data})
+
+
+@app.put("/api/investigations/<investigation_id>")
+def update_investigation(investigation_id):
+    """Update investigation (title/status/tags/notes)."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _update_investigation(investigation_id, payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/investigations/<investigation_id>/notes")
+def add_investigation_note(investigation_id):
+    """Add investigation note."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _add_investigation_note(investigation_id, payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/investigations/<investigation_id>/events")
+def add_investigation_event(investigation_id):
+    """Add investigation event."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _add_investigation_event(investigation_id, payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/investigations/<investigation_id>/context")
+def get_investigation_context(investigation_id):
+    """Get investigation context."""
+    try:
+        data = _get_investigation_context(investigation_id)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.put("/api/investigations/<investigation_id>/context")
+def update_investigation_context(investigation_id):
+    """Update investigation context."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = _update_investigation_context(investigation_id, payload)
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.get("/api/incidents")
 def list_incidents():
     """List incidents."""
@@ -726,14 +870,14 @@ def add_topology_history():
 @app.get("/")
 def index():
     """Run index."""
-    return send_from_directory(str(ROOT), "index.html")
+    return _render_index_html()
 
 
 @app.get("/help")
 @app.get("/help/<path:_path>")
 def help_page(_path=None):
     """Run help page."""
-    return send_from_directory(str(ROOT), "index.html")
+    return _render_index_html()
 
 
 @app.get("/<path:path>")
@@ -743,8 +887,14 @@ def spa_fallback(path):
         return jsonify({"ok": False, "error": "Not found"}), 404
     candidate = ROOT / path
     if candidate.exists() and candidate.is_file():
-        return send_from_directory(str(ROOT), path)
-    return send_from_directory(str(ROOT), "index.html")
+        # Always return the file (no conditional 304 responses) so UI updates are
+        # immediately visible during local development.
+        try:
+            return send_from_directory(str(ROOT), path, conditional=False, max_age=0)
+        except TypeError:
+            # Flask <2.2 uses cache_timeout instead of max_age.
+            return send_from_directory(str(ROOT), path, conditional=False, cache_timeout=0)
+    return _render_index_html()
 
 
 if __name__ == "__main__":

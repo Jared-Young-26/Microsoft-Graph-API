@@ -885,6 +885,64 @@ button,
   grid-auto-flow: dense;
 }
 
+.investigation-workspace {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  gap: 20px;
+  align-items: start;
+}
+
+.investigation-workspace .timeline li {
+  cursor: pointer;
+}
+
+.investigation-workspace .timeline li.active {
+  border-radius: 12px;
+  background: rgba(71, 244, 197, 0.08);
+}
+
+.investigation-workspace .timeline li.active .time {
+  color: rgba(71, 244, 197, 0.9);
+}
+
+.next-steps-list {
+  display: grid;
+  gap: 10px;
+}
+
+.next-step {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+  background: rgba(10, 12, 14, 0.6);
+}
+
+.next-step-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.next-step-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.next-step-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .card {
   background: var(--panel);
   border: 1px solid var(--stroke);
@@ -1124,6 +1182,12 @@ button,
   border-color: rgba(247, 196, 99, 0.35);
 }
 
+.badge.arm {
+  background: rgba(122, 164, 255, 0.16);
+  color: #9ab3ff;
+  border-color: rgba(122, 164, 255, 0.35);
+}
+
 .badge.note {
   background: rgba(122, 164, 255, 0.18);
   color: #9ab3ff;
@@ -1210,6 +1274,19 @@ button,
 
 .timeline .time {
   color: var(--muted);
+}
+
+.timeline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+
+.timeline-actions a.ghost {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }
 
 .activity-controls {
@@ -1487,6 +1564,14 @@ button,
   background: rgba(12, 16, 20, 0.6);
 }
 
+.profile-quickload {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--stroke);
+  background: rgba(12, 16, 20, 0.6);
+}
+
 .profile-panel {
   margin-top: 12px;
   border: 1px dashed var(--stroke);
@@ -1621,6 +1706,13 @@ button,
 .runner {
   display: grid;
   gap: 14px;
+}
+
+.runner > label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .runner-fields {
@@ -2739,6 +2831,91 @@ button,
   background-repeat: no-repeat;
 }
 
+.select-shell {
+  position: relative;
+  width: 100%;
+}
+
+/* Hidden native <select> kept in the DOM so existing code can read/write .value,
+   but user interaction uses the themed trigger/menu (avoids OS dropdown positioning quirks). */
+.native-select-hidden {
+  display: none !important;
+}
+
+.select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background-color: rgba(10, 12, 14, 0.9);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 10px 12px;
+  padding-right: 14px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: left;
+}
+
+.select-trigger-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-trigger-caret {
+  opacity: 0.7;
+  flex: 0 0 auto;
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgba(10, 12, 14, 0.98);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  max-height: 360px;
+  overflow: auto;
+  display: none;
+}
+
+.select-shell.open .select-menu {
+  display: block;
+}
+
+.select-option {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.select-option:hover {
+  background: rgba(79, 236, 196, 0.08);
+}
+
+.select-option.selected {
+  background: rgba(79, 236, 196, 0.14);
+  border: 1px solid rgba(79, 236, 196, 0.22);
+}
+
 .select-control:disabled,
 .quick-actions-row select:disabled,
 .profile-row select:disabled,
@@ -2882,6 +3059,20 @@ button,
   background: rgba(71, 244, 197, 0.2);
   border-color: rgba(71, 244, 197, 0.4);
   color: #0b1a15;
+}
+
+.output-promote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 4px;
+}
+
+.output-promote-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-right: 4px;
 }
 
 .output-panels {
@@ -4646,12 +4837,11 @@ button,
 
 @keyframes reveal {
   from {
+    /* Avoid animating transforms: native <select> dropdowns can misplace when any ancestor is (or was) transformed. */
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -4660,6 +4850,9 @@ button,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .hero {
+    grid-template-columns: 1fr;
+  }
+  .investigation-workspace {
     grid-template-columns: 1fr;
   }
   .form-grid-wide {

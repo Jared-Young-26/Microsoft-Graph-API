@@ -70,9 +70,22 @@ class EntraClient(ServiceClient):
         response = self.get("/users", params=params)
         return response.json().get("value", [])
 
-    def get_user(self, user_id):
-        """Get user."""
-        response = self.get(f"/users/{user_id}")
+    def get_user(self, user_id, select=None):
+        """Get user.
+
+        Args:
+            user_id: User object id or UPN.
+            select: Optional fields to request via $select (string or list).
+        """
+        params = None
+        if select:
+            if isinstance(select, (list, tuple, set)):
+                fields = [str(v).strip() for v in select if str(v).strip()]
+            else:
+                fields = [v.strip() for v in str(select).split(",") if v.strip()]
+            if fields:
+                params = {"$select": ",".join(fields)}
+        response = self.get(f"/users/{user_id}", params=params)
         return response.json()
 
     def create_user(self, user_principal_name, display_name, password, mail_nickname=None, account_enabled=True, force_change_password=False):
@@ -93,7 +106,13 @@ class EntraClient(ServiceClient):
     def update_user(self, user_id, updates):
         """Update user."""
         response = self.patch(f"/users/{user_id}", json=updates)
-        return response.json() if response.content else True
+        if response.content:
+            return response.json()
+        # Graph commonly returns 204 No Content for PATCH. Best-effort refetch for operator visibility.
+        try:
+            return self.get_user(user_id)
+        except Exception:
+            return True
 
     def delete_user(self, user_id):
         """Delete user."""

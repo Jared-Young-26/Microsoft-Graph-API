@@ -34,6 +34,15 @@ from .core import (
     _list_snapshot_events,
     _list_symptom_templates,
     _get_symptom_template,
+    _plan_symptom_tier0,
+    _create_investigation,
+    _list_investigations,
+    _get_investigation,
+    _update_investigation,
+    _add_investigation_note,
+    _add_investigation_event,
+    _get_investigation_context,
+    _update_investigation_context,
     _create_incident,
     _list_incidents,
     _get_incident,
@@ -564,6 +573,92 @@ def get_symptom(symptom_id: str):
     if not data:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Symptom template not found"})
     return {"ok": True, "data": data}
+
+
+@app.post("/api/symptoms/plan")
+def plan_symptom(payload: dict):
+    """Build a Tier-0 snapshot plan for a symptom template."""
+    try:
+        data = _plan_symptom_tier0(payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/investigations")
+def list_investigations(limit: int | None = 50):
+    """List investigations."""
+    data = _list_investigations(limit=limit or 50)
+    return {"ok": True, "data": data}
+
+
+@app.post("/api/investigations")
+def create_investigation(payload: dict):
+    """Create investigation."""
+    try:
+        data = _create_investigation(payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/investigations/{investigation_id}")
+def get_investigation(investigation_id: str):
+    """Get investigation."""
+    data = _get_investigation(investigation_id)
+    if not data:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Investigation not found"})
+    return {"ok": True, "data": data}
+
+
+@app.put("/api/investigations/{investigation_id}")
+def update_investigation(investigation_id: str, payload: dict):
+    """Update investigation (title/status/tags/notes)."""
+    try:
+        data = _update_investigation(investigation_id, payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/investigations/{investigation_id}/notes")
+def add_investigation_note(investigation_id: str, payload: dict):
+    """Add investigation note."""
+    try:
+        data = _add_investigation_note(investigation_id, payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.post("/api/investigations/{investigation_id}/events")
+def add_investigation_event(investigation_id: str, payload: dict):
+    """Add investigation event."""
+    try:
+        data = _add_investigation_event(investigation_id, payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.get("/api/investigations/{investigation_id}/context")
+def get_investigation_context(investigation_id: str):
+    """Get investigation context."""
+    try:
+        data = _get_investigation_context(investigation_id)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+
+
+@app.put("/api/investigations/{investigation_id}/context")
+def update_investigation_context(investigation_id: str, payload: dict):
+    """Update investigation context."""
+    try:
+        data = _update_investigation_context(investigation_id, payload)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
 
 
 @app.get("/api/incidents")
