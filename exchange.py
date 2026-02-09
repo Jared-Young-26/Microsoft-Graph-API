@@ -1,7 +1,84 @@
 from microsoft import ServiceClient, PowerShellModuleClient
 
-# Single source of truth for Graph app-only sendMail payloads.
-from graph_admin.exchange.mail import send_message_as_user
+
+def _normalize_recipients(recipients):
+    """Normalize a recipient iterable into a clean list of email addresses."""
+    if not recipients:
+        return []
+    normalized = []
+    for value in recipients:
+        if value is None:
+            continue
+        addr = str(value).strip()
+        if not addr:
+            continue
+        normalized.append(addr)
+    return normalized
+
+
+def _format_recipients(recipients):
+    """Format recipients into the Graph `emailAddress` envelope."""
+    return [{"emailAddress": {"address": address}} for address in recipients]
+
+
+def send_message_as_user(
+    graph_session,
+    sender,
+    to_recipients,
+    subject,
+    body_html,
+    cc_recipients=None,
+    save_to_sent_items=False,
+):
+    """Send an HTML email as a specific mailbox via Microsoft Graph.
+
+    Uses Graph endpoint:
+      POST /v1.0/users/{sender}/sendMail
+
+    This is the authoritative implementation for mail sending. UI endpoints and
+    scripts should call this function (directly or via ExchangeClient wrappers)
+    rather than re-implementing Graph payloads.
+
+    Args:
+        graph_session: Authenticated Graph session (see `microsoft.GraphSession`).
+        sender: Sender mailbox identifier (UPN, SMTP address, or object id).
+        to_recipients: List/iterable of recipient email addresses.
+        subject: Email subject.
+        body_html: Email body content as HTML.
+        cc_recipients: Optional list/iterable of CC recipient email addresses.
+        save_to_sent_items: Whether to save to the sender's Sent Items.
+
+    Returns:
+        True if Graph accepted the send request.
+
+    Raises:
+        ValueError: For missing/invalid required fields.
+        GraphAPIError: If Graph returns a non-2xx response.
+    """
+    sender = str(sender or "").strip()
+    subject = str(subject or "").strip()
+    body_html = str(body_html or "")
+    to_list = _normalize_recipients(to_recipients)
+    cc_list = _normalize_recipients(cc_recipients)
+
+    if not sender:
+        raise ValueError("sender is required (UPN/SMTP/object id).")
+    if not to_list:
+        raise ValueError("to_recipients must include at least one address.")
+    if not subject:
+        raise ValueError("subject is required.")
+
+    message = {
+        "subject": subject,
+        "body": {"contentType": "HTML", "content": body_html},
+        "toRecipients": _format_recipients(to_list),
+    }
+    if cc_list:
+        message["ccRecipients"] = _format_recipients(cc_list)
+
+    payload = {"message": message, "saveToSentItems": bool(save_to_sent_items)}
+    graph_session.post(f"/users/{sender}/sendMail", json=payload)
+    return True
 
 
 def _ps_quote(value):
@@ -252,7 +329,7 @@ class ExchangeClient(ServiceClient):
     ):
         """Send an HTML email as `sender` using Graph application permissions.
 
-        This is a thin wrapper around `graph_admin.exchange.mail.send_message_as_user()`
+        This is a thin wrapper around `exchange.send_message_as_user()`
         so UI backends and scripts share the same payload logic.
         """
 

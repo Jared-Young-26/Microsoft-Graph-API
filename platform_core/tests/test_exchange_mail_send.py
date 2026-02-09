@@ -1,6 +1,6 @@
 import unittest
 
-from graph_admin.exchange.mail import send_message_as_user
+from exchange import send_message_as_user
 
 
 class _DummyGraphSession:
@@ -77,4 +77,3 @@ class ExchangeMailSendTests(unittest.TestCase):
                 subject="",
                 body_html="<p>Hi</p>",
             )
-

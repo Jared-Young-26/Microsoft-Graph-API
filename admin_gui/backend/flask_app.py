@@ -59,7 +59,7 @@ from .core import (
 from platform_core.interpreter import interpret_response
 from platform_core.graph_error_transparency import build_graph_error_response
 from microsoft import GraphAPIError, PowerShellCommandError, set_trace_context, reset_trace_context
-from graph_admin.exchange.mail import send_message_as_user as exchange_send_message_as_user
+from exchange import send_message_as_user as exchange_send_message_as_user
 
 ROOT = Path(__file__).resolve().parents[1]
 
