@@ -59,6 +59,7 @@ from .core import (
 from platform_core.interpreter import interpret_response
 from platform_core.graph_error_transparency import build_graph_error_response
 from microsoft import GraphAPIError, PowerShellCommandError, set_trace_context, reset_trace_context
+from graph_admin.exchange.mail import send_message_as_user as exchange_send_message_as_user
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -383,6 +384,65 @@ def run_task():
             ),
             500,
         )
+    finally:
+        if token is not None:
+            reset_trace_context(token)
+
+
+def _csv_to_list(value):
+    """Convert a CSV string (or list) into a clean list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    raw = str(value).strip()
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+@app.post("/api/exchange/send-mail")
+def exchange_send_mail():
+    """Send mail as a specific mailbox (Graph app-only)."""
+    payload = request.get_json(silent=True) or {}
+    ui_request_id = None
+    if "_ui_request_id" in payload:
+        ui_request_id = str(payload.pop("_ui_request_id"))
+
+    token = set_trace_context(
+        {
+            "ui_request_id": ui_request_id,
+            "service": "exchange",
+            "action": "send_mail",
+            "trace_hook": record_graph_trace,
+        }
+    )
+    try:
+        sender = payload.get("sender") or payload.get("from") or payload.get("mailbox") or ""
+        to_recipients = _csv_to_list(payload.get("to_recipients") or payload.get("to") or payload.get("recipients"))
+        cc_recipients = _csv_to_list(payload.get("cc_recipients") or payload.get("cc"))
+        subject = payload.get("subject") or ""
+        body_html = payload.get("body_html") or payload.get("body") or ""
+        save_to_sent_items = bool(payload.get("save_to_sent_items") or payload.get("saveToSentItems") or False)
+
+        sent = exchange_send_message_as_user(
+            STATE.get_graph(),
+            sender=str(sender),
+            to_recipients=to_recipients,
+            subject=str(subject),
+            body_html=str(body_html),
+            cc_recipients=cc_recipients or None,
+            save_to_sent_items=save_to_sent_items,
+        )
+        return jsonify({"ok": True, "data": {"sent": bool(sent)}})
+    except GraphAPIError as exc:
+        response = build_graph_error_response(exc, service="exchange", action="send_mail")
+        status_code = exc.status_code or response.get("status_code") or 502
+        return jsonify(response), status_code
+    except ValueError as exc:
+        return jsonify({"ok": False, "error_class": "validation", "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error_class": "dashboard_internal_error", "error": str(exc)}), 500
     finally:
         if token is not None:
             reset_trace_context(token)

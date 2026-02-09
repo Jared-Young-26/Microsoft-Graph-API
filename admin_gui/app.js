@@ -576,6 +576,29 @@ const ACTIONS_UI = {
         { key: "end_iso", label: "End ISO" },
       ],
     },
+    send_mail: {
+      label: "Send email",
+      mode: "graph",
+      risk: "caution",
+      // UI bridge endpoint that calls the Exchange module (no Graph logic in the UI).
+      apiPath: "/api/exchange/send-mail",
+      fields: [
+        { key: "sender", label: "Sender mailbox (UPN/SMTP/object id)" },
+        {
+          key: "to_recipients",
+          label: "To recipients (comma-separated)",
+          placeholder: "user1@contoso.com, user2@contoso.com",
+        },
+        {
+          key: "cc_recipients",
+          label: "CC recipients (comma-separated, optional)",
+          placeholder: "user3@contoso.com",
+        },
+        { key: "subject", label: "Subject" },
+        { key: "body_html", label: "Message body (HTML)", type: "textarea", rows: 8 },
+        { key: "save_to_sent_items", label: "Save to Sent Items", type: "checkbox", sendFalse: true },
+      ],
+    },
     enable_shared_sent_items: {
       label: "Enable shared sent items",
       mode: "powershell",
@@ -20680,10 +20703,13 @@ async function runAction(service, action, params = {}, options = {}) {
     const uiRequestId = generateUiRequestId();
     finalParams._ui_request_id = uiRequestId;
     updateRunMeta(service, { ui_request_id: uiRequestId });
-    const res = await fetch("/api/task", {
+    const apiPath = ACTIONS_UI?.[service]?.[action]?.apiPath || null;
+    const res = await fetch(apiPath || "/api/task", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service, action, params: finalParams, target: executionTarget }),
+      body: JSON.stringify(
+        apiPath ? { ...finalParams } : { service, action, params: finalParams, target: executionTarget }
+      ),
       signal: controller.signal,
     });
     const data = await res.json();
@@ -21867,8 +21893,14 @@ function populateRunner(service) {
         wrapper.appendChild(span);
       } else {
         wrapper.textContent = field.label;
-        const input = document.createElement("input");
-        input.type = field.type || "text";
+        let input;
+        if (field.type === "textarea") {
+          input = document.createElement("textarea");
+          input.rows = field.rows || 6;
+        } else {
+          input = document.createElement("input");
+          input.type = field.type || "text";
+        }
         if (field.placeholder) {
           input.placeholder = field.placeholder;
         }
@@ -21943,23 +21975,32 @@ function upgradeRunnerActionSelect(select) {
     select.parentNode.insertBefore(shell, select);
   }
   shell.appendChild(trigger);
-  // Keep the menu inside the shell so CSS can reliably anchor it below the trigger.
-  // (Rendering at document root + manual positioning caused "drop-up" illusions when the
-  // menu was opened scrolled to a selected option.)
-  shell.appendChild(menu);
+  // Render the menu at document root and position it with `position: fixed` so it:
+  // - always drops *below* the trigger (operator expectation), and
+  // - isn't clipped by nested overflow containers in tiles.
+  document.body.appendChild(menu);
   shell.appendChild(select);
 
   const close = () => {
     shell.classList.remove("open");
     trigger.setAttribute("aria-expanded", "false");
+    menu.style.display = "none";
   };
   const open = () => {
     shell.classList.add("open");
     trigger.setAttribute("aria-expanded", "true");
-    // Force a classic "drop-down" placement even if stale CSS or browser quirks
-    // attempt to treat the menu like a drop-up.
-    menu.style.top = "calc(100% + 8px)";
+    // Always position the menu below the trigger. If the menu would overflow the viewport,
+    // cap its height and let it scroll internally (instead of flipping above).
+    const rect = trigger.getBoundingClientRect();
+    const maxHeight = Math.min(360, Math.max(160, window.innerHeight - rect.bottom - 16));
+    menu.style.position = "fixed";
+    menu.style.left = `${rect.left}px`;
+    menu.style.top = `${rect.bottom + 8}px`;
+    menu.style.width = `${rect.width}px`;
+    menu.style.right = "auto";
     menu.style.bottom = "auto";
+    menu.style.maxHeight = `${maxHeight}px`;
+    menu.style.display = "block";
     // Default to showing the start of the list. This makes the control feel like a
     // classic dropdown (it always "drops down" and doesn't appear to open above
     // the trigger just because the list is long).

@@ -1,5 +1,8 @@
 from microsoft import ServiceClient, PowerShellModuleClient
 
+# Single source of truth for Graph app-only sendMail payloads.
+from graph_admin.exchange.mail import send_message_as_user
+
 
 def _ps_quote(value):
     """Internal helper for ps quote."""
@@ -238,26 +241,60 @@ class ExchangeClient(ServiceClient):
         response = self.get(url)
         return response.json()
 
-    def send_mail(self, subject, body, to_recipients, cc_recipients=None, bcc_recipients=None, user_id="me"):
-        """Run send mail."""
-        def _format_recipients(recipients):
-            """Internal helper for format recipients."""
-            return [{"emailAddress": {"address": r}} for r in recipients]
+    def send_message_as_user(
+        self,
+        sender,
+        to_recipients,
+        subject,
+        body_html,
+        cc_recipients=None,
+        save_to_sent_items=False,
+    ):
+        """Send an HTML email as `sender` using Graph application permissions.
 
-        message = {
-            "subject": subject,
-            "body": {"contentType": "HTML", "content": body},
-            "toRecipients": _format_recipients(to_recipients),
-        }
-        if cc_recipients:
-            message["ccRecipients"] = _format_recipients(cc_recipients)
+        This is a thin wrapper around `graph_admin.exchange.mail.send_message_as_user()`
+        so UI backends and scripts share the same payload logic.
+        """
+
+        return send_message_as_user(
+            self.graph,
+            sender=str(sender),
+            to_recipients=list(to_recipients or []),
+            subject=str(subject),
+            body_html=str(body_html),
+            cc_recipients=list(cc_recipients or []) if cc_recipients else None,
+            save_to_sent_items=bool(save_to_sent_items),
+        )
+
+    def send_mail(
+        self,
+        subject,
+        body,
+        to_recipients,
+        cc_recipients=None,
+        bcc_recipients=None,
+        user_id="me",
+        save_to_sent_items=True,
+    ):
+        """Backwards-compatible helper for sending mail.
+
+        App-only mode requires an explicit `user_id`/UPN/object id; delegated "/me"
+        is not supported by Graph application permissions.
+        """
+
         if bcc_recipients:
-            message["bccRecipients"] = _format_recipients(bcc_recipients)
-
-        url = f"/users/{user_id}/sendMail" if user_id != "me" else "/me/sendMail"
-        payload = {"message": message, "saveToSentItems": True}
-        self.post(url, json=payload)
-        return True
+            raise ValueError("bcc_recipients is not supported by send_message_as_user().")
+        sender = str(user_id or "").strip()
+        if sender.lower() == "me" or not sender:
+            raise ValueError("App-only mail send requires a sender mailbox (UPN/SMTP/object id).")
+        return self.send_message_as_user(
+            sender=sender,
+            to_recipients=to_recipients,
+            subject=subject,
+            body_html=body,
+            cc_recipients=cc_recipients,
+            save_to_sent_items=save_to_sent_items,
+        )
 
     def send_mail_from_shared_mailbox(
         self,
