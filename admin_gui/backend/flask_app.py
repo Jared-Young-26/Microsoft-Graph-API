@@ -1,6 +1,12 @@
 from pathlib import Path
 from datetime import datetime, timezone
+import hashlib
+import io
 import sqlite3
+import secrets
+import getpass
+import os
+import zipfile
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 from .core import (
@@ -52,6 +58,7 @@ from .core import (
     _system_status_summary,
     _ingest_vision_u_eye_visual_signal,
     _list_vision_u_eye_visual_signals,
+    _maybe_ingest_vision_u_eye_job_result,
     ensure_snapshot_scheduler,
     ensure_onedrive_cache_warmup_scheduler,
     ARTIFACTS_DIR,
@@ -60,6 +67,10 @@ from platform_core.interpreter import interpret_response
 from platform_core.graph_error_transparency import build_graph_error_response
 from microsoft import GraphAPIError, PowerShellCommandError, set_trace_context, reset_trace_context
 from exchange import send_message_as_user as exchange_send_message_as_user
+from . import control_plane
+from .graph_runner_dispatch import GraphRunnerError
+from .artifact_retention import ensure_artifact_retention_reaper
+from . import workflows_v2
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,6 +81,8 @@ app = Flask(__name__, static_folder=None)
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 ensure_snapshot_scheduler()
 ensure_onedrive_cache_warmup_scheduler()
+control_plane.ensure_lease_reaper()
+ensure_artifact_retention_reaper(ARTIFACTS_DIR)
 
 
 @app.after_request
@@ -150,6 +163,347 @@ def reload_config():
     return jsonify({"ok": True, "data": STATE.get_config_public()})
 
 
+def _agent_token_from_headers() -> str | None:
+    """Extract agent token from request headers."""
+    auth = request.headers.get("Authorization") or ""
+    if isinstance(auth, str) and auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip() or None
+    token = request.headers.get("X-Agent-Token") or request.headers.get("x-agent-token")
+    return str(token).strip() if token else None
+
+
+def _require_agent_auth(agent_id: str, token: str | None) -> None:
+    """Require valid agent auth."""
+    if not token or not control_plane.authenticate_agent(agent_id, token):
+        raise PermissionError("Unauthorized")
+
+
+@app.post("/api/agents/register")
+def register_agent():
+    """Register agent."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = control_plane.register_agent(payload)
+        return jsonify(data)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/pairing-codes")
+def create_pairing_code():
+    """Create a one-time pairing code (operator/UI)."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = control_plane.create_pairing_code(
+            tenant_id=payload.get("tenant_id"),
+            workspace_id=payload.get("workspace_id"),
+            ttl_seconds=payload.get("ttl_seconds"),
+        )
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/agents/heartbeat")
+def agent_heartbeat():
+    """Agent heartbeat."""
+    payload = request.get_json(silent=True) or {}
+    agent_id = payload.get("agent_id")
+    token = _agent_token_from_headers() or payload.get("agent_token")
+    try:
+        _require_agent_auth(str(agent_id), str(token) if token is not None else None)
+        data = control_plane.heartbeat_agent(
+            str(agent_id),
+            status="online",
+            capabilities=payload.get("capabilities"),
+            labels=payload.get("labels"),
+            tenant_id=payload.get("tenant_id"),
+            workspace_id=payload.get("workspace_id"),
+        )
+        return jsonify(data)
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 401
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/agents")
+def list_agents():
+    """List agents."""
+    try:
+        status = request.args.get("status") or None
+        query = request.args.get("query") or None
+        tenant_id = request.args.get("tenant_id") or None
+        workspace_id = request.args.get("workspace_id") or None
+        limit = request.args.get("limit", type=int) or 200
+        offset = request.args.get("offset", type=int) or 0
+        data = control_plane.list_agents(
+            status=status,
+            query=query,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            limit=limit,
+            offset=offset,
+        )
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/capabilities/catalog")
+def capabilities_catalog():
+    """List known actions and required capabilities."""
+    try:
+        from agent.catalog import build_capabilities_catalog
+
+        return jsonify({"ok": True, "data": build_capabilities_catalog()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.get("/install/agent.zip")
+def download_agent_zip():
+    """Download the agent code as a zip (v0 bootstrap helper)."""
+    agent_root = (ROOT.parent / "agent").resolve()
+    if not agent_root.exists():
+        return jsonify({"ok": False, "error": "Agent folder not found"}), 404
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in agent_root.rglob("*"):
+            if path.is_dir():
+                continue
+            if "__pycache__" in path.parts:
+                continue
+            if path.suffix.lower() == ".pyc":
+                continue
+            if path.name == ".DS_Store":
+                continue
+            rel = path.relative_to(ROOT.parent)
+            zf.write(path, arcname=str(rel).replace("\\", "/"))
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="agent.zip"'},
+    )
+
+
+@app.get("/api/agents/<agent_id>/next-job")
+def agent_next_job(agent_id):
+    """Lease next queued job for agent."""
+    lease_seconds = request.args.get("lease_seconds", type=int) or 900
+    token = _agent_token_from_headers()
+    try:
+        _require_agent_auth(str(agent_id), token)
+        job = control_plane.lease_next_job(str(agent_id), lease_seconds=lease_seconds)
+        if not job:
+            return Response(status=204)
+        return jsonify(job)
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 401
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/agents/<agent_id>/job-result")
+def agent_job_result(agent_id):
+    """Record job result for agent."""
+    payload = request.get_json(silent=True) or {}
+    token = _agent_token_from_headers() or payload.get("agent_token")
+    try:
+        _require_agent_auth(str(agent_id), str(token) if token is not None else None)
+        data = control_plane.record_job_result(
+            str(agent_id),
+            str(payload.get("job_id")),
+            status=payload.get("status"),
+            result=payload.get("result"),
+            stdout=payload.get("stdout"),
+            stderr=payload.get("stderr"),
+            exit_code=payload.get("exit_code"),
+            artifacts=payload.get("artifacts"),
+            duration_ms=payload.get("duration_ms"),
+            error=payload.get("error"),
+        )
+        _maybe_ingest_vision_u_eye_job_result(
+            agent_id=str(agent_id),
+            job_id=str(payload.get("job_id") or ""),
+            action_id=str(data.get("action_id") or ""),
+            status=str(data.get("status") or payload.get("status") or ""),
+            result=payload.get("result"),
+            artifacts=payload.get("artifacts"),
+        )
+        return jsonify({"ok": True, "data": data})
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 401
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/terminal/<agent_id>/start")
+def start_terminal_session(agent_id):
+    """Start a break-glass terminal session (human-only)."""
+    if _agent_token_from_headers():
+        return jsonify({"ok": False, "error": "Terminal endpoints reject job tokens"}), 403
+    if request.headers.get("X-Job-Token") or request.headers.get("x-job-token"):
+        return jsonify({"ok": False, "error": "Terminal endpoints reject job tokens"}), 403
+    payload = request.get_json(silent=True) or {}
+    if payload.get("interactive_scope") is not True:
+        return jsonify({"ok": False, "error": "interactive_scope=true required"}), 403
+
+    operator = getpass.getuser()
+    allowlist = str(os.environ.get("GAS_TERMINAL_ALLOWED_OPERATORS") or "").strip()
+    if allowlist:
+        allowed = {part.strip() for part in allowlist.split(",") if part.strip()}
+        if operator not in allowed and "*" not in allowed:
+            return jsonify({"ok": False, "error": "Operator not allowed"}), 403
+    remote = request.remote_addr or ""
+    if remote and remote not in ("127.0.0.1", "::1"):
+        return jsonify({"ok": False, "error": "Terminal start requires localhost"}), 403
+    ttl = int(payload.get("ttl_seconds") or 900)
+    try:
+        session = control_plane.create_terminal_session(agent_id=str(agent_id), operator=operator, ttl_seconds=ttl)
+        return jsonify({"ok": True, "data": {**session, "ws_path": f"/ws/terminal/{session['session_id']}"}})
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/terminal/<agent_id>/next-session")
+def agent_next_terminal_session(agent_id):
+    """Agent: lease next pending terminal session (outbound websocket follows)."""
+    token = _agent_token_from_headers()
+    try:
+        _require_agent_auth(str(agent_id), token)
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 401
+    try:
+        session = control_plane.lease_next_terminal_session(str(agent_id))
+        if not session:
+            return Response(status=204)
+        return jsonify({"ok": True, "data": session})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/jobs/enqueue")
+def enqueue_job():
+    """Enqueue a control plane job (human/UI)."""
+    payload = request.get_json(silent=True) or {}
+    agent_id = str(payload.get("agent_id") or "").strip()
+    action_id = str(payload.get("action_id") or "").strip()
+    params = payload.get("params")
+    tenant_id = payload.get("tenant_id")
+    workspace_id = payload.get("workspace_id")
+    interactive_scope = bool(payload.get("interactive_scope"))
+    try:
+        job = control_plane.enqueue_action_job(
+            agent_id=agent_id,
+            action_id=action_id,
+            params=params,
+            requested_by=getpass.getuser(),
+            interactive_scope=interactive_scope,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        return jsonify({"ok": True, "data": job})
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/actionpacks/v2/validate")
+def validate_action_pack_v2():
+    """Validate an Action Pack v2 workflow."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        workflow = payload.get("workflow")
+        online_only = payload.get("online_only")
+        result = workflows_v2.validate_workflow_v2(workflow, online_only=bool(online_only) if online_only is not None else True)
+        return jsonify({"ok": True, "data": result.to_dict()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/actionpacks/v2/compile")
+def compile_action_pack_v2():
+    """Compile natural language text into an Action Pack v2 workflow (stub)."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = workflows_v2.compile_workflow_v2(
+            payload.get("text") or "",
+            allowed_action_ids=payload.get("allowed_action_ids"),
+            agent_id=payload.get("agent_id"),
+            max_risk_level=payload.get("max_risk_level"),
+            interactive_scope=payload.get("interactive_scope"),
+        )
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/actionpacks/v2/run")
+def run_action_pack_v2():
+    """Run an Action Pack v2 workflow."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        data = workflows_v2.run_workflow_v2(payload.get("workflow"))
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/jobs")
+def list_jobs():
+    """List jobs."""
+    try:
+        agent_id = request.args.get("agent_id") or None
+        status = request.args.get("status") or None
+        query = request.args.get("query") or None
+        tenant_id = request.args.get("tenant_id") or None
+        workspace_id = request.args.get("workspace_id") or None
+        limit = request.args.get("limit", type=int) or 200
+        offset = request.args.get("offset", type=int) or 0
+        data = control_plane.list_jobs(
+            agent_id=agent_id,
+            status=status,
+            query=query,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            limit=limit,
+            offset=offset,
+        )
+        return jsonify({"ok": True, "data": data})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.get("/api/jobs/<job_id>")
+def get_job(job_id):
+    """Get job detail."""
+    try:
+        data = control_plane.get_job_detail(str(job_id))
+        return jsonify({"ok": True, "data": data})
+    except KeyError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 404
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @app.get("/api/audit")
 def get_audit():
     """Get audit."""
@@ -166,6 +520,72 @@ def get_audit():
     }
     data = _read_audit_log(**params)
     return jsonify({"ok": True, "data": data})
+
+
+@app.post("/api/artifacts/upload")
+def upload_artifact():
+    """Upload artifact (agent-authenticated)."""
+    agent_id = request.form.get("agent_id") or ""
+    job_id = request.form.get("job_id") or None
+    artifact_type = request.form.get("type") or None
+    token = _agent_token_from_headers()
+    try:
+        _require_agent_auth(str(agent_id), token)
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 401
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"ok": False, "error": "Missing file"}), 400
+    artifact_id = secrets.token_hex(16)
+    suffix = Path(file.filename or "").suffix if file.filename else ""
+    if not suffix or len(suffix) > 12:
+        suffix = ".zip"
+    stored_filename = f"{artifact_id}{suffix}"
+    dest = Path(ARTIFACTS_DIR) / stored_filename
+    sha = hashlib.sha256()
+    size_bytes = 0
+    try:
+        with dest.open("wb") as handle:
+            while True:
+                chunk = file.stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                sha.update(chunk)
+                size_bytes += len(chunk)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    sha256 = sha.hexdigest()
+    try:
+        control_plane.record_artifact(
+            artifact_id=artifact_id,
+            agent_id=str(agent_id),
+            job_id=str(job_id).strip() if job_id else None,
+            type=str(artifact_type).strip() if artifact_type else (file.mimetype or None),
+            filename=stored_filename,
+            sha256=sha256,
+            size_bytes=size_bytes,
+            storage_path=stored_filename,
+        )
+    except Exception as exc:
+        try:
+            if dest.exists():
+                dest.unlink()
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "artifact_record_failed", "detail": str(exc)}), 500
+    return jsonify(
+        {
+            "ok": True,
+            "data": {
+                "artifact_id": artifact_id,
+                "filename": stored_filename,
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "url": f"/api/artifacts/{stored_filename}",
+            },
+        }
+    )
 
 
 @app.get("/api/artifacts/<path:filename>")
@@ -273,6 +693,8 @@ def run_task():
             else:
                 status_code = 502
         return jsonify(response), status_code
+    except GraphRunnerError as exc:
+        return jsonify(exc.to_payload(service=service, action=action)), int(exc.status_code or 502)
     except sqlite3.Error as exc:
         # Surface SQLite/schema issues as a 500 so operators don't confuse them with Graph failures.
         return (

@@ -41,6 +41,23 @@
               <button class="nav-link" data-section="snapshots" data-scroll="snapshot-history">Snapshots</button>
               <button class="nav-link" data-section="auditlog" data-scroll="audit-card">Audit Log</button>
 
+              <div class="nav-subheader">Vision</div>
+              <button class="nav-link" data-section="vision" data-scroll="vision-card">Vision Signals</button>
+
+              <div class="nav-subheader">Control Plane</div>
+              <button class="nav-link" data-section="tools" data-scroll="tools-catalog-card">
+                Tools Catalog
+              </button>
+              <button class="nav-link" data-section="actionrequests" data-scroll="action-requests-card">
+                Action Requests
+              </button>
+              <button class="nav-link" data-section="agents" data-scroll="agents-card">Agents</button>
+              <button class="nav-link" data-section="jobs" data-scroll="jobs-card">Jobs</button>
+              <button class="nav-link" data-section="catalog" data-scroll="catalog-card">Action Catalog</button>
+              <button class="nav-link" data-section="bootstrap" data-scroll="runner-bootstrap-card">
+                Runner Bootstrap
+              </button>
+
               <div class="nav-subheader">Logs &amp; Diagnostics</div>
               <button class="nav-link" data-section="eventlogs">Event Logs</button>
               <button class="nav-link" data-section="registry">Registry</button>
@@ -1483,6 +1500,57 @@
               <input id="template-import-file" type="file" accept=".json" hidden />
             </details>
           </div>
+          <details class="card action-pack-advanced" data-panel="actionpacks" data-display="block" id="action-pack-v2-panel">
+            <summary>
+              <span>Action Packs v2 (agent jobs)</span>
+              <span class="summary-subtitle">Manifest-driven workflows that dispatch jobs to agents.</span>
+            </summary>
+            <div class="card-body">
+              <div class="card-header">
+                <div>
+                  <div class="card-title">Action Packs v2</div>
+                  <div class="card-subtitle">Compile, validate, and run workflows (no terminal actions)</div>
+                </div>
+              </div>
+              <div class="form form-grid form-grid-wide">
+                <label class="wide">
+                  Natural language intent
+                  <textarea id="action-pack-v2-intent" rows="4" placeholder="e.g. list users top 5, then get user alice@contoso.com"></textarea>
+                </label>
+                <label>
+                  Target agent (optional)
+                  <select id="action-pack-v2-agent">
+                    <option value="" selected>Auto-pick</option>
+                  </select>
+                </label>
+                <label>
+                  Max risk
+                  <select id="action-pack-v2-max-risk">
+                    <option value="safe">Safe</option>
+                    <option value="caution" selected>Caution</option>
+                    <option value="danger">Danger</option>
+                  </select>
+                </label>
+                <label class="checkbox">
+                  <input id="action-pack-v2-interactive-scope" type="checkbox" />
+                  Interactive scope (required for danger)
+                </label>
+              </div>
+              <div class="runner-actions">
+                <button type="button" class="ghost" id="action-pack-v2-compile">Compile (stub)</button>
+                <button type="button" class="ghost" id="action-pack-v2-validate">Validate</button>
+                <button type="button" class="primary" id="action-pack-v2-run">Run</button>
+                <button type="button" class="ghost" id="action-pack-v2-clear">Clear</button>
+              </div>
+              <label class="wide">
+                Workflow JSON
+                <textarea id="action-pack-v2-json" rows="12" placeholder='{"name":"...","steps":[{"action_id":"demo.echo","params":{"message":"hi"}}]}'></textarea>
+              </label>
+              <div class="output-shell">
+                <pre class="output" id="action-pack-v2-output"></pre>
+              </div>
+            </div>
+          </details>
           <details class="card action-pack-advanced" data-panel="actionpacks" data-display="block" id="action-pack-history-panel">
             <summary>
               <span>Action pack history</span>
@@ -2449,6 +2517,393 @@
                 <tbody id="audit-table-body"></tbody>
               </table>
               <div class="note" id="audit-empty">No audit entries found.</div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="vision-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Vision Signals</div>
+                <div class="card-subtitle">Latest Vision-U-Eye snapshots, labels, and narration</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="vision-refresh">Refresh</button>
+              </div>
+            </div>
+            <div class="audit-filters">
+              <label>
+                Endpoint
+                <input id="vision-endpoint" type="text" placeholder="agent id / endpoint id" />
+              </label>
+              <label>
+                Session
+                <input id="vision-session" type="text" placeholder="session id" />
+              </label>
+              <label>
+                Limit
+                <select id="vision-limit">
+                  <option value="20">20</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                </select>
+              </label>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Endpoint</th>
+                    <th>Snapshot</th>
+                    <th>Labels</th>
+                    <th>Narration</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="vision-table-body"></tbody>
+              </table>
+              <div class="note" id="vision-empty">No vision signals found.</div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="action-requests-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Action Requests</div>
+                <div class="card-subtitle">Backlog items promoted from break-glass terminal sessions</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="action-requests-refresh">Refresh</button>
+                <button class="ghost small danger" id="action-requests-clear">Clear all</button>
+              </div>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Created</th>
+                    <th>Agent</th>
+                    <th>Commands</th>
+                    <th>Preview</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="action-requests-table-body"></tbody>
+              </table>
+              <div class="note" id="action-requests-empty">No action requests yet.</div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="tools-catalog-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Tools Catalog</div>
+                <div class="card-subtitle">
+                  All actions across registered agents (manifest-driven). Filter by capability and risk.
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="tools-refresh">Refresh</button>
+              </div>
+            </div>
+            <div class="audit-filters">
+              <label>
+                Capability
+                <select id="tools-capability">
+                  <option value="" selected>Any</option>
+                </select>
+              </label>
+              <label>
+                Risk
+                <select id="tools-risk">
+                  <option value="" selected>Any</option>
+                  <option value="safe">Safe</option>
+                  <option value="caution">Caution</option>
+                  <option value="danger">Danger</option>
+                </select>
+              </label>
+              <label class="wide">
+                Search
+                <input id="tools-query" type="text" placeholder="action id, title, plugin, capability" />
+              </label>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Action</th>
+                    <th>Title</th>
+                    <th>Risk</th>
+                    <th>Required capabilities</th>
+                    <th>Agents (online/total)</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="tools-table-body"></tbody>
+              </table>
+              <div class="note" id="tools-empty">No actions found.</div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="runner-bootstrap-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Runner Bootstrap</div>
+                <div class="card-subtitle">
+                  Pair new runners, install the Windows agent service, and verify connectivity + artifact upload.
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="bootstrap-generate">Generate pairing code</button>
+                <button class="ghost small" id="bootstrap-run-connectivity">Run connectivity test</button>
+              </div>
+            </div>
+            <div class="form form-grid-wide">
+              <label>
+                Tenant (optional)
+                <input id="bootstrap-tenant" type="text" placeholder="tenant id" />
+              </label>
+              <label>
+                Workspace (optional)
+                <input id="bootstrap-workspace" type="text" placeholder="workspace id" />
+              </label>
+              <label>
+                TTL seconds
+                <input id="bootstrap-ttl" type="number" min="60" max="86400" value="900" />
+              </label>
+            </div>
+            <div class="dataset-preview">
+              <div class="dataset-title">Pairing code</div>
+              <div class="dataset-meta" id="bootstrap-pairing-meta">Generate a short-lived code for first-time agent registration.</div>
+              <pre class="dataset-content" id="bootstrap-pairing-code">—</pre>
+            </div>
+            <div class="dataset-preview">
+              <div class="dataset-title">Windows quick install (one line)</div>
+              <div class="dataset-meta">
+                Run in an elevated PowerShell prompt on the Windows runner. Token is stored locally and never printed.
+              </div>
+              <pre class="dataset-content" id="bootstrap-windows-oneliner">—</pre>
+              <div class="card-actions">
+                <button class="ghost small" id="bootstrap-copy-oneliner">Copy</button>
+              </div>
+            </div>
+            <div class="note">
+              Verification:
+              <ul>
+                <li>Confirm the runner appears as <b>Online</b> in the Agents panel.</li>
+                <li>Run <code>runner.connectivity_test</code> and verify a job result includes an uploaded artifact.</li>
+                <li>Run runner-specific smoke tests (ex: <code>powershell.health_check</code>, <code>graph.connection_test</code>).</li>
+              </ul>
+            </div>
+
+            <div class="settings-grid">
+              <div class="settings-panel">
+                <div class="dataset-title">Windows PowerShell runner</div>
+                <div class="dataset-meta">Capability: <code>powershell.core</code> + <code>query.*</code></div>
+                <ul>
+                  <li>Install: run the one-line command above (Admin PowerShell recommended).</li>
+                  <li>Verify: run <code>runner.connectivity_test</code> then <code>powershell.health_check</code>.</li>
+                  <li>Optional: set <code>ALLOW_MODULE_INSTALL=true</code> on the runner host to allow module bootstrap.</li>
+                </ul>
+              </div>
+              <div class="settings-panel">
+                <div class="dataset-title">Graph runner</div>
+                <div class="dataset-meta">Capability: <code>graph.core</code></div>
+                <ul>
+                  <li>Configure credentials locally on the runner (never in the control plane DB).</li>
+                  <li>Set <code>GRAPH_TENANT_ID</code>, <code>GRAPH_CLIENT_ID</code>, and <code>GRAPH_CLIENT_SECRET</code> (or cert mode).</li>
+                  <li>Verify: run <code>graph.connection_test</code>.</li>
+                </ul>
+              </div>
+              <div class="settings-panel">
+                <div class="dataset-title">Vision-U-Eye runner</div>
+                <div class="dataset-meta">Capability: <code>observe.screen</code> + <code>observe.snapshots</code></div>
+                <ul>
+                  <li>Install the runner on the sensor host and keep it online.</li>
+                  <li>Verify: run <code>vision.capture_snapshot</code> and check the Observe panels.</li>
+                  <li>Retention: configure artifact retention policy for the artifacts volume.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="agents-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Agents</div>
+                <div class="card-subtitle">Registered execution agents, last-seen heartbeat, and capabilities</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="agents-refresh">Refresh</button>
+              </div>
+            </div>
+            <div class="audit-filters">
+              <label>
+                Status
+                <select id="agents-status">
+                  <option value="" selected>Any</option>
+                  <option value="online">Online</option>
+                  <option value="offline">Offline</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
+              <label>
+                Query
+                <input id="agents-query" type="search" placeholder="agent id, name, hostname" />
+              </label>
+              <label>
+                Sort
+                <select id="agents-sort">
+                  <option value="last_seen" selected>Last seen</option>
+                  <option value="name">Name</option>
+                  <option value="hostname">Hostname</option>
+                </select>
+              </label>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Agent</th>
+                    <th>Host</th>
+                    <th>OS</th>
+                    <th>Version</th>
+                    <th>Capabilities</th>
+                    <th>Labels</th>
+                    <th>Last seen</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="agents-table-body"></tbody>
+              </table>
+              <div class="note" id="agents-empty">No agents found.</div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="jobs-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Jobs</div>
+                <div class="card-subtitle">Queued and running jobs leased to agents (with results)</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="jobs-refresh">Refresh</button>
+              </div>
+            </div>
+            <div class="audit-filters">
+              <label>
+                Status
+                <select id="jobs-status">
+                  <option value="" selected>Any</option>
+                  <option value="queued">Queued</option>
+                  <option value="running">Running</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </label>
+              <label>
+                Agent
+                <input id="jobs-agent" type="text" placeholder="agent id" />
+              </label>
+              <label>
+                Query
+                <input id="jobs-query" type="search" placeholder="job id, action id, requested by" />
+              </label>
+              <label>
+                Limit
+                <select id="jobs-limit">
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200" selected>200</option>
+                  <option value="500">500</option>
+                </select>
+              </label>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Job</th>
+                    <th>Agent</th>
+                    <th>Action</th>
+                    <th>Risk</th>
+                    <th>Requested by</th>
+                    <th>Created</th>
+                    <th>Started</th>
+                    <th>Finished</th>
+                    <th>Lease expires</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="jobs-table-body"></tbody>
+              </table>
+              <div class="note" id="jobs-empty">No jobs found.</div>
+            </div>
+          </div>
+
+          <div class="card full" data-panel="controlplane" id="catalog-card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Action Catalog</div>
+                <div class="card-subtitle">Known actions, required capabilities, and agent support</div>
+              </div>
+              <div class="card-actions">
+                <button class="ghost small" id="catalog-refresh">Refresh</button>
+              </div>
+            </div>
+            <div class="audit-filters">
+              <label>
+                Agent
+                <select id="catalog-agent"></select>
+              </label>
+              <label>
+                Plugin
+                <select id="catalog-plugin">
+                  <option value="windows_powershell_runner" selected>Windows PowerShell</option>
+                  <option value="vision_u_eye_runner">Vision-U-Eye</option>
+                  <option value="graph_runner">Graph Runner</option>
+                  <option value="demo">Demo</option>
+                  <option value="">All</option>
+                </select>
+              </label>
+              <label>
+                Show
+                <select id="catalog-scope">
+                  <option value="supported" selected>Supported</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <label>
+                Query
+                <input id="catalog-query" type="search" placeholder="action id or capability" />
+              </label>
+              <label>
+                Sort
+                <select id="catalog-sort">
+                  <option value="supported" selected>Supported</option>
+                  <option value="action_id">Action</option>
+                  <option value="risk_level">Risk</option>
+                </select>
+              </label>
+            </div>
+            <div class="audit-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Supported</th>
+                    <th>Action</th>
+                    <th>Plugin</th>
+                    <th>Risk</th>
+                    <th>Required capabilities</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-table-body"></tbody>
+              </table>
+              <div class="note" id="catalog-empty">Select an agent to view supported actions.</div>
             </div>
           </div>
         </section>

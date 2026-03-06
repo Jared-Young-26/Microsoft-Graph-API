@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "action_id": "demo.echo",
+      "title": "Echo",
+      "description": "Returns params as result (for wiring tests).",
+      "risk": "safe",
+      "required_capabilities": ["demo.echo"],
+      "params_schema": {
+        "type": "object",
+        "title": "Echo params",
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Text to echo back."
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload",
+            "description": "Optional JSON payload to echo back.",
+            "additionalProperties": true
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "echo": { "type": "object" }
+        }
+      }
+    },
+    {
+      "action_id": "demo.sleep",
+      "title": "Sleep",
+      "description": "Sleeps for N milliseconds (for lease/timeout testing).",
+      "risk": "safe",
+      "required_capabilities": ["demo.sleep"],
+      "params_schema": {
+        "type": "object",
+        "title": "Sleep params",
+        "properties": {
+          "ms": {
+            "type": "integer",
+            "title": "Milliseconds",
+            "minimum": 0,
+            "maximum": 60000,
+            "default": 250
+          }
+        },
+        "required": ["ms"],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "slept_ms": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "action_id": "demo.sysinfo",
+      "title": "System info",
+      "description": "Returns basic platform information.",
+      "risk": "safe",
+      "required_capabilities": ["demo.sysinfo"],
+      "params_schema": {
+        "type": "object",
+        "title": "System info params",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "platform": { "type": "string" },
+          "system": { "type": "string" },
+          "release": { "type": "string" },
+          "version": { "type": "string" },
+          "machine": { "type": "string" },
+          "processor": { "type": "string" },
+          "python_version": { "type": "string" }
+        }
+      }
+    }
+  ]
+}
+

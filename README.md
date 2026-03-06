@@ -20,9 +20,10 @@ This toolkit assumes **application (app-only) permissions** for Microsoft Graph.
   - `local_printers.py` (printer inventory + GPO cross‑reference)
   - `local_network.py` (adapters, DHCP/static IP, DNS, MTU, ping)
   - `local_fileserver.py` (UNC share enumeration with optional credentials)
-  - `remote_ssh.py` (single command SSH runner)
+- `remote_ssh.py` (single command SSH runner)
 - `admin_gui/`: local-only web admin UI (static)
 - `admin_gui/backend/`: Flask + FastAPI backend for local API routing
+- `agent/`: cross-platform execution agent skeleton (plugins + polling loop)
 
 ## Setup
 
@@ -144,6 +145,54 @@ python -m admin_gui.backend.flask_app
 ### SSH in the Admin GUI
 
 Interactive SSH terminals require the **FastAPI** backend (WebSocket). The Flask backend only supports single-command SSH runs.
+
+### Control plane (Agents + Jobs)
+
+The Admin GUI backend includes a lightweight control plane database and APIs for registering execution agents and leasing jobs.
+
+- DB: `admin_gui/backend/control_plane.sqlite` (auto-created on first use)
+  - Override path: `CONTROL_PLANE_DB_PATH=/path/to/control_plane.sqlite`
+- Job lease reaper: requeues expired leases automatically
+  - Configure interval: `CONTROL_PLANE_REAPER_INTERVAL_SECONDS=30`
+
+Pairing codes (recommended for production-ish use):
+
+- Create one-time pairing code: `POST /api/pairing-codes`
+- Require pairing codes for first-time agent registration:
+  - `CONTROL_PLANE_REQUIRE_PAIRING_CODE=true`
+  - `CONTROL_PLANE_PAIRING_CODE_TTL_SECONDS=900` (default)
+
+Agent-facing APIs:
+
+- `POST /api/agents/register` → `{agent_id, agent_token}` (token returned on first register and when `rotate_token=true`)
+- `POST /api/agents/heartbeat` (auth required) → updates `last_seen` + `status=online`
+- `GET /api/agents/{agent_id}/next-job` (auth required) → leases one queued job, or `204` if none
+- `POST /api/agents/{agent_id}/job-result` (auth required) → records output and marks job `completed`/`failed`
+- `POST /api/artifacts/upload` (auth required) → uploads a file, returns `{artifact_id, sha256, filename, url}`
+
+Install helpers:
+
+- `GET /install/agent.zip` → downloads the `agent/` folder as a zip (v0 bootstrap helper)
+- `GET /install/windows.ps1` → Windows runner quick-install script (service install via NSSM if present)
+
+Auth:
+
+- Send `Authorization: Bearer <agent_token>` (or `X-Agent-Token: <agent_token>`) on heartbeat/lease/result calls.
+
+Admin/UI APIs:
+
+- `GET /api/agents` (list agents)
+- `GET /api/jobs` (list jobs)
+- `GET /api/jobs/{job_id}` (job detail + result)
+- `GET /api/capabilities/catalog` (known agent actions + required capabilities)
+
+Connectivity test:
+
+- Run `runner.connectivity_test` to verify the runner can reach the control plane and upload artifacts.
+
+Docker (control plane):
+
+- `docker compose up --build` (uses `docker-compose.yml`)
 
 ## Notes
 

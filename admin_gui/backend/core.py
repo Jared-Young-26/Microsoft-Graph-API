@@ -15,21 +15,27 @@ from collections import deque, defaultdict
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(dotenv_path=ROOT / ".env")
+
 CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 TOPOLOGY_HISTORY_PATH = Path(__file__).resolve().parent / "topology_history.json"
 TOPOLOGY_HISTORY_DEFAULT_LIMIT = 50
 AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
 ACTION_SNAPSHOT_PATH = Path(__file__).resolve().parent / "action_snapshots.sqlite"
 ACTION_SNAPSHOT_LEGACY_PATH = Path(__file__).resolve().parent / "action_snapshots.jsonl"
-ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
+_ARTIFACTS_DIR_ENV = os.environ.get("GAS_ARTIFACTS_DIR") or os.environ.get("ARTIFACTS_DIR")
+ARTIFACTS_DIR = (
+    Path(_ARTIFACTS_DIR_ENV).expanduser().resolve()
+    if _ARTIFACTS_DIR_ENV
+    else (Path(__file__).resolve().parent / "artifacts")
+)
 SNAPSHOT_DB_PATH = Path(__file__).resolve().parent / "snapshots.sqlite"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-load_dotenv(dotenv_path=ROOT / ".env")
 
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1501,9 +1507,31 @@ class BackendState:
             missing.append("CLIENT_ID")
         if not self.config.client_secret:
             missing.append("CLIENT_SECRET")
+        runner_mode = str(os.environ.get("GAS_GRAPH_RUNNER_MODE") or "auto").strip().lower()
+        runner_enabled = runner_mode not in ("off", "disabled", "local")
+        runner_available = False
+        try:
+            from admin_gui.backend import control_plane
+
+            agents = control_plane.list_agents(status="online", limit=1000).get("items") or []
+            for agent in agents:
+                if not isinstance(agent, dict):
+                    continue
+                caps = agent.get("capabilities") or []
+                if isinstance(caps, list) and "graph.core" in {str(c) for c in caps if c}:
+                    runner_available = True
+                    break
+        except Exception:
+            runner_available = False
+        local_configured = len(missing) == 0
+        graph_configured = local_configured or (runner_enabled and runner_available)
+        graph_mode = "runner" if runner_enabled and runner_available else "local" if local_configured else "unconfigured"
         return {
-            "graph_configured": len(missing) == 0,
+            "graph_configured": graph_configured,
             "missing_graph_env": missing,
+            "graph_mode": graph_mode,
+            "graph_runner_enabled": runner_enabled,
+            "graph_runner_available": runner_available,
             "graph_user_id": self.config.graph_user_id or "",
             "spo_admin_url": self.config.spo_admin_url or "",
             "ps_user_principal_name": self.config.ps_user_principal_name or "",
@@ -3697,6 +3725,67 @@ def _list_vision_u_eye_visual_signals(
     }
 
 
+def _maybe_ingest_vision_u_eye_job_result(
+    *,
+    agent_id: str,
+    job_id: str,
+    action_id: str,
+    status: str | None,
+    result: Any | None,
+    artifacts: Any | None,
+) -> dict | None:
+    """Best-effort ingestion of Vision-U-Eye job results into the visual signal store."""
+
+    if not action_id or not str(action_id).startswith("vision."):
+        return None
+    if str(status or "").lower().strip() != "completed":
+        return None
+    if not isinstance(result, dict):
+        return None
+    payload = result.get("visual_signal") or result.get("signal")
+    if not isinstance(payload, dict):
+        return None
+
+    perception = payload.get("perception")
+    if not isinstance(perception, dict):
+        return None
+
+    correlation = perception.get("correlation")
+    if not isinstance(correlation, dict):
+        correlation = {}
+        perception["correlation"] = correlation
+
+    # Enrich payload without breaking the contract (correlation is an open object).
+    correlation.setdefault("agent_id", agent_id)
+    correlation.setdefault("job_id", job_id)
+    correlation.setdefault("action_id", action_id)
+
+    snapshot_meta = result.get("snapshot")
+    if isinstance(snapshot_meta, dict):
+        correlation.setdefault("snapshot", snapshot_meta)
+
+    analysis_meta = result.get("analysis")
+    if isinstance(analysis_meta, dict):
+        correlation.setdefault("analysis", analysis_meta)
+
+    artifacts_list: list[dict[str, Any]] = []
+    if isinstance(artifacts, list):
+        artifacts_list = [a for a in artifacts if isinstance(a, dict)]
+    if artifacts_list:
+        correlation.setdefault("artifact", artifacts_list[0])
+        correlation.setdefault("artifacts", artifacts_list)
+
+    if not payload.get("endpoint_id"):
+        payload["endpoint_id"] = agent_id
+    if not payload.get("session_id"):
+        payload["session_id"] = str(result.get("session_id") or job_id)
+
+    try:
+        return _ingest_vision_u_eye_visual_signal(payload)
+    except Exception:
+        return None
+
+
 def _list_symptom_templates():
     """List symptom templates."""
     return list_symptom_templates()
@@ -4961,7 +5050,49 @@ def dispatch_task(service, action, params=None, target=None):
         data = params or {}
         try:
             if action == "graph_check":
-                result = _graph_check(data.get("service"))
+                use_runner = str(os.environ.get("GAS_GRAPH_RUNNER_MODE") or "auto").strip().lower() not in (
+                    "off",
+                    "disabled",
+                    "local",
+                )
+                if use_runner:
+                    try:
+                        from admin_gui.backend.graph_runner_dispatch import (
+                            GraphRunnerUnavailableError,
+                            dispatch_runner_action,
+                        )
+
+                        runner_report = dispatch_runner_action(
+                            service="system",
+                            action="graph_check",
+                            params=data if isinstance(data, dict) else {},
+                            risk_level="safe",
+                            requested_by=getpass.getuser(),
+                        )
+                        checks = {}
+                        if isinstance(runner_report, dict):
+                            calls = runner_report.get("calls") if isinstance(runner_report.get("calls"), list) else []
+                            for call in calls:
+                                if not isinstance(call, dict):
+                                    continue
+                                key = str(call.get("id") or call.get("path") or "call")
+                                checks[key] = {
+                                    "ok": bool(call.get("ok")),
+                                    "status": call.get("status"),
+                                    "latency_ms": call.get("latency_ms"),
+                                    "message": call.get("error") if call.get("ok") is False else None,
+                                }
+                        ok = bool(runner_report.get("ok")) if isinstance(runner_report, dict) else False
+                        result = {"ok": ok, "checks": checks, "runner": True, "raw": runner_report}
+                    except GraphRunnerUnavailableError:
+                        # Auto fallback: allow local Graph checks in dev if runner isn't online.
+                        mode = str(os.environ.get("GAS_GRAPH_RUNNER_MODE") or "auto").strip().lower()
+                        if mode in ("auto", ""):
+                            result = _graph_check(data.get("service"))
+                        else:
+                            raise
+                else:
+                    result = _graph_check(data.get("service"))
             elif action == "check_powershell_modules":
                 modules = data.get("modules") or POWERSHELL_MODULES.get(data.get("service"), [])
                 result = _check_powershell_modules(modules)
@@ -5247,17 +5378,67 @@ def dispatch_task(service, action, params=None, target=None):
         # eagerly initialize Graph auth. Doing so defeats cache-first behavior when the network
         # or Graph is degraded.
         client = _OneDriveCacheClient()
-    else:
-        client = STATE.get_client(service, execution_target)
-    method = getattr(client, spec["method"])
     call_params = {**spec.get("defaults", {}), **payload}
-    if "user_id" in inspect.signature(method).parameters:
-        user_val = call_params.get("user_id")
-        if user_val is None or str(user_val).strip() == "":
-            if STATE.config.graph_user_id:
-                call_params["user_id"] = STATE.config.graph_user_id
-            else:
-                raise ValueError("GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in .env.")
+    dispatched_via_runner = False
+    runner_mode = str(os.environ.get("GAS_GRAPH_RUNNER_MODE") or "auto").strip().lower()
+    if source_kind == "graph" and runner_mode not in ("off", "disabled", "local"):
+        try:
+            from admin_gui.backend.graph_runner_dispatch import (
+                GraphRunnerUnavailableError,
+                dispatch_runner_action,
+                should_dispatch_via_runner,
+            )
+
+            if should_dispatch_via_runner(service, action):
+                # Preserve the convenient default to GRAPH_USER_ID when the user leaves the field blank in the UI.
+                if "user_id" in call_params:
+                    user_val = call_params.get("user_id")
+                    if user_val is None or str(user_val).strip() == "":
+                        if STATE.config.graph_user_id:
+                            call_params["user_id"] = STATE.config.graph_user_id
+                        else:
+                            raise ValueError(
+                                "GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in Settings."
+                            )
+
+                def runner_method(**invoke_params):
+                    return dispatch_runner_action(
+                        service=service,
+                        action=action,
+                        params=invoke_params,
+                        risk_level=risk,
+                        requested_by=getpass.getuser(),
+                    )
+
+                client = None
+                method = runner_method
+                dispatched_via_runner = True
+        except GraphRunnerUnavailableError:
+            if runner_mode not in ("auto", ""):
+                raise
+
+    if not dispatched_via_runner:
+        if service not in (
+            "onedrive",
+        ) or action not in (
+            "get_user_drive_id",
+            "drive_cache_status",
+            "warm_drive_cache",
+            "seed_drive_cache",
+            "requeue_drive_resolution",
+            "force_live_resolve",
+        ):
+            client = STATE.get_client(service, execution_target)
+        method = getattr(client, spec["method"])
+        if "user_id" in inspect.signature(method).parameters:
+            user_val = call_params.get("user_id")
+            if user_val is None or str(user_val).strip() == "":
+                if STATE.config.graph_user_id:
+                    call_params["user_id"] = STATE.config.graph_user_id
+                else:
+                    raise ValueError(
+                        "GRAPH_USER_ID is required for app-only Graph calls. Set GRAPH_USER_ID in Settings."
+                    )
     # Cache-first OneDrive resolver uses `user_id` as the input field but doesn't require
     # eager Graph initialization. Preserve the convenient default to GRAPH_USER_ID when
     # the user leaves the field blank in the UI.

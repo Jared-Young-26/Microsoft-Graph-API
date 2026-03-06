@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "action_id": "runner.connectivity_test",
+      "title": "Connectivity test",
+      "description": "Verify the runner can reach the control plane and upload artifacts.",
+      "risk": "safe",
+      "required_capabilities": ["runner.connectivity_test"],
+      "params_schema": {
+        "type": "object",
+        "title": "Connectivity test params",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "report": { "type": "object" },
+          "note": { "type": "string" }
+        }
+      }
+    }
+  ]
+}
+

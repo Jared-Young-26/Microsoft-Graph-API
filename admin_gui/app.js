@@ -82,12 +82,26 @@ const SECTION_ALIASES = {
   healthcheck: "settings",
   auditlog: "settings",
   snapshots: "reports",
+  vision: "controlplane",
+  tools: "controlplane",
+  actionrequests: "controlplane",
+  agents: "controlplane",
+  jobs: "controlplane",
+  catalog: "controlplane",
+  bootstrap: "controlplane",
 };
 const MODE_MAP = {
+  controlplane: "observe",
   dashboard: "observe",
   incidents: "observe",
   investigations: "observe",
   workspaces: "observe",
+  vision: "observe",
+  tools: "observe",
+  actionrequests: "observe",
+  agents: "observe",
+  jobs: "observe",
+  catalog: "observe",
   baselines: "analyze",
   healthcheck: "configure",
   auditlog: "observe",
@@ -294,6 +308,16 @@ const packScopeSelect = document.getElementById("pack-scope");
 const actionPackHistoryList = document.getElementById("action-pack-history-list");
 const actionPackHistoryClear = document.getElementById("action-pack-history-clear");
 const actionPackDeletedList = document.getElementById("action-pack-deleted-list");
+const actionPackV2IntentInput = document.getElementById("action-pack-v2-intent");
+const actionPackV2AgentSelect = document.getElementById("action-pack-v2-agent");
+const actionPackV2MaxRiskSelect = document.getElementById("action-pack-v2-max-risk");
+const actionPackV2InteractiveScopeToggle = document.getElementById("action-pack-v2-interactive-scope");
+const actionPackV2CompileButton = document.getElementById("action-pack-v2-compile");
+const actionPackV2ValidateButton = document.getElementById("action-pack-v2-validate");
+const actionPackV2RunButton = document.getElementById("action-pack-v2-run");
+const actionPackV2ClearButton = document.getElementById("action-pack-v2-clear");
+const actionPackV2JsonInput = document.getElementById("action-pack-v2-json");
+const actionPackV2Output = document.getElementById("action-pack-v2-output");
 const exportReportPresetsButton = document.getElementById("export-report-presets");
 const importReportPresetsButton = document.getElementById("import-report-presets");
 const reportPresetsImportFile = document.getElementById("report-presets-import-file");
@@ -313,6 +337,52 @@ const auditUntilInput = document.getElementById("audit-until");
 const auditLimitSelect = document.getElementById("audit-limit");
 const auditTableBody = document.getElementById("audit-table-body");
 const auditEmptyNote = document.getElementById("audit-empty");
+const visionRefreshButton = document.getElementById("vision-refresh");
+const visionEndpointInput = document.getElementById("vision-endpoint");
+const visionSessionInput = document.getElementById("vision-session");
+const visionLimitSelect = document.getElementById("vision-limit");
+const visionTableBody = document.getElementById("vision-table-body");
+const visionEmptyNote = document.getElementById("vision-empty");
+const actionRequestsRefreshButton = document.getElementById("action-requests-refresh");
+const actionRequestsClearButton = document.getElementById("action-requests-clear");
+const actionRequestsTableBody = document.getElementById("action-requests-table-body");
+const actionRequestsEmptyNote = document.getElementById("action-requests-empty");
+const toolsRefreshButton = document.getElementById("tools-refresh");
+const toolsCapabilitySelect = document.getElementById("tools-capability");
+const toolsRiskSelect = document.getElementById("tools-risk");
+const toolsQueryInput = document.getElementById("tools-query");
+const toolsTableBody = document.getElementById("tools-table-body");
+const toolsEmptyNote = document.getElementById("tools-empty");
+const bootstrapGenerateButton = document.getElementById("bootstrap-generate");
+const bootstrapRunConnectivityButton = document.getElementById("bootstrap-run-connectivity");
+const bootstrapTenantInput = document.getElementById("bootstrap-tenant");
+const bootstrapWorkspaceInput = document.getElementById("bootstrap-workspace");
+const bootstrapTtlInput = document.getElementById("bootstrap-ttl");
+const bootstrapPairingMeta = document.getElementById("bootstrap-pairing-meta");
+const bootstrapPairingCode = document.getElementById("bootstrap-pairing-code");
+const bootstrapWindowsOneliner = document.getElementById("bootstrap-windows-oneliner");
+const bootstrapCopyOnelinerButton = document.getElementById("bootstrap-copy-oneliner");
+const agentsRefreshButton = document.getElementById("agents-refresh");
+const agentsStatusSelect = document.getElementById("agents-status");
+const agentsQueryInput = document.getElementById("agents-query");
+const agentsSortSelect = document.getElementById("agents-sort");
+const agentsTableBody = document.getElementById("agents-table-body");
+const agentsEmptyNote = document.getElementById("agents-empty");
+const jobsRefreshButton = document.getElementById("jobs-refresh");
+const jobsStatusSelect = document.getElementById("jobs-status");
+const jobsAgentInput = document.getElementById("jobs-agent");
+const jobsQueryInput = document.getElementById("jobs-query");
+const jobsLimitSelect = document.getElementById("jobs-limit");
+const jobsTableBody = document.getElementById("jobs-table-body");
+const jobsEmptyNote = document.getElementById("jobs-empty");
+const catalogRefreshButton = document.getElementById("catalog-refresh");
+const catalogAgentSelect = document.getElementById("catalog-agent");
+const catalogPluginSelect = document.getElementById("catalog-plugin");
+const catalogScopeSelect = document.getElementById("catalog-scope");
+const catalogQueryInput = document.getElementById("catalog-query");
+const catalogSortSelect = document.getElementById("catalog-sort");
+const catalogTableBody = document.getElementById("catalog-table-body");
+const catalogEmptyNote = document.getElementById("catalog-empty");
 const reportHistoryList = document.getElementById("report-history-list");
 const reportHistoryClear = document.getElementById("report-history-clear");
 const incidentRunButton = document.getElementById("incident-run");
@@ -485,6 +555,13 @@ const subtitles = {
   quickactions: "Dashboard shortcuts and pinned tasks",
   healthcheck: "System health, readiness, and diagnostics",
   auditlog: "Audit trail and system events",
+  vision: "Latest Vision-U-Eye snapshots, labels, and narration",
+  tools: "All actions across agents, grouped by tool and filtered by capability/risk",
+  bootstrap: "Pair runners, quick install, and connectivity verification",
+  actionrequests: "Promoted break-glass terminal commands (backlog only)",
+  agents: "Agent fleet status, capabilities, and labels",
+  jobs: "Job queue, leases, and results across agents",
+  catalog: "Known actions and required capabilities (by agent)",
   exchange: "Mail, calendars, and shared mailbox controls",
   onedrive: "Drive operations, permissions, and sync",
   sharepoint: "Sites, lists, and pages management",
@@ -512,6 +589,7 @@ const subtitles = {
   reports: "Audit-ready reports and summaries",
   purview: "Compliance and data governance",
   settings: "Local session and credentials",
+  controlplane: "Agent fleet status and job queue",
   help: "In-app documentation and how-to guidance",
 };
 
@@ -523,6 +601,13 @@ const serviceLabels = {
   quickactions: "Quick Actions",
   healthcheck: "Health Check",
   auditlog: "Audit Log",
+  vision: "Vision",
+  tools: "Tools Catalog",
+  bootstrap: "Runner Bootstrap",
+  actionrequests: "Action Requests",
+  agents: "Agents",
+  jobs: "Jobs",
+  catalog: "Action Catalog",
   onedrive: "OneDrive",
   sharepoint: "SharePoint",
   powerplatform: "Power Platform",
@@ -2467,6 +2552,8 @@ const TEMPLATE_STORAGE_KEY = "taskTemplates";
 const ACTION_PACK_STORAGE_KEY = "actionPacks";
 const ACTION_PACK_PAGE_KEY = "actionPackPageIndex";
 const ACTION_PACK_PAGE_SIZE = 3;
+const ACTION_REQUESTS_STORAGE_KEY = "actionRequests";
+const ACTION_PACK_V2_DRAFT_KEY = "actionPackV2Draft";
 const REPORT_PRESET_STORAGE_KEY = "reportPresets";
 const ACTION_PACK_FILTER_KEY = "actionPackFilter";
 const ACTION_PACK_FAVORITES_KEY = "actionPackFavorites";
@@ -7688,6 +7775,12 @@ const bulkRetryButtons = {};
 const bulkFailureCache = {};
 const lastStructuredLists = {};
 const auditState = { items: [], query: {} };
+const visionState = { events: [], query: {} };
+const actionRequestsState = { items: [] };
+const toolsState = { query: {} };
+const agentsState = { items: [], query: {} };
+const jobsState = { items: [], query: {} };
+const catalogState = { actions: [], capabilities: [], generated_at: "", query: {} };
 let incidentFixPackId = null;
 let incidentFixPackParams = null;
 let lastIncidentContext = null;
@@ -13001,6 +13094,1886 @@ async function fetchAuditLogs() {
   }
 }
 
+function buildVisionQuery() {
+  return {
+    endpoint_id: visionEndpointInput?.value.trim() || "",
+    session_id: visionSessionInput?.value.trim() || "",
+    limit: visionLimitSelect?.value || "50",
+  };
+}
+
+function renderVisionTable(items) {
+  if (!visionTableBody) return;
+  visionTableBody.innerHTML = "";
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    if (visionEmptyNote) visionEmptyNote.style.display = "block";
+    return;
+  }
+  if (visionEmptyNote) visionEmptyNote.style.display = "none";
+
+  list.forEach((event) => {
+    const row = document.createElement("tr");
+
+    const tsTd = document.createElement("td");
+    tsTd.textContent = formatRelativeTime(event?.timestamp_utc || event?.timestamp);
+    tsTd.title = event?.timestamp_utc || "";
+
+    const endpointTd = document.createElement("td");
+    endpointTd.textContent = event?.endpoint_id || "";
+    endpointTd.title = event?.endpoint_id || "";
+
+    const snapTd = document.createElement("td");
+    const artifactUrl = event?.perception?.correlation?.artifact?.url || "";
+    if (artifactUrl) {
+      const link = document.createElement("a");
+      link.href = artifactUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+      const img = document.createElement("img");
+      img.src = artifactUrl;
+      img.alt = "snapshot";
+      img.loading = "lazy";
+      img.style.maxWidth = "180px";
+      img.style.maxHeight = "120px";
+      img.style.borderRadius = "10px";
+      img.style.display = "block";
+      link.appendChild(img);
+      snapTd.appendChild(link);
+    } else {
+      snapTd.textContent = "";
+    }
+
+    const labelsTd = document.createElement("td");
+    const labels = event?.perception?.correlation?.analysis?.labels;
+    if (Array.isArray(labels)) {
+      labelsTd.textContent = labels.map((item) => String(item)).filter(Boolean).slice(0, 12).join(", ");
+    } else {
+      labelsTd.textContent = "";
+    }
+
+    const narrationTd = document.createElement("td");
+    const narration = event?.perception?.correlation?.analysis?.narration;
+    narrationTd.textContent = narration ? String(narration).slice(0, 240) : "";
+    narrationTd.title = narration ? String(narration) : "";
+
+    const detailTd = document.createElement("td");
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.classList.add("ghost", "small");
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", () => showModal("Vision signal", event, "vision"));
+    detailTd.appendChild(viewBtn);
+
+    row.appendChild(tsTd);
+    row.appendChild(endpointTd);
+    row.appendChild(snapTd);
+    row.appendChild(labelsTd);
+    row.appendChild(narrationTd);
+    row.appendChild(detailTd);
+    visionTableBody.appendChild(row);
+  });
+}
+
+async function fetchVisionSignals() {
+  const query = buildVisionQuery();
+  visionState.query = query;
+  const params = new URLSearchParams();
+  if (query.endpoint_id) params.set("endpoint_id", query.endpoint_id);
+  if (query.session_id) params.set("session_id", query.session_id);
+  if (query.limit) params.set("limit", query.limit);
+  try {
+    const res = await fetch(`/api/signals/visual?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Vision signals load failed");
+      return [];
+    }
+    const items = data.data?.events || [];
+    visionState.events = items;
+    renderVisionTable(items);
+    return items;
+  } catch (err) {
+    showToast("Vision signals load failed");
+    return [];
+  }
+}
+
+let visionRefreshTimer = null;
+function scheduleVisionRefresh(delayMs = 250) {
+  if (visionRefreshTimer) clearTimeout(visionRefreshTimer);
+  visionRefreshTimer = setTimeout(() => fetchVisionSignals(), delayMs);
+}
+
+function normalizeActionRequest(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const createdAtRaw = String(entry.created_at || entry.createdAt || "").trim();
+  const agentId = String(entry.agent_id || entry.agentId || "").trim();
+  const agentName = String(entry.agent_name || entry.agentName || agentId || "").trim();
+  const sessionId = String(entry.session_id || entry.sessionId || "").trim();
+
+  const rawCommands = entry.commands ?? entry.command ?? [];
+  let commands = [];
+  if (Array.isArray(rawCommands)) {
+    commands = rawCommands.map((cmd) => String(cmd || "").trim()).filter(Boolean);
+  } else if (typeof rawCommands === "string") {
+    const trimmed = rawCommands.trim();
+    commands = trimmed ? [trimmed] : [];
+  }
+
+  if (!agentId || !commands.length) return null;
+
+  const requestId =
+    String(entry.request_id || entry.requestId || entry.id || "").trim() ||
+    `ar-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+
+  let createdAt = createdAtRaw;
+  if (!createdAt) {
+    createdAt = new Date().toISOString();
+  } else {
+    const parsed = new Date(createdAtRaw);
+    createdAt = Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+  }
+
+  return {
+    request_id: requestId,
+    created_at: createdAt,
+    agent_id: agentId,
+    agent_name: agentName || agentId,
+    session_id: sessionId || null,
+    commands,
+  };
+}
+
+function loadActionRequests() {
+  try {
+    const raw = localStorage.getItem(ACTION_REQUESTS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => normalizeActionRequest(entry))
+      .filter(Boolean)
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveActionRequests(items) {
+  localStorage.setItem(ACTION_REQUESTS_STORAGE_KEY, JSON.stringify(items || []));
+}
+
+function summarizeCommands(commands, { limit = 2 } = {}) {
+  const list = Array.isArray(commands) ? commands : [];
+  const trimmed = list.map((cmd) => String(cmd || "").trim()).filter(Boolean);
+  if (!trimmed.length) return "";
+  if (trimmed.length <= limit) return trimmed.join(" · ");
+  return `${trimmed.slice(0, limit).join(" · ")} +${trimmed.length - limit}`;
+}
+
+function renderActionRequestsTable(items) {
+  if (!actionRequestsTableBody) return;
+  actionRequestsTableBody.innerHTML = "";
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    if (actionRequestsEmptyNote) actionRequestsEmptyNote.style.display = "block";
+    return;
+  }
+  if (actionRequestsEmptyNote) actionRequestsEmptyNote.style.display = "none";
+
+  list.forEach((req) => {
+    const row = document.createElement("tr");
+
+    const createdTd = document.createElement("td");
+    createdTd.textContent = formatRelativeTime(req?.created_at);
+
+    const agentTd = document.createElement("td");
+    agentTd.textContent = req?.agent_name || req?.agent_id || "";
+    agentTd.title = req?.agent_id || "";
+
+    const countTd = document.createElement("td");
+    countTd.textContent = Array.isArray(req?.commands) ? String(req.commands.length) : "0";
+
+    const previewTd = document.createElement("td");
+    previewTd.textContent = summarizeCommands(req?.commands, { limit: 2 });
+    previewTd.title = Array.isArray(req?.commands) ? req.commands.join("\n") : "";
+
+    const detailTd = document.createElement("td");
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.classList.add("ghost", "small");
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", () => showModal("Action request", req, "actionrequests"));
+    detailTd.appendChild(viewBtn);
+
+    row.appendChild(createdTd);
+    row.appendChild(agentTd);
+    row.appendChild(countTd);
+    row.appendChild(previewTd);
+    row.appendChild(detailTd);
+    actionRequestsTableBody.appendChild(row);
+  });
+}
+
+function refreshActionRequests() {
+  const items = loadActionRequests().slice(0, 200);
+  actionRequestsState.items = items;
+  renderActionRequestsTable(items);
+  return items;
+}
+
+function addActionRequest(entry) {
+  const normalized = normalizeActionRequest(entry);
+  if (!normalized) return null;
+  const existing = loadActionRequests();
+  existing.unshift(normalized);
+  const seen = new Set();
+  const deduped = [];
+  existing.forEach((item) => {
+    const key = item?.request_id;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    deduped.push(item);
+  });
+  const clipped = deduped.slice(0, 200);
+  saveActionRequests(clipped);
+  actionRequestsState.items = clipped;
+  renderActionRequestsTable(clipped);
+  return normalized;
+}
+
+function clearActionRequests() {
+  saveActionRequests([]);
+  actionRequestsState.items = [];
+  renderActionRequestsTable([]);
+}
+
+const AGENT_OFFLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
+function buildAgentsQuery() {
+  return {
+    status: agentsStatusSelect?.value || "",
+    query: agentsQueryInput?.value.trim() || "",
+    sort: agentsSortSelect?.value || "last_seen",
+  };
+}
+
+function computeAgentStatus(agent) {
+  const raw = String(agent?.status || "").toLowerCase() || "unknown";
+  if (raw !== "online") return raw;
+  const lastSeen = agent?.last_seen ? new Date(agent.last_seen) : null;
+  if (!lastSeen || Number.isNaN(lastSeen.getTime())) return raw;
+  return Date.now() - lastSeen.getTime() > AGENT_OFFLINE_THRESHOLD_MS ? "offline" : raw;
+}
+
+function summarizeList(value, { limit = 6 } = {}) {
+  const items = Array.isArray(value) ? value : [];
+  const trimmed = items.map((item) => String(item)).filter(Boolean);
+  if (!trimmed.length) return "";
+  if (trimmed.length <= limit) return trimmed.join(", ");
+  return `${trimmed.slice(0, limit).join(", ")} +${trimmed.length - limit}`;
+}
+
+function summarizeKeyValue(value, { limit = 6 } = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const entries = Object.entries(value)
+    .map(([k, v]) => `${k}=${v}`)
+    .filter((item) => item && item.length < 200);
+  if (!entries.length) return "";
+  if (entries.length <= limit) return entries.join(", ");
+  return `${entries.slice(0, limit).join(", ")} +${entries.length - limit}`;
+}
+
+function summarizeJsonField(value) {
+  if (!value) return "";
+  if (Array.isArray(value)) return summarizeList(value);
+  if (typeof value === "object") {
+    const keys = Object.keys(value);
+    if (!keys.length) return "";
+    if (keys.length <= 6) return keys.join(", ");
+    return `${keys.slice(0, 6).join(", ")} +${keys.length - 6}`;
+  }
+  return String(value);
+}
+
+function renderAgentsTable(items, { sort = "last_seen", status = "" } = {}) {
+  if (!agentsTableBody) return;
+  agentsTableBody.innerHTML = "";
+  const list = Array.isArray(items) ? items : [];
+  const filtered = list.filter((agent) => {
+    const computed = computeAgentStatus(agent);
+    if (status && computed !== status) return false;
+    return true;
+  });
+
+  const sorted = filtered.slice();
+  const key = String(sort || "last_seen");
+  if (key === "name") {
+    sorted.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+  } else if (key === "hostname") {
+    sorted.sort((a, b) => String(a?.hostname || "").localeCompare(String(b?.hostname || "")));
+  } else {
+    sorted.sort((a, b) => String(b?.last_seen || "").localeCompare(String(a?.last_seen || "")));
+  }
+
+  if (!sorted.length) {
+    if (agentsEmptyNote) agentsEmptyNote.style.display = "block";
+    return;
+  }
+  if (agentsEmptyNote) agentsEmptyNote.style.display = "none";
+
+  sorted.forEach((agent) => {
+    const row = document.createElement("tr");
+
+    const statusTd = document.createElement("td");
+    const computed = computeAgentStatus(agent);
+    statusTd.textContent = computed;
+    statusTd.classList.add(computed === "online" ? "ok" : "warn");
+
+    const agentTd = document.createElement("td");
+    agentTd.textContent = agent?.name ? `${agent.name} (${agent.agent_id || ""})` : agent?.agent_id || "";
+    agentTd.title = agent?.agent_id || "";
+
+    const hostTd = document.createElement("td");
+    hostTd.textContent = agent?.hostname || "";
+
+    const osTd = document.createElement("td");
+    const osParts = [agent?.os, agent?.arch].filter(Boolean);
+    osTd.textContent = osParts.join(" / ");
+
+    const versionTd = document.createElement("td");
+    versionTd.textContent = agent?.version || "";
+
+    const capsTd = document.createElement("td");
+    const capsSummary = summarizeJsonField(agent?.capabilities);
+    capsTd.textContent = capsSummary;
+    capsTd.title = capsSummary;
+
+    const labelsTd = document.createElement("td");
+    const labelsSummary =
+      Array.isArray(agent?.labels) ? summarizeList(agent.labels) : summarizeKeyValue(agent?.labels);
+    labelsTd.textContent = labelsSummary;
+    labelsTd.title = labelsSummary;
+
+    const lastSeenTd = document.createElement("td");
+    lastSeenTd.textContent = formatRelativeTime(agent?.last_seen);
+
+    const detailTd = document.createElement("td");
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.classList.add("ghost", "small");
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", () => showModal("Agent", agent, "agents"));
+    detailTd.appendChild(viewBtn);
+
+    const capSet = buildAgentCapabilitySet(agent);
+    if (capSet.has("break_glass.enabled") && computed === "online") {
+      const termBtn = document.createElement("button");
+      termBtn.type = "button";
+      termBtn.classList.add("ghost", "small", "danger");
+      termBtn.textContent = "Terminal";
+      termBtn.title = "Break-glass terminal (human-only)";
+      termBtn.addEventListener("click", () => startBreakGlassTerminal(agent));
+      detailTd.appendChild(termBtn);
+    }
+
+    row.appendChild(statusTd);
+    row.appendChild(agentTd);
+    row.appendChild(hostTd);
+    row.appendChild(osTd);
+    row.appendChild(versionTd);
+    row.appendChild(capsTd);
+    row.appendChild(labelsTd);
+    row.appendChild(lastSeenTd);
+    row.appendChild(detailTd);
+
+    agentsTableBody.appendChild(row);
+  });
+}
+
+async function fetchAgents() {
+  const query = buildAgentsQuery();
+  agentsState.query = query;
+  const params = new URLSearchParams();
+  if (query.query) params.set("query", query.query);
+  params.set("limit", "500");
+  try {
+    const res = await fetch(`/api/agents?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Agents load failed");
+      return [];
+    }
+    const items = data.data?.items || [];
+    agentsState.items = items;
+    renderAgentsTable(items, { sort: query.sort, status: query.status });
+    renderCatalogAgentOptions(items);
+    renderActionPackV2AgentOptions(items);
+    scheduleCatalogRender(0);
+    renderToolsCatalog();
+    return items;
+  } catch (err) {
+    showToast("Agents load failed");
+    return [];
+  }
+}
+
+let agentsRefreshTimer = null;
+function scheduleAgentsRefresh(delayMs = 250) {
+  if (agentsRefreshTimer) clearTimeout(agentsRefreshTimer);
+  agentsRefreshTimer = setTimeout(() => fetchAgents(), delayMs);
+}
+
+function getTerminalWsUrl(sessionId) {
+  const host = window.location.hostname || "127.0.0.1";
+  let port = window.location.port || "8000";
+  if (port === "8001") {
+    port = "8000";
+  }
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${host}:${port}/ws/terminal/${encodeURIComponent(sessionId)}?interactive_scope=true`;
+}
+
+async function startBreakGlassTerminal(agent) {
+  const agentId = String(agent?.agent_id || "").trim();
+  const agentName = String(agent?.name || agentId || "").trim();
+  if (!agentId || !agentName) {
+    showToast("Agent not available");
+    return;
+  }
+
+  const values = await openFormModal({
+    title: "Break-glass terminal",
+    subtitle: "Human-only interactive remote terminal. Commands are audited.",
+    confirmLabel: "Start session",
+    cancelLabel: "Cancel",
+    size: "large",
+    fields: [
+      {
+        key: "confirm_name",
+        label: `Type agent name to confirm (${agentName})`,
+        placeholder: agentName,
+        required: true,
+      },
+      {
+        key: "ttl_seconds",
+        label: "Session duration (seconds)",
+        type: "number",
+        value: "900",
+        hint: "Default: 900s (15m). Max: 3600s.",
+        required: true,
+      },
+    ],
+  });
+  if (!values) return;
+  if (String(values.confirm_name || "").trim() !== agentName) {
+    showToast("Confirmation did not match agent name");
+    return;
+  }
+  const ttlSeconds = Math.max(60, Math.min(3600, Number.parseInt(values.ttl_seconds, 10) || 900));
+
+  try {
+    const res = await fetch(`/api/terminal/${encodeURIComponent(agentId)}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ interactive_scope: true, ttl_seconds: ttlSeconds }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Terminal start failed");
+      return;
+    }
+    await openBreakGlassTerminalModal(agent, data.data);
+  } catch (err) {
+    showToast("Terminal start failed");
+  }
+}
+
+function formatCountdown(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "00:00";
+  const total = Math.floor(ms / 1000);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+async function openBreakGlassTerminalModal(agent, session) {
+  const agentId = String(agent?.agent_id || "").trim();
+  const agentName = String(agent?.name || agentId || "").trim();
+  const sessionId = String(session?.session_id || "").trim();
+  if (!agentId || !sessionId) {
+    showToast("Invalid terminal session");
+    return;
+  }
+
+  const expiresAt = session?.expires_at ? new Date(session.expires_at) : null;
+  let socket = null;
+  let timer = null;
+  const history = [];
+
+  const wrapper = document.createElement("div");
+  wrapper.classList.add("terminal-shell");
+
+  const banner = document.createElement("div");
+  banner.classList.add("banner", "alert");
+  banner.style.marginBottom = "12px";
+  banner.innerHTML = `
+    <div class="banner-body">
+      <div class="banner-title">Break-glass terminal session</div>
+      <div class="banner-message">Danger: arbitrary commands execute on the agent host. Output is audited.</div>
+      <div class="banner-meta">Agent: ${escapeHtml(agentName)} · Session: ${escapeHtml(sessionId)}</div>
+    </div>
+  `;
+  wrapper.appendChild(banner);
+
+  const metaRow = document.createElement("div");
+  metaRow.classList.add("session-row");
+  metaRow.style.display = "flex";
+  metaRow.style.gap = "12px";
+  metaRow.style.alignItems = "center";
+  metaRow.style.marginBottom = "10px";
+
+  const agentStatus = document.createElement("span");
+  agentStatus.classList.add("pill");
+  agentStatus.textContent = "Agent: connecting…";
+
+  const sessionTimer = document.createElement("span");
+  sessionTimer.classList.add("pill");
+  sessionTimer.textContent = "Expires: --";
+
+  metaRow.appendChild(agentStatus);
+  metaRow.appendChild(sessionTimer);
+  wrapper.appendChild(metaRow);
+
+  const output = document.createElement("pre");
+  output.classList.add("output", "terminal-output");
+  output.style.maxHeight = "320px";
+  output.style.overflow = "auto";
+  output.textContent = "";
+  wrapper.appendChild(output);
+
+  const controls = document.createElement("div");
+  controls.classList.add("terminal-controls");
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Type a command and press Enter";
+  input.autocomplete = "off";
+
+  const sendBtn = document.createElement("button");
+  sendBtn.type = "button";
+  sendBtn.classList.add("ghost", "small");
+  sendBtn.textContent = "Send";
+
+  const promoteBtn = document.createElement("button");
+  promoteBtn.type = "button";
+  promoteBtn.classList.add("ghost", "small");
+  promoteBtn.textContent = "Promote selected";
+
+  controls.appendChild(input);
+  controls.appendChild(sendBtn);
+  controls.appendChild(promoteBtn);
+  wrapper.appendChild(controls);
+
+  const historyBox = document.createElement("div");
+  historyBox.classList.add("note");
+  historyBox.style.marginTop = "10px";
+  wrapper.appendChild(historyBox);
+
+  const appendOut = (text) => {
+    output.textContent += text;
+    const maxLen = 120000;
+    if (output.textContent.length > maxLen) {
+      output.textContent = output.textContent.slice(-maxLen);
+    }
+    output.scrollTop = output.scrollHeight;
+  };
+
+  const renderHistory = () => {
+    if (!history.length) {
+      historyBox.textContent = "No commands yet.";
+      return;
+    }
+    historyBox.innerHTML = "";
+    const title = document.createElement("div");
+    title.textContent = "Command history (select to promote):";
+    title.style.marginBottom = "6px";
+    historyBox.appendChild(title);
+    history.slice().reverse().slice(0, 12).forEach((entry) => {
+      const row = document.createElement("label");
+      row.style.display = "flex";
+      row.style.gap = "8px";
+      row.style.alignItems = "center";
+      row.style.marginBottom = "4px";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = Boolean(entry.selected);
+      cb.addEventListener("change", () => {
+        entry.selected = cb.checked;
+      });
+      const text = document.createElement("span");
+      text.textContent = entry.command;
+      row.appendChild(cb);
+      row.appendChild(text);
+      historyBox.appendChild(row);
+    });
+  };
+
+  const updateTimer = () => {
+    if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+      sessionTimer.textContent = "Expires: --";
+      return;
+    }
+    const remaining = expiresAt.getTime() - Date.now();
+    sessionTimer.textContent = `Expires in ${formatCountdown(remaining)}`;
+    if (remaining <= 0) {
+      input.disabled = true;
+      sendBtn.disabled = true;
+      agentStatus.textContent = "Session expired";
+    }
+  };
+
+  updateTimer();
+  timer = setInterval(updateTimer, 1000);
+
+  const wsUrl = getTerminalWsUrl(sessionId);
+  try {
+    socket = new WebSocket(wsUrl);
+  } catch (err) {
+    showToast("Failed to open terminal WebSocket");
+    if (timer) clearInterval(timer);
+    return;
+  }
+
+  socket.onmessage = (event) => {
+    if (!event.data) return;
+    let msg = null;
+    try {
+      msg = JSON.parse(String(event.data));
+    } catch (err) {
+      appendOut(String(event.data));
+      return;
+    }
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "agent_status") {
+      agentStatus.textContent = msg.status === "connected" ? "Agent: connected" : "Agent: disconnected";
+      return;
+    }
+    if (msg.type === "output") {
+      const stream = msg.stream === "stderr" ? "stderr" : "stdout";
+      appendOut(msg.data ? String(msg.data) : "");
+      if (stream === "stderr" && msg.data) {
+        // Ensure stderr stands out slightly.
+        appendOut("");
+      }
+      return;
+    }
+    if (msg.type === "exit") {
+      appendOut(`\n(exit ${msg.exit_code ?? ""})\n`);
+      return;
+    }
+    if (msg.type === "queued") {
+      appendOut(`\n(queued: waiting for agent to connect)\n`);
+      return;
+    }
+    if (msg.type === "session" && msg.status === "closed") {
+      appendOut(`\n(session closed)\n`);
+      input.disabled = true;
+      sendBtn.disabled = true;
+      return;
+    }
+  };
+  socket.onopen = () => {
+    appendOut(`\n[connected to control plane]\n`);
+  };
+  socket.onerror = () => {
+    agentStatus.textContent = "WebSocket error";
+  };
+  socket.onclose = () => {
+    appendOut(`\n[disconnected]\n`);
+    agentStatus.textContent = "Disconnected";
+    input.disabled = true;
+    sendBtn.disabled = true;
+  };
+
+  const sendCommand = () => {
+    const command = String(input.value || "").trim();
+    if (!command) return;
+    const commandId = Math.random().toString(16).slice(2);
+    history.push({ command_id: commandId, command, timestamp: new Date().toISOString(), selected: false });
+    renderHistory();
+    appendOut(`\n> ${command}\n`);
+    input.value = "";
+    try {
+      socket.send(JSON.stringify({ type: "command", command_id: commandId, command }));
+    } catch (err) {
+      showToast("Terminal send failed");
+    }
+  };
+
+  sendBtn.addEventListener("click", sendCommand);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      sendCommand();
+    }
+  });
+
+  promoteBtn.addEventListener("click", async () => {
+    const selected = history.filter((item) => item.selected).map((item) => item.command);
+    if (!selected.length) {
+      showToast("Select commands to promote");
+      return;
+    }
+    const payload = {
+      created_at: new Date().toISOString(),
+      agent_id: agentId,
+      agent_name: agentName,
+      session_id: sessionId,
+      commands: selected,
+    };
+    const saved = addActionRequest(payload);
+    if (!saved) {
+      showToast("Failed to promote action request");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(saved, null, 2));
+      showToast("Action request created (copied)");
+    } catch (err) {
+      showToast("Action request created");
+    }
+  });
+
+  const modalResult = await openModal({
+    title: "Break-glass terminal",
+    subtitle: `${agentName} (${agentId})`,
+    body: wrapper,
+    size: "large",
+    allowOutsideClose: false,
+    actions: [
+      {
+        label: "End session",
+        variant: "primary",
+        danger: true,
+        value: "end",
+        onClick: () => {
+          try {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: "end" }));
+            }
+          } catch (err) {
+            // ignore
+          }
+          return true;
+        },
+      },
+      { label: "Close", variant: "ghost", value: "close" },
+    ],
+  });
+
+  if (timer) clearInterval(timer);
+  try {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.close();
+    }
+  } catch (err) {
+    // ignore
+  }
+  return modalResult;
+}
+
+function buildJobsQuery() {
+  return {
+    status: jobsStatusSelect?.value || "",
+    agent_id: jobsAgentInput?.value.trim() || "",
+    query: jobsQueryInput?.value.trim() || "",
+    limit: jobsLimitSelect?.value || "200",
+  };
+}
+
+function renderJobsTable(items) {
+  if (!jobsTableBody) return;
+  jobsTableBody.innerHTML = "";
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    if (jobsEmptyNote) jobsEmptyNote.style.display = "block";
+    return;
+  }
+  if (jobsEmptyNote) jobsEmptyNote.style.display = "none";
+  list.forEach((job) => {
+    const row = document.createElement("tr");
+
+    const statusTd = document.createElement("td");
+    statusTd.textContent = job?.status || "";
+    const statusLower = String(job?.status || "").toLowerCase();
+    statusTd.classList.add(statusLower === "completed" ? "ok" : statusLower === "failed" ? "warn" : "");
+
+    const jobTd = document.createElement("td");
+    jobTd.textContent = job?.job_id || "";
+    jobTd.title = job?.job_id || "";
+
+    const agentTd = document.createElement("td");
+    agentTd.textContent = job?.agent_id || "";
+    agentTd.title = job?.agent_id || "";
+
+    const actionTd = document.createElement("td");
+    actionTd.textContent = job?.action_id || "";
+    actionTd.title = job?.action_id || "";
+
+    const riskTd = document.createElement("td");
+    riskTd.textContent = job?.risk_level || "";
+
+    const requestedByTd = document.createElement("td");
+    requestedByTd.textContent = job?.requested_by || "";
+    requestedByTd.title = job?.requested_by || "";
+
+    const createdTd = document.createElement("td");
+    createdTd.textContent = formatRelativeTime(job?.created_at);
+
+    const startedTd = document.createElement("td");
+    startedTd.textContent = formatRelativeTime(job?.started_at);
+
+    const finishedTd = document.createElement("td");
+    finishedTd.textContent = formatRelativeTime(job?.finished_at);
+
+    const leaseTd = document.createElement("td");
+    leaseTd.textContent = formatRelativeTime(job?.lease_expires_at);
+
+    const detailTd = document.createElement("td");
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.classList.add("ghost", "small");
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", async () => {
+      const id = job?.job_id;
+      if (!id) return;
+      try {
+        const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (!data.ok) {
+          showToast(data.error || "Job load failed");
+          return;
+        }
+        showModal("Job", data.data || job, "jobs");
+      } catch (err) {
+        showToast("Job load failed");
+      }
+    });
+    detailTd.appendChild(viewBtn);
+
+    row.appendChild(statusTd);
+    row.appendChild(jobTd);
+    row.appendChild(agentTd);
+    row.appendChild(actionTd);
+    row.appendChild(riskTd);
+    row.appendChild(requestedByTd);
+    row.appendChild(createdTd);
+    row.appendChild(startedTd);
+    row.appendChild(finishedTd);
+    row.appendChild(leaseTd);
+    row.appendChild(detailTd);
+
+    jobsTableBody.appendChild(row);
+  });
+}
+
+async function fetchJobs() {
+  const query = buildJobsQuery();
+  jobsState.query = query;
+  const params = new URLSearchParams();
+  if (query.status) params.set("status", query.status);
+  if (query.agent_id) params.set("agent_id", query.agent_id);
+  if (query.query) params.set("query", query.query);
+  if (query.limit) params.set("limit", query.limit);
+  try {
+    const res = await fetch(`/api/jobs?${params.toString()}`);
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Jobs load failed");
+      return [];
+    }
+    const items = data.data?.items || [];
+    jobsState.items = items;
+    renderJobsTable(items);
+    return items;
+  } catch (err) {
+    showToast("Jobs load failed");
+    return [];
+  }
+}
+
+let jobsRefreshTimer = null;
+function scheduleJobsRefresh(delayMs = 250) {
+  if (jobsRefreshTimer) clearTimeout(jobsRefreshTimer);
+  jobsRefreshTimer = setTimeout(() => fetchJobs(), delayMs);
+}
+
+function normalizeAgentCapabilities(value) {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item))
+      .map((cap) => cap.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return [];
+    if (text.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return normalizeAgentCapabilities(parsed);
+      } catch (err) {
+        // Fall through to comma-split parsing.
+      }
+    }
+    return text
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "object") {
+    if (Array.isArray(value.capabilities)) return normalizeAgentCapabilities(value.capabilities);
+    return Object.entries(value)
+      .filter(([, enabled]) => Boolean(enabled))
+      .map(([key]) => String(key).trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function buildAgentCapabilitySet(agent) {
+  const caps = normalizeAgentCapabilities(agent?.capabilities);
+  return new Set(caps);
+}
+
+function isActionSupportedForAgent(action, capabilitySet) {
+  const required = Array.isArray(action?.required_capabilities) ? action.required_capabilities : [];
+  const normalized = required
+    .map((cap) => String(cap))
+    .map((cap) => cap.trim())
+    .filter(Boolean);
+  if (!normalized.length) return true;
+  return normalized.every((cap) => capabilitySet.has(cap));
+}
+
+function renderCatalogAgentOptions(agents) {
+  if (!catalogAgentSelect) return;
+  const items = Array.isArray(agents) ? agents : [];
+  const previous = catalogAgentSelect.value || "";
+  catalogAgentSelect.innerHTML = "";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = items.length ? "Select an agent" : "No agents";
+  catalogAgentSelect.appendChild(placeholder);
+
+  items.forEach((agent) => {
+    const agentId = String(agent?.agent_id || "");
+    if (!agentId) return;
+    const option = document.createElement("option");
+    option.value = agentId;
+    const name = String(agent?.name || "").trim();
+    option.textContent = name ? `${name} (${agentId})` : agentId;
+    catalogAgentSelect.appendChild(option);
+  });
+
+  const exists = previous && items.some((agent) => String(agent?.agent_id || "") === previous);
+  if (exists) {
+    catalogAgentSelect.value = previous;
+  } else if (items.length) {
+    catalogAgentSelect.value = String(items[0]?.agent_id || "");
+  } else {
+    catalogAgentSelect.value = "";
+  }
+}
+
+function buildCatalogQuery() {
+  return {
+    agent_id: catalogAgentSelect?.value || "",
+    plugin: catalogPluginSelect?.value || "",
+    scope: catalogScopeSelect?.value || "supported",
+    query: catalogQueryInput?.value.trim() || "",
+    sort: catalogSortSelect?.value || "supported",
+  };
+}
+
+let catalogRenderTimer = null;
+function scheduleCatalogRender(delayMs = 120) {
+  if (catalogRenderTimer) clearTimeout(catalogRenderTimer);
+  catalogRenderTimer = setTimeout(() => renderCatalogTable(), delayMs);
+}
+
+function renderCatalogTable() {
+  if (!catalogTableBody) return;
+  catalogTableBody.innerHTML = "";
+  const actions = Array.isArray(catalogState.actions) ? catalogState.actions : [];
+  const query = buildCatalogQuery();
+  catalogState.query = query;
+
+  const agentId = String(query.agent_id || "");
+  const agent =
+    agentId && Array.isArray(agentsState.items)
+      ? agentsState.items.find((item) => String(item?.agent_id || "") === agentId)
+      : null;
+  const capabilitySet = agent ? buildAgentCapabilitySet(agent) : new Set();
+
+  if (query.scope === "supported" && !agentId) {
+    if (catalogEmptyNote) {
+      catalogEmptyNote.textContent = actions.length
+        ? "Select an agent to view supported actions."
+        : "Action catalog is not loaded.";
+      catalogEmptyNote.style.display = "block";
+    }
+    return;
+  }
+
+  const pluginFilter = String(query.plugin || "");
+  const needle = String(query.query || "").toLowerCase();
+
+  let filtered = actions.slice();
+  if (pluginFilter) {
+    filtered = filtered.filter((action) => String(action?.plugin_id || "") === pluginFilter);
+  }
+  if (needle) {
+    filtered = filtered.filter((action) => {
+      const haystack = [
+        action?.action_id,
+        action?.title,
+        action?.plugin_id,
+        ...(Array.isArray(action?.required_capabilities) ? action.required_capabilities : []),
+      ]
+        .filter(Boolean)
+        .map((item) => String(item).toLowerCase())
+        .join(" ");
+      return haystack.includes(needle);
+    });
+  }
+
+  const rows = filtered
+    .map((action) => ({
+      action,
+      supported: agent ? isActionSupportedForAgent(action, capabilitySet) : false,
+    }))
+    .filter((row) => (query.scope === "supported" ? row.supported : true));
+
+  const sortKey = String(query.sort || "supported");
+  const riskRank = { danger: 0, dangerous: 0, caution: 1, safe: 2 };
+  rows.sort((a, b) => {
+    if (sortKey === "action_id") {
+      return String(a.action?.action_id || "").localeCompare(String(b.action?.action_id || ""));
+    }
+    if (sortKey === "risk_level") {
+      const ra = riskRank[String(a.action?.risk_level || "").toLowerCase()] ?? 9;
+      const rb = riskRank[String(b.action?.risk_level || "").toLowerCase()] ?? 9;
+      if (ra !== rb) return ra - rb;
+      return String(a.action?.action_id || "").localeCompare(String(b.action?.action_id || ""));
+    }
+    // supported
+    if (a.supported !== b.supported) return a.supported ? -1 : 1;
+    return String(a.action?.action_id || "").localeCompare(String(b.action?.action_id || ""));
+  });
+
+  if (!rows.length) {
+    if (catalogEmptyNote) {
+      catalogEmptyNote.textContent = actions.length ? "No actions found." : "Action catalog is not loaded.";
+      catalogEmptyNote.style.display = "block";
+    }
+    return;
+  }
+  if (catalogEmptyNote) catalogEmptyNote.style.display = "none";
+
+  rows.forEach(({ action, supported }) => {
+    const row = document.createElement("tr");
+
+    const supportedTd = document.createElement("td");
+    supportedTd.textContent = supported ? "Yes" : "No";
+    supportedTd.classList.add(supported ? "ok" : "warn");
+
+    const actionTd = document.createElement("td");
+    actionTd.textContent = action?.action_id || "";
+    actionTd.title = action?.action_id || "";
+
+    const pluginTd = document.createElement("td");
+    pluginTd.textContent = action?.plugin_id || "";
+
+    const riskTd = document.createElement("td");
+    riskTd.textContent = action?.risk_level || "";
+
+    const reqTd = document.createElement("td");
+    const reqCaps = Array.isArray(action?.required_capabilities) ? action.required_capabilities : [];
+    const reqSummary = summarizeList(reqCaps);
+    reqTd.textContent = reqSummary;
+    reqTd.title = reqSummary;
+
+    const detailTd = document.createElement("td");
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.classList.add("ghost", "small");
+    viewBtn.textContent = "View";
+    viewBtn.addEventListener("click", () => {
+      showModal(
+        "Action",
+        {
+          ...action,
+          supported,
+          agent_id: agentId || null,
+          agent_name: agent?.name || null,
+        },
+        "catalog"
+      );
+    });
+    detailTd.appendChild(viewBtn);
+
+    row.appendChild(supportedTd);
+    row.appendChild(actionTd);
+    row.appendChild(pluginTd);
+    row.appendChild(riskTd);
+    row.appendChild(reqTd);
+    row.appendChild(detailTd);
+
+    catalogTableBody.appendChild(row);
+  });
+}
+
+async function fetchCatalog() {
+  try {
+    const res = await fetch("/api/capabilities/catalog");
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Action catalog load failed");
+      return null;
+    }
+    const payload = data.data || {};
+    catalogState.actions = payload.actions || [];
+    catalogState.capabilities = payload.capabilities || [];
+    catalogState.generated_at = payload.generated_at || "";
+    renderCatalogTable();
+    populateToolsCapabilityOptions();
+    renderToolsCatalog();
+    return payload;
+  } catch (err) {
+    showToast("Action catalog load failed");
+    return null;
+  }
+}
+
+function buildToolsQuery() {
+  return {
+    capability: toolsCapabilitySelect?.value || "",
+    risk: toolsRiskSelect?.value || "",
+    query: toolsQueryInput?.value.trim() || "",
+  };
+}
+
+function populateToolsCapabilityOptions() {
+  if (!toolsCapabilitySelect) return;
+  const previous = toolsCapabilitySelect.value || "";
+  const items = Array.isArray(catalogState.capabilities) ? catalogState.capabilities : [];
+  const caps = items.map((cap) => String(cap)).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+  toolsCapabilitySelect.innerHTML = "";
+  const any = document.createElement("option");
+  any.value = "";
+  any.textContent = "Any";
+  toolsCapabilitySelect.appendChild(any);
+  caps.forEach((cap) => {
+    const option = document.createElement("option");
+    option.value = cap;
+    option.textContent = cap;
+    toolsCapabilitySelect.appendChild(option);
+  });
+  if (previous && caps.includes(previous)) {
+    toolsCapabilitySelect.value = previous;
+  }
+}
+
+function renderToolsCatalog() {
+  if (!toolsTableBody) return;
+  toolsTableBody.innerHTML = "";
+
+  const actions = Array.isArray(catalogState.actions) ? catalogState.actions : [];
+  const agents = Array.isArray(agentsState.items) ? agentsState.items : [];
+  const query = buildToolsQuery();
+  toolsState.query = query;
+
+  const needle = String(query.query || "").toLowerCase();
+  const capabilityFilter = String(query.capability || "");
+  const riskFilter = String(query.risk || "").toLowerCase();
+
+  let filtered = actions.slice();
+  if (capabilityFilter) {
+    filtered = filtered.filter((action) => {
+      const req = Array.isArray(action?.required_capabilities) ? action.required_capabilities : [];
+      return req.map((cap) => String(cap)).includes(capabilityFilter);
+    });
+  }
+  if (riskFilter) {
+    filtered = filtered.filter((action) => String(action?.risk_level || "").toLowerCase() === riskFilter);
+  }
+  if (needle) {
+    filtered = filtered.filter((action) => {
+      const haystack = [
+        action?.action_id,
+        action?.title,
+        action?.description,
+        action?.plugin_id,
+        ...(Array.isArray(action?.required_capabilities) ? action.required_capabilities : []),
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase())
+        .join(" ");
+      return haystack.includes(needle);
+    });
+  }
+
+  if (!filtered.length) {
+    if (toolsEmptyNote) toolsEmptyNote.style.display = "block";
+    return;
+  }
+  if (toolsEmptyNote) toolsEmptyNote.style.display = "none";
+
+  const agentCaps = agents.map((agent) => {
+    const caps = buildAgentCapabilitySet(agent);
+    return { agent, caps, status: computeAgentStatus(agent) };
+  });
+
+  const groups = new Map();
+  filtered.forEach((action) => {
+    const pluginId = String(action?.plugin_id || "unknown");
+    if (!groups.has(pluginId)) groups.set(pluginId, []);
+    groups.get(pluginId).push(action);
+  });
+
+  const pluginIds = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+  pluginIds.forEach((pluginId) => {
+    const groupActions = groups.get(pluginId) || [];
+    groupActions.sort((a, b) => String(a?.action_id || "").localeCompare(String(b?.action_id || "")));
+
+    const headerRow = document.createElement("tr");
+    headerRow.classList.add("group-row");
+    const headerCell = document.createElement("td");
+    headerCell.colSpan = 6;
+    headerCell.textContent = `${pluginId} · ${groupActions.length} actions`;
+    headerRow.appendChild(headerCell);
+    toolsTableBody.appendChild(headerRow);
+
+    groupActions.forEach((action) => {
+      const row = document.createElement("tr");
+
+      const actionTd = document.createElement("td");
+      actionTd.textContent = action?.action_id || "";
+      actionTd.title = action?.action_id || "";
+
+      const titleTd = document.createElement("td");
+      titleTd.textContent = action?.title || "";
+      titleTd.title = action?.description || "";
+
+      const riskTd = document.createElement("td");
+      const risk = String(action?.risk_level || "").toLowerCase();
+      riskTd.textContent = risk || "";
+      riskTd.classList.add(risk === "safe" ? "ok" : risk === "danger" ? "warn" : "");
+
+      const reqTd = document.createElement("td");
+      const reqCaps = Array.isArray(action?.required_capabilities) ? action.required_capabilities : [];
+      const reqSummary = summarizeList(reqCaps, { limit: 6 });
+      reqTd.textContent = reqSummary;
+      reqTd.title = reqCaps.map((cap) => String(cap)).join(", ");
+
+      let supportedOnline = 0;
+      let supportedTotal = 0;
+      const supportingNames = [];
+      agentCaps.forEach(({ agent, caps, status }) => {
+        if (!isActionSupportedForAgent(action, caps)) return;
+        supportedTotal += 1;
+        if (status === "online") supportedOnline += 1;
+        const name = String(agent?.name || agent?.agent_id || "").trim();
+        if (name) supportingNames.push(name);
+      });
+      const agentsTd = document.createElement("td");
+      agentsTd.textContent = `${supportedOnline}/${supportedTotal}`;
+      agentsTd.title = supportingNames.slice(0, 40).join("\n");
+
+      const detailTd = document.createElement("td");
+      const viewBtn = document.createElement("button");
+      viewBtn.type = "button";
+      viewBtn.classList.add("ghost", "small");
+      viewBtn.textContent = "View";
+      viewBtn.addEventListener("click", () => showModal("Tool action", action, "tools"));
+      detailTd.appendChild(viewBtn);
+
+      const runBtn = document.createElement("button");
+      runBtn.type = "button";
+      runBtn.classList.add("ghost", "small");
+      runBtn.textContent = "Run";
+      runBtn.addEventListener("click", () => openToolRunModal(action));
+      detailTd.appendChild(runBtn);
+
+      row.appendChild(actionTd);
+      row.appendChild(titleTd);
+      row.appendChild(riskTd);
+      row.appendChild(reqTd);
+      row.appendChild(agentsTd);
+      row.appendChild(detailTd);
+
+      toolsTableBody.appendChild(row);
+    });
+  });
+}
+
+async function refreshToolsCatalog({ reload } = {}) {
+  if (reload) {
+    await fetchAgents();
+    await fetchCatalog();
+  } else {
+    renderToolsCatalog();
+  }
+}
+
+let toolsRenderTimer = null;
+function scheduleToolsRender(delayMs = 150) {
+  if (toolsRenderTimer) clearTimeout(toolsRenderTimer);
+  toolsRenderTimer = setTimeout(() => renderToolsCatalog(), delayMs);
+}
+
+function buildWindowsQuickInstallOneLiner({ controlPlaneUrl, pairingCode }) {
+  const url = String(controlPlaneUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const code = String(pairingCode || "").trim();
+  if (!url || !code) return "";
+  const safeUrl = url.replace(/'/g, "''");
+  const safeCode = code.replace(/'/g, "''");
+  return `$u='${safeUrl}'; $c='${safeCode}'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $env:CONTROL_PLANE_URL=$u; $env:GAS_PAIRING_CODE=$c; iex ((New-Object Net.WebClient).DownloadString($u + '/install/windows.ps1'))`;
+}
+
+async function generateBootstrapPairingCode() {
+  if (!bootstrapGenerateButton) return;
+  bootstrapGenerateButton.disabled = true;
+  try {
+    const tenantId = bootstrapTenantInput?.value.trim() || null;
+    const workspaceId = bootstrapWorkspaceInput?.value.trim() || null;
+    const ttlSecondsRaw = bootstrapTtlInput?.value;
+    const ttlSeconds = Math.max(60, Math.min(86400, Number.parseInt(String(ttlSecondsRaw || "900"), 10) || 900));
+    const res = await fetch("/api/pairing-codes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant_id: tenantId, workspace_id: workspaceId, ttl_seconds: ttlSeconds }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      throw new Error(String(data?.error || "pairing code request failed"));
+    }
+    const payload = data?.data || {};
+    const code = String(payload?.pairing_code || payload?.pairingCode || "").trim();
+    const expiresAt = String(payload?.expires_at || "").trim();
+    if (!code) throw new Error("pairing code missing from response");
+    if (bootstrapPairingCode) bootstrapPairingCode.textContent = code;
+    if (bootstrapPairingMeta) {
+      bootstrapPairingMeta.textContent = expiresAt
+        ? `Expires at ${expiresAt} (TTL ${payload?.ttl_seconds || ttlSeconds}s)`
+        : `TTL ${payload?.ttl_seconds || ttlSeconds}s`;
+    }
+    const oneliner = buildWindowsQuickInstallOneLiner({ controlPlaneUrl: window.location.origin, pairingCode: code });
+    if (bootstrapWindowsOneliner) bootstrapWindowsOneliner.textContent = oneliner || "—";
+    showToast("Pairing code generated");
+  } catch (err) {
+    showToast("Failed to generate pairing code");
+  } finally {
+    bootstrapGenerateButton.disabled = false;
+  }
+}
+
+function listSupportingAgentsForToolAction(action, { onlineOnly = true } = {}) {
+  const agents = Array.isArray(agentsState.items) ? agentsState.items : [];
+  const supported = [];
+  agents.forEach((agent) => {
+    const status = computeAgentStatus(agent);
+    if (onlineOnly && status !== "online") return;
+    const caps = buildAgentCapabilitySet(agent);
+    if (!isActionSupportedForAgent(action, caps)) return;
+    const agentId = String(agent?.agent_id || "").trim();
+    if (!agentId) return;
+    supported.push({
+      agent_id: agentId,
+      agent_name: String(agent?.name || "").trim() || agentId,
+      status,
+    });
+  });
+  supported.sort((a, b) => a.agent_name.localeCompare(b.agent_name));
+  return supported;
+}
+
+function schemaFieldsFromJsonSchema(schema) {
+  const fields = [];
+  const meta = new Map();
+  if (!schema || typeof schema !== "object") {
+    fields.push({
+      key: "params_json",
+      label: "Params (JSON)",
+      type: "textarea",
+      rows: 10,
+      value: "{}",
+      hint: "Enter params as JSON object.",
+      required: true,
+    });
+    meta.set("params_json", { type: "object", raw: true });
+    return { fields, meta };
+  }
+
+  const rootType = String(schema.type || "object").toLowerCase();
+  if (rootType !== "object") {
+    fields.push({
+      key: "params_json",
+      label: "Params (JSON)",
+      type: "textarea",
+      rows: 10,
+      value: schema.default ? JSON.stringify(schema.default, null, 2) : "",
+      hint: "Enter params as JSON.",
+      required: true,
+    });
+    meta.set("params_json", { type: rootType, raw: true });
+    return { fields, meta };
+  }
+
+  const properties = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+  const required = Array.isArray(schema.required) ? schema.required.map((k) => String(k)) : [];
+
+  Object.entries(properties).forEach(([key, prop]) => {
+    if (!prop || typeof prop !== "object") return;
+    const propType = String(prop.type || "string").toLowerCase();
+    const label = String(prop.title || key);
+    const hint = String(prop.description || "").trim() || undefined;
+    const isRequired = required.includes(key);
+
+    if (Array.isArray(prop.enum)) {
+      fields.push({
+        key,
+        label,
+        type: "select",
+        value: prop.default !== undefined ? String(prop.default) : "",
+        options: prop.enum.map((value) => ({ value: String(value), label: String(value) })),
+        required: isRequired,
+        hint,
+      });
+      meta.set(key, { type: "string", schema: prop });
+      return;
+    }
+
+    if (propType === "boolean") {
+      fields.push({
+        key,
+        label,
+        type: "checkbox",
+        value: prop.default === undefined ? false : Boolean(prop.default),
+        required: false,
+        hint,
+      });
+      meta.set(key, { type: "boolean", schema: prop });
+      return;
+    }
+
+    if (propType === "integer" || propType === "number") {
+      fields.push({
+        key,
+        label,
+        type: "number",
+        value: prop.default !== undefined && prop.default !== null ? String(prop.default) : "",
+        required: isRequired,
+        hint,
+        placeholder: propType === "integer" ? "0" : "0.0",
+      });
+      meta.set(key, { type: propType, schema: prop });
+      return;
+    }
+
+    if (propType === "array" || propType === "object") {
+      let defaultValue = "";
+      if (prop.default !== undefined) {
+        try {
+          defaultValue = JSON.stringify(prop.default, null, 2);
+        } catch (err) {
+          defaultValue = "";
+        }
+      }
+      fields.push({
+        key,
+        label,
+        type: "textarea",
+        rows: 4,
+        value: defaultValue,
+        required: isRequired,
+        hint: hint || (propType === "array" ? "Enter JSON array." : "Enter JSON object."),
+      });
+      meta.set(key, { type: propType, schema: prop });
+      return;
+    }
+
+    fields.push({
+      key,
+      label,
+      value: prop.default !== undefined && prop.default !== null ? String(prop.default) : "",
+      required: isRequired,
+      hint,
+    });
+    meta.set(key, { type: "string", schema: prop });
+  });
+
+  return { fields, meta };
+}
+
+function parseToolParamsFromModal(values, meta) {
+  const params = {};
+  meta.forEach((info, key) => {
+    const raw = values[key];
+    if (info.raw) {
+      const text = String(raw || "").trim();
+      if (!text) return;
+      params.__raw = text;
+      return;
+    }
+    if (info.type === "boolean") {
+      params[key] = Boolean(raw);
+      return;
+    }
+    const text = typeof raw === "string" ? raw.trim() : raw;
+    if (text === "" || text === null || text === undefined) {
+      return;
+    }
+    if (info.type === "integer") {
+      const parsed = Number.parseInt(String(text), 10);
+      if (!Number.isFinite(parsed)) throw new Error(`Invalid integer: ${key}`);
+      params[key] = parsed;
+      return;
+    }
+    if (info.type === "number") {
+      const parsed = Number.parseFloat(String(text));
+      if (!Number.isFinite(parsed)) throw new Error(`Invalid number: ${key}`);
+      params[key] = parsed;
+      return;
+    }
+    if (info.type === "array") {
+      const str = String(text);
+      if (!str) return;
+      if (str.trim().startsWith("[")) {
+        const parsed = JSON.parse(str);
+        if (!Array.isArray(parsed)) throw new Error(`Expected JSON array: ${key}`);
+        params[key] = parsed;
+        return;
+      }
+      // CSV fallback for convenience.
+      params[key] = str
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return;
+    }
+    if (info.type === "object") {
+      const str = String(text);
+      if (!str) return;
+      if (!str.trim().startsWith("{")) throw new Error(`Expected JSON object: ${key}`);
+      const parsed = JSON.parse(str);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`Expected JSON object: ${key}`);
+      params[key] = parsed;
+      return;
+    }
+    params[key] = String(text);
+  });
+
+  if (params.__raw) {
+    const parsed = JSON.parse(params.__raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Params must be a JSON object.");
+    }
+    delete params.__raw;
+    return parsed;
+  }
+
+  return params;
+}
+
+async function openToolRunModal(action) {
+  const actionId = String(action?.action_id || "").trim();
+  if (!actionId) {
+    showToast("Invalid action");
+    return;
+  }
+  const title = String(action?.title || actionId);
+  const risk = String(action?.risk_level || "").toLowerCase() || "safe";
+
+  const agents = listSupportingAgentsForToolAction(action, { onlineOnly: true });
+  if (!agents.length) {
+    showToast("No online agent supports this action");
+    return;
+  }
+
+  const schema = action?.params_schema || action?.paramsSchema || null;
+  const { fields: schemaFields, meta } = schemaFieldsFromJsonSchema(schema);
+
+  const formFields = [
+    {
+      key: "agent_id",
+      label: "Agent",
+      type: "select",
+      value: agents[0].agent_id,
+      options: agents.map((agent) => ({ value: agent.agent_id, label: `${agent.agent_name} (${agent.agent_id})` })),
+      required: true,
+      hint: "Agent must advertise all required capabilities for this action.",
+    },
+    ...schemaFields,
+  ];
+
+  if (risk === "danger") {
+    formFields.unshift({
+      key: "confirm",
+      label: `Type action_id to confirm (${actionId})`,
+      required: true,
+      placeholder: actionId,
+      hint: "Danger actions require explicit confirmation.",
+    });
+  }
+
+  const values = await openFormModal({
+    title: `Run tool: ${title}`,
+    subtitle: `${actionId} · risk=${risk}`,
+    confirmLabel: "Enqueue job",
+    cancelLabel: "Cancel",
+    size: "large",
+    fields: formFields,
+  });
+  if (!values) return;
+
+  if (risk === "danger" && String(values.confirm || "").trim() !== actionId) {
+    showToast("Confirmation did not match action_id");
+    return;
+  }
+
+  const agentId = String(values.agent_id || "").trim();
+  if (!agentId) {
+    showToast("Agent is required");
+    return;
+  }
+
+  try {
+    const valueCopy = { ...values };
+    delete valueCopy.agent_id;
+    delete valueCopy.confirm;
+    const params = parseToolParamsFromModal(valueCopy, meta);
+
+    const res = await fetch("/api/jobs/enqueue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agent_id: agentId,
+        action_id: actionId,
+        params,
+        interactive_scope: risk === "danger",
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      showToast(data.error || "Job enqueue failed");
+      return;
+    }
+    showToast(`Job queued: ${data.data?.job_id || ""}`.trim());
+    scheduleJobsRefresh(0);
+  } catch (err) {
+    showToast("Job enqueue failed");
+  }
+}
+
+function renderActionPackV2AgentOptions(agents) {
+  if (!actionPackV2AgentSelect) return;
+  const items = Array.isArray(agents) ? agents : [];
+  const previous = actionPackV2AgentSelect.value || "";
+  actionPackV2AgentSelect.innerHTML = "";
+
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = "Auto-pick";
+  actionPackV2AgentSelect.appendChild(autoOpt);
+
+  items
+    .filter((agent) => computeAgentStatus(agent) === "online")
+    .sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")))
+    .forEach((agent) => {
+      const agentId = String(agent?.agent_id || "").trim();
+      if (!agentId) return;
+      const option = document.createElement("option");
+      option.value = agentId;
+      const name = String(agent?.name || "").trim();
+      option.textContent = name ? `${name} (${agentId})` : agentId;
+      actionPackV2AgentSelect.appendChild(option);
+    });
+
+  if (previous && Array.from(actionPackV2AgentSelect.options).some((opt) => opt.value === previous)) {
+    actionPackV2AgentSelect.value = previous;
+  }
+}
+
+function setActionPackV2Output(value) {
+  if (!actionPackV2Output) return;
+  if (value === null || value === undefined) {
+    actionPackV2Output.textContent = "";
+    return;
+  }
+  if (typeof value === "string") {
+    actionPackV2Output.textContent = value;
+    return;
+  }
+  try {
+    actionPackV2Output.textContent = JSON.stringify(value, null, 2);
+  } catch (err) {
+    actionPackV2Output.textContent = String(value);
+  }
+}
+
+function loadActionPackV2Draft() {
+  try {
+    const raw = localStorage.getItem(ACTION_PACK_V2_DRAFT_KEY);
+    return raw ? String(raw) : "";
+  } catch (err) {
+    return "";
+  }
+}
+
+function saveActionPackV2Draft(text) {
+  try {
+    localStorage.setItem(ACTION_PACK_V2_DRAFT_KEY, String(text || ""));
+  } catch (err) {
+    // ignore
+  }
+}
+
+function defaultActionPackV2Draft() {
+  return JSON.stringify(
+    {
+      name: "Example Action Pack v2",
+      max_risk_level: "caution",
+      stop_on_failure: true,
+      steps: [{ step_id: "step-1", action_id: "demo.echo", params: { message: "hello" } }],
+    },
+    null,
+    2
+  );
+}
+
+function parseActionPackV2Json() {
+  const raw = String(actionPackV2JsonInput?.value || "").trim();
+  if (!raw) {
+    throw new Error("Workflow JSON is empty.");
+  }
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Workflow must be a JSON object.");
+  }
+  return parsed;
+}
+
+async function compileActionPackV2() {
+  const text = String(actionPackV2IntentInput?.value || "").trim();
+  const agentId = String(actionPackV2AgentSelect?.value || "").trim() || null;
+  const maxRisk = String(actionPackV2MaxRiskSelect?.value || "caution");
+  const interactive = Boolean(actionPackV2InteractiveScopeToggle?.checked);
+  if (!text) {
+    showToast("Enter intent text");
+    return;
+  }
+  try {
+    const res = await fetch("/api/actionpacks/v2/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        agent_id: agentId,
+        max_risk_level: maxRisk,
+        interactive_scope: interactive,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setActionPackV2Output(data);
+      showToast(data.error || "Compile failed");
+      return;
+    }
+    const payload = data.data || {};
+    if (actionPackV2JsonInput) {
+      actionPackV2JsonInput.value = JSON.stringify(payload.workflow || {}, null, 2);
+      saveActionPackV2Draft(actionPackV2JsonInput.value);
+    }
+    setActionPackV2Output(payload.validation || payload);
+    showToast(payload.ok ? "Compiled" : "Compiled with validation errors");
+  } catch (err) {
+    showToast("Compile failed");
+  }
+}
+
+async function validateActionPackV2() {
+  let workflow;
+  try {
+    workflow = parseActionPackV2Json();
+  } catch (err) {
+    setActionPackV2Output({ ok: false, error: String(err) });
+    showToast("Invalid JSON");
+    return;
+  }
+  try {
+    const res = await fetch("/api/actionpacks/v2/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflow, online_only: true }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setActionPackV2Output(data);
+      showToast(data.error || "Validate failed");
+      return;
+    }
+    setActionPackV2Output(data.data || data);
+    const ok = Boolean(data.data?.ok);
+    showToast(ok ? "Workflow valid" : "Workflow has errors");
+  } catch (err) {
+    showToast("Validate failed");
+  }
+}
+
+async function runActionPackV2() {
+  let workflow;
+  try {
+    workflow = parseActionPackV2Json();
+  } catch (err) {
+    setActionPackV2Output({ ok: false, error: String(err) });
+    showToast("Invalid JSON");
+    return;
+  }
+  try {
+    const res = await fetch("/api/actionpacks/v2/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workflow }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setActionPackV2Output(data);
+      showToast(data.error || "Run failed");
+      return;
+    }
+    setActionPackV2Output(data.data || data);
+    showToast(Boolean(data.data?.ok) ? "Workflow run completed" : "Workflow run failed");
+    scheduleJobsRefresh(0);
+  } catch (err) {
+    showToast("Run failed");
+  }
+}
+
+function clearActionPackV2() {
+  if (actionPackV2IntentInput) actionPackV2IntentInput.value = "";
+  if (actionPackV2JsonInput) actionPackV2JsonInput.value = "";
+  saveActionPackV2Draft("");
+  setActionPackV2Output("");
+}
+
 function exportAuditJson() {
   const items = auditState.items || [];
   downloadJson(items, "audit-log.json");
@@ -15421,7 +17394,21 @@ function setupWorkspacePinButtons() {
   });
 }
 
+function runNonBlockingNavigationTask(task, label) {
+  try {
+    const maybePromise = task();
+    if (maybePromise && typeof maybePromise.catch === "function") {
+      maybePromise.catch((err) => {
+        console.warn(`[navigation] ${label} failed`, err);
+      });
+    }
+  } catch (err) {
+    console.warn(`[navigation] ${label} failed`, err);
+  }
+}
+
 function setSection(section, opts = {}) {
+  if (!section || typeof section !== "string") return;
   const resolved = SECTION_ALIASES[section] || section;
   updateModeHeader(section, resolved);
   navLinks.forEach((link) => link.classList.toggle("active", link.dataset.section === section));
@@ -15452,6 +17439,7 @@ function setSection(section, opts = {}) {
   pageSubtitle.textContent = subtitles[section] || subtitles[resolved] || "";
   updateRouteForSection(section);
   sidebar.classList.remove("open");
+
   if (opts.scrollTarget) {
     const target = document.getElementById(opts.scrollTarget);
     if (target) {
@@ -15459,6 +17447,22 @@ function setSection(section, opts = {}) {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 0);
     }
+  }
+
+  if (resolved === "controlplane") {
+    runNonBlockingNavigationTask(() => fetchAgents(), "fetchAgents");
+    runNonBlockingNavigationTask(() => fetchJobs(), "fetchJobs");
+    runNonBlockingNavigationTask(() => fetchCatalog(), "fetchCatalog");
+    runNonBlockingNavigationTask(() => refreshActionRequests(), "refreshActionRequests");
+    if (section === "vision") {
+      runNonBlockingNavigationTask(() => fetchVisionSignals(), "fetchVisionSignals");
+    }
+  }
+
+  if (resolved === "actionpacks") {
+    // Action Packs v2 uses the control plane agent+tool catalog.
+    runNonBlockingNavigationTask(() => fetchAgents(), "fetchAgents");
+    runNonBlockingNavigationTask(() => fetchCatalog(), "fetchCatalog");
   }
 }
 
@@ -15525,7 +17529,11 @@ async function fetchStatus() {
     statusBadge.classList.remove("ok", "warn");
     if (data.graph_configured) {
       // Configured != authenticated; use health check for a full readiness report.
-      statusBadge.textContent = "Graph configured";
+      if (data.graph_mode === "runner") {
+        statusBadge.textContent = "Graph runner online";
+      } else {
+        statusBadge.textContent = "Graph configured";
+      }
       statusBadge.classList.add("ok");
     } else {
       statusBadge.textContent = "Graph missing env";
@@ -22541,6 +24549,166 @@ if (auditExportCsvButton) {
   });
 }
 
+if (visionRefreshButton) {
+  visionRefreshButton.addEventListener("click", () => fetchVisionSignals());
+}
+if (visionLimitSelect) {
+  visionLimitSelect.addEventListener("change", () => fetchVisionSignals());
+}
+if (visionEndpointInput) {
+  visionEndpointInput.addEventListener("input", () => scheduleVisionRefresh());
+  visionEndpointInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchVisionSignals();
+    }
+  });
+}
+if (visionSessionInput) {
+  visionSessionInput.addEventListener("input", () => scheduleVisionRefresh());
+  visionSessionInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchVisionSignals();
+    }
+  });
+}
+
+if (actionRequestsRefreshButton) {
+  actionRequestsRefreshButton.addEventListener("click", () => refreshActionRequests());
+}
+if (actionRequestsClearButton) {
+  actionRequestsClearButton.addEventListener("click", () => {
+    if (!confirm("Clear all action requests?")) return;
+    clearActionRequests();
+    showToast("Action requests cleared");
+  });
+}
+
+if (toolsRefreshButton) {
+  toolsRefreshButton.addEventListener("click", () => refreshToolsCatalog({ reload: true }));
+}
+if (toolsCapabilitySelect) {
+  toolsCapabilitySelect.addEventListener("change", () => renderToolsCatalog());
+}
+if (toolsRiskSelect) {
+  toolsRiskSelect.addEventListener("change", () => renderToolsCatalog());
+}
+if (toolsQueryInput) {
+  toolsQueryInput.addEventListener("input", () => scheduleToolsRender());
+  toolsQueryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      renderToolsCatalog();
+    }
+  });
+}
+
+if (bootstrapGenerateButton) {
+  bootstrapGenerateButton.addEventListener("click", () => generateBootstrapPairingCode());
+}
+if (bootstrapCopyOnelinerButton) {
+  bootstrapCopyOnelinerButton.addEventListener("click", async () => {
+    const payload = String(bootstrapWindowsOneliner?.textContent || "").trim();
+    if (!payload || payload === "—") {
+      showToast("Generate a pairing code first");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(payload);
+      showToast("Copied");
+    } catch (err) {
+      showToast("Copy failed");
+    }
+  });
+}
+if (bootstrapRunConnectivityButton) {
+  bootstrapRunConnectivityButton.addEventListener("click", async () => {
+    const actions = Array.isArray(catalogState.actions) ? catalogState.actions : [];
+    const action = actions.find((item) => String(item?.action_id || "") === "runner.connectivity_test");
+    if (!action) {
+      showToast("Connectivity test not found in catalog");
+      return;
+    }
+    await openToolRunModal(action);
+  });
+}
+
+if (agentsRefreshButton) {
+  agentsRefreshButton.addEventListener("click", () => fetchAgents());
+}
+if (agentsStatusSelect) {
+  agentsStatusSelect.addEventListener("change", () => fetchAgents());
+}
+if (agentsSortSelect) {
+  agentsSortSelect.addEventListener("change", () => scheduleAgentsRefresh());
+}
+if (agentsQueryInput) {
+  agentsQueryInput.addEventListener("input", () => scheduleAgentsRefresh());
+  agentsQueryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchAgents();
+    }
+  });
+}
+
+if (jobsRefreshButton) {
+  jobsRefreshButton.addEventListener("click", () => fetchJobs());
+}
+if (jobsStatusSelect) {
+  jobsStatusSelect.addEventListener("change", () => fetchJobs());
+}
+if (jobsLimitSelect) {
+  jobsLimitSelect.addEventListener("change", () => fetchJobs());
+}
+if (jobsAgentInput) {
+  jobsAgentInput.addEventListener("input", () => scheduleJobsRefresh());
+  jobsAgentInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchJobs();
+    }
+  });
+}
+if (jobsQueryInput) {
+  jobsQueryInput.addEventListener("input", () => scheduleJobsRefresh());
+  jobsQueryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      fetchJobs();
+    }
+  });
+}
+
+if (catalogRefreshButton) {
+  catalogRefreshButton.addEventListener("click", () => {
+    fetchAgents();
+    fetchCatalog();
+  });
+}
+if (catalogAgentSelect) {
+  catalogAgentSelect.addEventListener("change", () => renderCatalogTable());
+}
+if (catalogPluginSelect) {
+  catalogPluginSelect.addEventListener("change", () => renderCatalogTable());
+}
+if (catalogScopeSelect) {
+  catalogScopeSelect.addEventListener("change", () => renderCatalogTable());
+}
+if (catalogSortSelect) {
+  catalogSortSelect.addEventListener("change", () => renderCatalogTable());
+}
+if (catalogQueryInput) {
+  catalogQueryInput.addEventListener("input", () => scheduleCatalogRender());
+  catalogQueryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      renderCatalogTable();
+    }
+  });
+}
+
 if (configExportButton) {
   configExportButton.addEventListener("click", () => {
     exportEncryptedConfig();
@@ -22918,6 +25086,29 @@ if (actionPackFilterSelect) {
     renderActionPacks();
     renderDeletedActionPacks();
   });
+}
+
+if (actionPackV2JsonInput) {
+  const draft = loadActionPackV2Draft();
+  actionPackV2JsonInput.value = draft || defaultActionPackV2Draft();
+  if (!draft) saveActionPackV2Draft(actionPackV2JsonInput.value);
+  let timer = null;
+  actionPackV2JsonInput.addEventListener("input", () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => saveActionPackV2Draft(actionPackV2JsonInput.value), 250);
+  });
+}
+if (actionPackV2CompileButton) {
+  actionPackV2CompileButton.addEventListener("click", () => compileActionPackV2());
+}
+if (actionPackV2ValidateButton) {
+  actionPackV2ValidateButton.addEventListener("click", () => validateActionPackV2());
+}
+if (actionPackV2RunButton) {
+  actionPackV2RunButton.addEventListener("click", () => runActionPackV2());
+}
+if (actionPackV2ClearButton) {
+  actionPackV2ClearButton.addEventListener("click", () => clearActionPackV2());
 }
 
 if (actionPackRunButton) {

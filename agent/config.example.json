@@ -1,0 +1,12 @@
+{
+  "control_plane_url": "http://127.0.0.1:8000",
+  "agent_name": "gas-agent",
+  "tenant_id": "",
+  "workspace_id": "",
+  "labels": {
+    "env": "dev"
+  },
+  "pairing_code": "",
+  "poll_interval": 5,
+  "break_glass_enabled": false
+}

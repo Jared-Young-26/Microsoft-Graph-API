@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "action_id": "vision.capture_snapshot",
+      "title": "Capture snapshot",
+      "description": "Capture the current screen to an image artifact and emit a Vision-U-Eye signal payload.",
+      "risk": "safe",
+      "required_capabilities": ["observe.screen", "observe.snapshots"],
+      "params_schema": {
+        "type": "object",
+        "title": "Capture snapshot params",
+        "properties": {
+          "endpoint_id": {
+            "type": "string",
+            "title": "Endpoint ID",
+            "description": "Optional logical endpoint id to include in the signal payload."
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session ID",
+            "description": "Optional logical session id to include in the signal payload."
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "vision.record_segment",
+      "title": "Record segment",
+      "description": "Record a short segment (v0: frame bundle zip) and return artifact + metadata.",
+      "risk": "safe",
+      "required_capabilities": ["observe.screen", "observe.snapshots"],
+      "params_schema": {
+        "type": "object",
+        "title": "Record segment params",
+        "properties": {
+          "duration_seconds": {
+            "type": "integer",
+            "title": "Duration (seconds)",
+            "minimum": 1,
+            "maximum": 60,
+            "default": 5
+          },
+          "fps": {
+            "type": "integer",
+            "title": "FPS",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "vision.analyze_snapshot",
+      "title": "Analyze snapshot",
+      "description": "Analyze a snapshot (v0 stub) and return narration + labels + confidence.",
+      "risk": "safe",
+      "required_capabilities": ["observe.snapshots"],
+      "params_schema": {
+        "type": "object",
+        "title": "Analyze snapshot params",
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Local path",
+            "description": "Local filesystem path to a snapshot image (runner-local)."
+          },
+          "artifact_url": {
+            "type": "string",
+            "title": "Artifact URL",
+            "description": "Control plane artifact URL (e.g. /api/artifacts/<file>)."
+          },
+          "endpoint_id": { "type": "string", "title": "Endpoint ID" },
+          "session_id": { "type": "string", "title": "Session ID" }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "vision.stream_status",
+      "title": "Stream status",
+      "description": "Return sensor state (recording on/off, fps, last capture time, queue depth).",
+      "risk": "safe",
+      "required_capabilities": ["observe.screen"],
+      "params_schema": {
+        "type": "object",
+        "title": "Stream status params",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    }
+  ]
+}
+

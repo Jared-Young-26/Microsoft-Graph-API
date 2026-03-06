@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "action_id": "graph.connection_test",
+      "title": "Graph connection test",
+      "description": "Validate Graph auth and latency (GET /me + GET /users?$top=1).",
+      "risk": "safe",
+      "required_capabilities": ["graph.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "Connection test params",
+        "properties": {
+          "credential_ref": {
+            "type": "string",
+            "title": "Credential ref",
+            "description": "Runner-local credential reference (key in ~/.gas/graph_credentials.json).",
+            "default": "default"
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string" },
+          "ok": { "type": "boolean" },
+          "calls": { "type": "array" }
+        }
+      }
+    },
+    {
+      "action_id": "graph.list_users",
+      "title": "List users",
+      "description": "List users (table-ready) with $top and $select.",
+      "risk": "safe",
+      "required_capabilities": ["graph.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "List users params",
+        "properties": {
+          "credential_ref": {
+            "type": "string",
+            "title": "Credential ref",
+            "default": "default"
+          },
+          "top": {
+            "type": "integer",
+            "title": "Top",
+            "minimum": 1,
+            "maximum": 999,
+            "default": 10
+          },
+          "select": {
+            "type": "string",
+            "title": "Select fields",
+            "description": "Comma-separated Graph $select fields (e.g. id,displayName,userPrincipalName)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "array" }
+    },
+    {
+      "action_id": "graph.get_user",
+      "title": "Get user",
+      "description": "Get a user by UPN or id (normalized identity record).",
+      "risk": "safe",
+      "required_capabilities": ["graph.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "Get user params",
+        "properties": {
+          "credential_ref": {
+            "type": "string",
+            "title": "Credential ref",
+            "default": "default"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User ID / UPN",
+            "description": "User id or UPN to fetch."
+          },
+          "select": {
+            "type": "string",
+            "title": "Select fields",
+            "description": "Optional Graph $select fields."
+          }
+        },
+        "required": ["user_id"],
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "graph.exchange.list_mail_folders",
+      "title": "List mail folders",
+      "description": "List mail folders for a mailbox via Graph (Exchange).",
+      "risk": "safe",
+      "required_capabilities": ["graph.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "List mail folders params",
+        "properties": {
+          "credential_ref": {
+            "type": "string",
+            "title": "Credential ref",
+            "default": "default"
+          },
+          "user_id": {
+            "type": "string",
+            "title": "User ID / UPN",
+            "description": "Target mailbox user id/UPN (use \"me\" for delegated mode).",
+            "default": "me"
+          },
+          "include_hidden": {
+            "type": "boolean",
+            "title": "Include hidden folders",
+            "default": false
+          },
+          "top": {
+            "type": "integer",
+            "title": "Top",
+            "minimum": 1,
+            "maximum": 999,
+            "default": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "array" }
+    }
+  ]
+}
+

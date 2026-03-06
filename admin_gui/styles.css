@@ -2746,7 +2746,8 @@ button,
 }
 
 .form input,
-.form select {
+.form select,
+.form textarea {
   background: rgba(10, 12, 14, 0.9);
   border: 1px solid var(--stroke);
   border-radius: 10px;
@@ -3607,6 +3608,16 @@ button,
 
 .data-table td.warn {
   color: var(--warning);
+}
+
+.data-table tr.group-row td {
+  position: sticky;
+  top: 31px;
+  background: rgba(10, 12, 14, 0.92);
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 .data-table td input,
@@ -4793,6 +4804,11 @@ button,
 .primary.danger {
   background: rgba(255, 107, 107, 0.9);
   color: #120707;
+}
+
+.ghost.danger {
+  border-color: rgba(255, 107, 107, 0.5);
+  color: rgba(255, 107, 107, 0.95);
 }
 
 .ghost {

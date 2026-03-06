@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "actions": [
+    {
+      "action_id": "powershell.whoami_all",
+      "title": "whoami /all",
+      "description": "Return current identity, groups, and token characteristics (structured).",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "whoami params",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "powershell.module_inventory",
+      "title": "Module inventory",
+      "description": "List installed PowerShell modules and versions.",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "Module inventory params",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "powershell.health_check",
+      "title": "PowerShell health check",
+      "description": "Check pwsh version, required modules, admin rights, domain join, and DC connectivity.",
+      "risk": "caution",
+      "required_capabilities": ["powershell.core"],
+      "params_schema": {
+        "type": "object",
+        "title": "Health check params",
+        "properties": {
+          "required_modules": {
+            "type": "array",
+            "title": "Required modules",
+            "description": "Modules to check (optional).",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "query.eventlog",
+      "title": "Query event logs",
+      "description": "Read-only event log query via Get-WinEvent.",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core", "query.eventlog"],
+      "params_schema": {
+        "type": "object",
+        "title": "Event log query params",
+        "properties": {
+          "log_names": {
+            "type": "array",
+            "title": "Log names",
+            "items": { "type": "string" },
+            "description": "One or more log names (e.g. System, Security)."
+          },
+          "levels": {
+            "type": "array",
+            "title": "Levels",
+            "items": { "type": "string" },
+            "description": "critical/error/warning/information/verbose (optional)."
+          },
+          "providers": {
+            "type": "array",
+            "title": "Providers",
+            "items": { "type": "string" }
+          },
+          "event_ids": {
+            "type": "array",
+            "title": "Event IDs",
+            "items": { "type": "integer" }
+          },
+          "lookback_hours": {
+            "type": "integer",
+            "title": "Lookback hours",
+            "minimum": 1,
+            "maximum": 720,
+            "default": 24
+          },
+          "max_events": {
+            "type": "integer",
+            "title": "Max events",
+            "minimum": 1,
+            "maximum": 5000,
+            "default": 200
+          }
+        },
+        "required": ["log_names"],
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "query.registry",
+      "title": "Query registry",
+      "description": "Read-only registry query.",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core", "query.registry"],
+      "params_schema": {
+        "type": "object",
+        "title": "Registry query params",
+        "properties": {
+          "hive": {
+            "type": "string",
+            "title": "Hive",
+            "enum": ["HKLM", "HKCU", "HKCR", "HKU", "HKCC"]
+          },
+          "path": { "type": "string", "title": "Path" },
+          "value_name": { "type": "string", "title": "Value name" },
+          "recursive": { "type": "boolean", "title": "Recursive", "default": false },
+          "max_items": {
+            "type": "integer",
+            "title": "Max items",
+            "minimum": 1,
+            "maximum": 5000,
+            "default": 200
+          }
+        },
+        "required": ["hive", "path"],
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "query.files",
+      "title": "Query files",
+      "description": "Read-only file enumeration restricted to allowed roots.",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core", "query.files"],
+      "params_schema": {
+        "type": "object",
+        "title": "File query params",
+        "properties": {
+          "allowed_roots": {
+            "type": "array",
+            "title": "Allowed roots",
+            "items": { "type": "string" },
+            "description": "One or more root directories. Enumeration is restricted to these."
+          },
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "description": "Relative path under allowed roots, or absolute path within an allowed root."
+          },
+          "glob": {
+            "type": "string",
+            "title": "Glob",
+            "description": "Optional glob pattern (e.g. *.log)."
+          },
+          "max_depth": {
+            "type": "integer",
+            "title": "Max depth",
+            "minimum": 0,
+            "maximum": 20,
+            "default": 4
+          },
+          "max_items": {
+            "type": "integer",
+            "title": "Max items",
+            "minimum": 1,
+            "maximum": 20000,
+            "default": 500
+          },
+          "include_hidden": { "type": "boolean", "title": "Include hidden", "default": false }
+        },
+        "required": ["allowed_roots"],
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "query.processes",
+      "title": "Query processes",
+      "description": "Process list with optional command line.",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core", "query.processes"],
+      "params_schema": {
+        "type": "object",
+        "title": "Process query params",
+        "properties": {
+          "name_contains": { "type": "string", "title": "Name contains" },
+          "include_cmdline": { "type": "boolean", "title": "Include command line", "default": false },
+          "max_items": {
+            "type": "integer",
+            "title": "Max items",
+            "minimum": 1,
+            "maximum": 5000,
+            "default": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "query.network_probe",
+      "title": "Network probe",
+      "description": "DNS/TCP/ping/traceroute probes.",
+      "risk": "safe",
+      "required_capabilities": ["powershell.core", "query.network_probe"],
+      "params_schema": {
+        "type": "object",
+        "title": "Network probe params",
+        "properties": {
+          "dns_name": { "type": "string", "title": "DNS name" },
+          "tcp_host": { "type": "string", "title": "TCP host" },
+          "tcp_port": { "type": "integer", "title": "TCP port", "minimum": 1, "maximum": 65535 },
+          "ping_host": { "type": "string", "title": "Ping host" },
+          "traceroute_host": { "type": "string", "title": "Traceroute host" }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    },
+    {
+      "action_id": "evidence.bundle_zip",
+      "title": "Evidence bundle (zip)",
+      "description": "Bundle agent logs + last job results + selected artifacts into a zip for upload.",
+      "risk": "safe",
+      "required_capabilities": ["evidence.bundle_zip"],
+      "params_schema": {
+        "type": "object",
+        "title": "Evidence bundle params",
+        "properties": {
+          "allowed_roots": {
+            "type": "array",
+            "title": "Allowed roots",
+            "items": { "type": "string" },
+            "description": "File inclusion is restricted to these roots (defaults to the agent state dir)."
+          },
+          "paths": {
+            "type": "array",
+            "title": "Extra paths",
+            "items": { "type": "string" },
+            "description": "Optional extra files to include if within allowed_roots."
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": { "type": "object" }
+    }
+  ]
+}
+

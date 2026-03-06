@@ -1,0 +1,21 @@
+services:
+  control-plane:
+    build:
+      context: .
+      dockerfile: Dockerfile.controlplane
+    ports:
+      - "8000:8000"
+    environment:
+      CONTROL_PLANE_DB_PATH: /data/control_plane.sqlite
+      GAS_ARTIFACTS_DIR: /data/artifacts
+      CONTROL_PLANE_REAPER_INTERVAL_SECONDS: "30"
+      CONTROL_PLANE_REQUIRE_PAIRING_CODE: "true"
+      CONTROL_PLANE_PAIRING_CODE_TTL_SECONDS: "900"
+      GAS_MAX_RISK_LEVEL: "caution"
+    volumes:
+      - gas_data:/data
+    restart: unless-stopped
+
+volumes:
+  gas_data:
+
