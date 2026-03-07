@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Security Review"
+  short_description: "Security review workflow for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Review the current Graph Admin Studio workstream for security issues and update the security report."
+policy:
+  allow_implicit_invocation: true

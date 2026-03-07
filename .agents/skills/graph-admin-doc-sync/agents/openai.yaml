@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Doc Sync"
+  short_description: "Refresh durable-memory files for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Refresh the /ai durable-memory files for Microsoft Graph Admin Studio without changing product code."
+policy:
+  allow_implicit_invocation: true

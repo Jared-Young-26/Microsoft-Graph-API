@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Handoff"
+  short_description: "Create a clean baton pass for a fresh thread."
+  brand_color: "#2563EB"
+  default_prompt: "Create a concise handoff for the current Graph Admin Studio thread and update /ai/handoff.md."
+policy:
+  allow_implicit_invocation: false

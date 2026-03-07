@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Next Task"
+  short_description: "Choose and prepare the next focused task."
+  brand_color: "#2563EB"
+  default_prompt: "Pick the next concrete Graph Admin Studio task and prepare the durable-memory task files without changing product code."
+policy:
+  allow_implicit_invocation: true

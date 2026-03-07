@@ -107,6 +107,8 @@ def _render_index_html() -> Response:
         version = int(
             max(
                 (ROOT / "styles.css").stat().st_mtime,
+                (ROOT / "portal_schema.js").stat().st_mtime,
+                (ROOT / "service_shells.js").stat().st_mtime,
                 (ROOT / "app.js").stat().st_mtime,
                 (ROOT / "triage.js").stat().st_mtime,
                 (ROOT / "investigation_summary.js").stat().st_mtime,
@@ -117,6 +119,8 @@ def _render_index_html() -> Response:
         version = int(index_path.stat().st_mtime)
     qs = f"?v={version}"
     html = html.replace('href="styles.css"', f'href="styles.css{qs}"')
+    html = html.replace('src="portal_schema.js"', f'src="portal_schema.js{qs}"')
+    html = html.replace('src="service_shells.js"', f'src="service_shells.js{qs}"')
     html = html.replace('src="triage.js"', f'src="triage.js{qs}"')
     html = html.replace('src="investigation_summary.js"', f'src="investigation_summary.js{qs}"')
     html = html.replace('src="next_steps.js"', f'src="next_steps.js{qs}"')

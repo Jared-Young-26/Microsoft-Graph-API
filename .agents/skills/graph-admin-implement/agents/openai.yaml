@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Implement"
+  short_description: "Scoped feature implementation for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Implement the current active task in Microsoft Graph Admin Studio and keep the diff small and reviewable."
+policy:
+  allow_implicit_invocation: true

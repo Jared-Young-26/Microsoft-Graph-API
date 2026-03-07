@@ -1,8 +1,375 @@
+function renderBootFailure(message) {
+  if (typeof document === "undefined" || !document.body) return;
+  const shell = document.createElement("div");
+  shell.style.minHeight = "100vh";
+  shell.style.display = "flex";
+  shell.style.alignItems = "center";
+  shell.style.justifyContent = "center";
+  shell.style.padding = "32px";
+  shell.style.background = "#0f1417";
+  shell.style.color = "#ecf4f1";
+  shell.style.fontFamily = '"Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif';
+
+  const card = document.createElement("div");
+  card.style.maxWidth = "720px";
+  card.style.width = "100%";
+  card.style.padding = "24px";
+  card.style.border = "1px solid rgba(255, 255, 255, 0.12)";
+  card.style.borderRadius = "18px";
+  card.style.background = "rgba(20, 26, 30, 0.95)";
+  card.style.boxShadow = "0 24px 60px rgba(6, 10, 12, 0.45)";
+
+  const title = document.createElement("div");
+  title.textContent = "Graph Admin Studio boot failed";
+  title.style.fontSize = "20px";
+  title.style.fontWeight = "700";
+  title.style.marginBottom = "12px";
+
+  const body = document.createElement("pre");
+  body.textContent = message;
+  body.style.margin = "0";
+  body.style.whiteSpace = "pre-wrap";
+  body.style.wordBreak = "break-word";
+  body.style.fontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
+  body.style.fontSize = "13px";
+  body.style.lineHeight = "1.55";
+  body.style.color = "#dceae7";
+
+  card.appendChild(title);
+  card.appendChild(body);
+  shell.appendChild(card);
+  document.body.innerHTML = "";
+  document.body.appendChild(shell);
+}
+
+function minimalValidatePortalSchema(schema) {
+  const errors = [];
+  if (!schema || typeof schema !== "object") {
+    return ["Schema must be an object."];
+  }
+  if (!schema.modes || typeof schema.modes !== "object") {
+    errors.push("Schema is missing a modes object.");
+  }
+  if (!schema.sections || typeof schema.sections !== "object") {
+    errors.push("Schema is missing a sections object.");
+  }
+  if (errors.length) return errors;
+
+  Object.entries(schema.modes).forEach(([mode, meta]) => {
+    if (!meta || typeof meta !== "object") {
+      errors.push(`Mode ${mode} must be an object.`);
+      return;
+    }
+    if (typeof meta.label !== "string" || !meta.label.trim()) {
+      errors.push(`Mode ${mode} is missing label.`);
+    }
+    if (typeof meta.subtitle !== "string") {
+      errors.push(`Mode ${mode} is missing subtitle.`);
+    }
+  });
+
+  Object.entries(schema.sections).forEach(([section, meta]) => {
+    if (!meta || typeof meta !== "object") {
+      errors.push(`Section ${section} must be an object.`);
+      return;
+    }
+    if (typeof meta.panel !== "string" || !meta.panel.trim()) {
+      errors.push(`Section ${section} is missing panel.`);
+    }
+    if (typeof meta.mode !== "string" || !meta.mode.trim()) {
+      errors.push(`Section ${section} is missing mode.`);
+    }
+    if (typeof meta.label !== "string" || !meta.label.trim()) {
+      errors.push(`Section ${section} is missing label.`);
+    }
+    if (typeof meta.subtitle !== "string") {
+      errors.push(`Section ${section} is missing subtitle.`);
+    }
+    if (!Object.prototype.hasOwnProperty.call(meta, "scrollTarget")) {
+      errors.push(`Section ${section} is missing scrollTarget.`);
+    } else if (meta.scrollTarget !== null && typeof meta.scrollTarget !== "string") {
+      errors.push(`Section ${section} has invalid scrollTarget.`);
+    }
+    if (meta.panel && !schema.sections[meta.panel]) {
+      errors.push(`Section ${section} references unknown panel ${meta.panel}.`);
+    }
+    if (meta.mode && !schema.modes[meta.mode]) {
+      errors.push(`Section ${section} references unknown mode ${meta.mode}.`);
+    }
+    if (
+      meta.sharedPanelLabel !== null &&
+      meta.sharedPanelLabel !== undefined &&
+      typeof meta.sharedPanelLabel !== "string"
+    ) {
+      errors.push(`Section ${section} has invalid sharedPanelLabel.`);
+    }
+    if (
+      meta.sharedPanelCopy !== null &&
+      meta.sharedPanelCopy !== undefined &&
+      typeof meta.sharedPanelCopy !== "string"
+    ) {
+      errors.push(`Section ${section} has invalid sharedPanelCopy.`);
+    }
+  });
+
+  return errors;
+}
+
+function loadPortalSchemaOrFail() {
+  const prefix = "[Graph Admin Studio boot]";
+  const fail = (reason) => {
+    const message = `${prefix} ${reason}`;
+    renderBootFailure(message);
+    throw new Error(message);
+  };
+
+  if (typeof window === "undefined") {
+    fail("Browser window is unavailable.");
+  }
+
+  const schema = window.GraphAdminPortalSchema;
+  if (!schema || typeof schema !== "object") {
+    fail("Missing window.GraphAdminPortalSchema. Load admin_gui/portal_schema.js before admin_gui/app.js.");
+  }
+
+  let errors = [];
+  try {
+    const validate =
+      typeof schema.validatePortalSchema === "function" ? schema.validatePortalSchema : minimalValidatePortalSchema;
+    errors = validate(schema) || [];
+  } catch (err) {
+    fail(`Invalid window.GraphAdminPortalSchema: ${err?.message || err}`);
+  }
+
+  if (!Array.isArray(errors)) {
+    fail("Invalid window.GraphAdminPortalSchema: schema validator did not return an array.");
+  }
+  if (errors.length) {
+    fail(`Invalid window.GraphAdminPortalSchema: ${errors.join("; ")}`);
+  }
+  return schema;
+}
+
+function minimalValidateRenderedServiceShells(serviceShellsApi, root) {
+  const host = root && typeof root.querySelectorAll === "function" ? root : null;
+  if (!host) {
+    return ["Rendered service shell root must support querySelectorAll."];
+  }
+
+  const targets = Array.isArray(serviceShellsApi?.TARGET_SERVICES) ? serviceShellsApi.TARGET_SERVICES : [];
+  if (!targets.length) {
+    return ["Service shells are missing TARGET_SERVICES."];
+  }
+
+  const errors = [];
+  targets.forEach((service) => {
+    if (host.querySelectorAll(`[data-service-shell="${service}"]`).length) {
+      errors.push(`Service shell ${service} mount was not replaced.`);
+    }
+    if (host.querySelectorAll(`.runner[data-service="${service}"]`).length !== 1) {
+      errors.push(`Service shell ${service} must render one runner.`);
+    }
+    if (host.querySelectorAll(`.action-select[data-service="${service}"]`).length !== 1) {
+      errors.push(`Service shell ${service} must render one action select.`);
+    }
+    if (host.querySelectorAll(`.runner-fields[data-service="${service}"]`).length !== 1) {
+      errors.push(`Service shell ${service} must render one runner field container.`);
+    }
+    if (host.querySelectorAll(`.output[data-output="${service}"]`).length !== 1) {
+      errors.push(`Service shell ${service} must render one output panel.`);
+    }
+    if (host.querySelectorAll(`.output-card[data-panel="${service}"]`).length !== 1) {
+      errors.push(`Service shell ${service} must render one output card.`);
+    }
+    if (host.querySelectorAll(`.card[data-panel="${service}"][data-workspace-block="${service}.toolkit"]`).length !== 1) {
+      errors.push(`Service shell ${service} is missing toolkit workspace block.`);
+    }
+    if (host.querySelectorAll(`.card[data-panel="${service}"][data-workspace-block="${service}.runner"]`).length !== 1) {
+      errors.push(`Service shell ${service} is missing runner workspace block.`);
+    }
+    if (
+      host.querySelectorAll(`.output-card[data-panel="${service}"][data-workspace-block="${service}.output"]`).length !==
+      1
+    ) {
+      errors.push(`Service shell ${service} is missing output workspace block.`);
+    }
+    if (
+      host.querySelectorAll(
+        `.output-card[data-panel="${service}"] .clear-output[data-output-target="${service}"]`
+      ).length !== 1
+    ) {
+      errors.push(`Service shell ${service} is missing the clear-output target.`);
+    }
+  });
+  return errors;
+}
+
+function loadServiceShellsOrFail() {
+  const prefix = "[Graph Admin Studio boot]";
+  const fail = (reason) => {
+    const message = `${prefix} ${reason}`;
+    renderBootFailure(message);
+    throw new Error(message);
+  };
+
+  if (typeof window === "undefined") {
+    fail("Browser window is unavailable.");
+  }
+
+  const serviceShells = window.GraphAdminServiceShells;
+  if (!serviceShells || typeof serviceShells !== "object") {
+    fail("Missing window.GraphAdminServiceShells. Load admin_gui/service_shells.js before admin_gui/app.js.");
+  }
+
+  let registryErrors = [];
+  try {
+    if (typeof serviceShells.validateServiceShellRegistry === "function") {
+      registryErrors = serviceShells.validateServiceShellRegistry(serviceShells.SERVICE_SHELLS || {}) || [];
+    }
+  } catch (err) {
+    fail(`Invalid window.GraphAdminServiceShells registry: ${err?.message || err}`);
+  }
+  if (!Array.isArray(registryErrors)) {
+    fail("Invalid window.GraphAdminServiceShells registry: validator did not return an array.");
+  }
+  if (registryErrors.length) {
+    fail(`Invalid window.GraphAdminServiceShells registry: ${registryErrors.join("; ")}`);
+  }
+
+  let renderErrors = [];
+  try {
+    const validateRendered =
+      typeof serviceShells.validateRenderedServiceShells === "function"
+        ? serviceShells.validateRenderedServiceShells
+        : (root) => minimalValidateRenderedServiceShells(serviceShells, root);
+    renderErrors = validateRendered(document, serviceShells.SERVICE_SHELLS || {}) || [];
+  } catch (err) {
+    fail(`Invalid rendered service shells: ${err?.message || err}`);
+  }
+  if (!Array.isArray(renderErrors)) {
+    fail("Invalid rendered service shells: validator did not return an array.");
+  }
+  if (renderErrors.length) {
+    fail(`Invalid rendered service shells: ${renderErrors.join("; ")}`);
+  }
+
+  return serviceShells;
+}
+
+function formatSectionKeyLabel(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function buildSectionCompatibilityMaps(schema) {
+  const sections = schema?.sections || {};
+  const modeMap = {};
+  const labelMap = {};
+  const subtitleMap = {};
+
+  Object.entries(sections).forEach(([key, meta]) => {
+    if (!meta || typeof meta !== "object") return;
+    if (meta.mode) {
+      modeMap[key] = meta.mode;
+    }
+    if (meta.label) {
+      labelMap[key] = meta.label;
+    }
+    if (typeof meta.subtitle === "string") {
+      subtitleMap[key] = meta.subtitle;
+    }
+  });
+
+  Object.entries(sections).forEach(([key, meta]) => {
+    if (!meta || typeof meta !== "object") return;
+    const panelKey = meta.panel || key;
+    if (panelKey && !(panelKey in modeMap) && meta.mode) {
+      modeMap[panelKey] = meta.mode;
+    }
+    if (panelKey && !(panelKey in labelMap) && meta.label) {
+      labelMap[panelKey] = meta.label;
+    }
+    if (panelKey && !(panelKey in subtitleMap) && typeof meta.subtitle === "string") {
+      subtitleMap[panelKey] = meta.subtitle;
+    }
+  });
+
+  return {
+    modeMap,
+    modeMeta: schema?.modes || {},
+    subtitles: subtitleMap,
+    serviceLabels: labelMap,
+  };
+}
+
+const PORTAL_SCHEMA = loadPortalSchemaOrFail();
+const SERVICE_SHELLS_API = loadServiceShellsOrFail();
+const PORTAL_SECTIONS = PORTAL_SCHEMA.sections || {};
+const PORTAL_MODES = PORTAL_SCHEMA.modes || {};
+const {
+  modeMap: MODE_MAP,
+  modeMeta: MODE_META,
+  subtitles,
+  serviceLabels,
+} = buildSectionCompatibilityMaps(PORTAL_SCHEMA);
+
+function getSectionMeta(section) {
+  const key = String(section || "").trim();
+  if (!key) return null;
+  if (typeof PORTAL_SCHEMA.getSectionMeta === "function") {
+    return PORTAL_SCHEMA.getSectionMeta(key);
+  }
+  return PORTAL_SECTIONS[key] || null;
+}
+
+function getModeMeta(modeKey) {
+  const key = String(modeKey || "").trim();
+  if (!key) return null;
+  if (typeof PORTAL_SCHEMA.getModeMeta === "function") {
+    return PORTAL_SCHEMA.getModeMeta(key);
+  }
+  return PORTAL_MODES[key] || null;
+}
+
+function getSharedPanelContext(section) {
+  const key = String(section || "").trim();
+  if (!key) return null;
+  if (typeof PORTAL_SCHEMA.getSharedPanelContext === "function") {
+    return PORTAL_SCHEMA.getSharedPanelContext(key);
+  }
+  const meta = getSectionMeta(key);
+  if (!meta) return null;
+  const panelMeta = getSectionMeta(meta.panel);
+  const label = meta.sharedPanelLabel || (meta.panel !== key ? panelMeta?.label || null : null);
+  const copy = meta.sharedPanelCopy || null;
+  if (!label && !copy) return null;
+  return { label, copy };
+}
+
+function resolveSectionMeta(section) {
+  const meta = getSectionMeta(section);
+  if (meta) return meta;
+  const key = String(section || "").trim();
+  return {
+    panel: key,
+    mode: MODE_MAP[key] || "observe",
+    label: serviceLabels[key] || formatSectionKeyLabel(key),
+    subtitle: subtitles[key] || "",
+    scrollTarget: null,
+    sharedPanelLabel: null,
+    sharedPanelCopy: null,
+  };
+}
+
 const navLinks = document.querySelectorAll(".nav-link");
 const navGroupToggles = document.querySelectorAll(".nav-group-toggle");
 const panels = document.querySelectorAll("[data-panel]");
 const pageTitle = document.getElementById("page-title");
 const pageSubtitle = document.getElementById("page-subtitle");
+const pageContext = document.getElementById("page-context");
+const pageContextSurface = document.getElementById("page-context-surface");
+const pageContextCopy = document.getElementById("page-context-copy");
 const toast = document.getElementById("toast");
 const navToggle = document.getElementById("nav-toggle");
 const sidebar = document.getElementById("sidebar");
@@ -76,88 +443,6 @@ const INVESTIGATION_CONTEXT_DEFAULTS = {
 };
 const snapshotDiffCache = new Map();
 const reportDiffCache = new Map();
-const SECTION_ALIASES = {
-  incidents: "reports",
-  quickactions: "dashboard",
-  healthcheck: "settings",
-  auditlog: "settings",
-  snapshots: "reports",
-  vision: "controlplane",
-  tools: "controlplane",
-  actionrequests: "controlplane",
-  agents: "controlplane",
-  jobs: "controlplane",
-  catalog: "controlplane",
-  bootstrap: "controlplane",
-};
-const MODE_MAP = {
-  controlplane: "observe",
-  dashboard: "observe",
-  incidents: "observe",
-  investigations: "observe",
-  workspaces: "observe",
-  vision: "observe",
-  tools: "observe",
-  actionrequests: "observe",
-  agents: "observe",
-  jobs: "observe",
-  catalog: "observe",
-  baselines: "analyze",
-  healthcheck: "configure",
-  auditlog: "observe",
-  reports: "analyze",
-  snapshots: "observe",
-  eventlogs: "observe",
-  registry: "observe",
-  time: "observe",
-  certificates: "observe",
-  processes: "observe",
-  topology: "observe",
-  exchange: "act",
-  onedrive: "act",
-  sharepoint: "act",
-  teams: "act",
-  entra: "act",
-  azure: "act",
-  defender: "act",
-  powerplatform: "act",
-  purview: "act",
-  localad: "act",
-  endpoint: "act",
-  domaincontroller: "act",
-  printers: "act",
-  network: "act",
-  remote_workflows: "act",
-  ssh: "act",
-  fileserver: "act",
-  actionpacks: "act",
-  quickactions: "act",
-  settings: "configure",
-  help: "learn",
-};
-
-const MODE_META = {
-  observe: {
-    label: "Observe",
-    subtitle: "System status, snapshots, baselines, and read-only diagnostics.",
-  },
-  analyze: {
-    label: "Analyze",
-    subtitle: "Diffs, baselines, reports, and trend reasoning.",
-  },
-  act: {
-    label: "Act",
-    subtitle: "Run task runners and action packs with explicit execution controls.",
-  },
-  configure: {
-    label: "Configure",
-    subtitle: "Environment configuration, profiles, targets, and secrets.",
-  },
-  learn: {
-    label: "Learn",
-    subtitle: "Reference documentation, workflows, and troubleshooting guidance.",
-  },
-};
 const cfgTenantId = document.getElementById("cfg-tenant-id");
 const cfgClientId = document.getElementById("cfg-client-id");
 const cfgClientSecret = document.getElementById("cfg-client-secret");
@@ -545,91 +830,6 @@ const SENSITIVE_PARAM_KEYS = new Set([
   "credentials",
   "pfx",
 ]);
-
-const subtitles = {
-  dashboard: "Graph-first operations with PowerShell fallback",
-  incidents: "Incident workspace, timeline, and evidence",
-  investigations: "Focused timeline + context workspace",
-  workspaces: "Saved multi-block dashboards",
-  actionpacks: "Run multi-step workflows",
-  quickactions: "Dashboard shortcuts and pinned tasks",
-  healthcheck: "System health, readiness, and diagnostics",
-  auditlog: "Audit trail and system events",
-  vision: "Latest Vision-U-Eye snapshots, labels, and narration",
-  tools: "All actions across agents, grouped by tool and filtered by capability/risk",
-  bootstrap: "Pair runners, quick install, and connectivity verification",
-  actionrequests: "Promoted break-glass terminal commands (backlog only)",
-  agents: "Agent fleet status, capabilities, and labels",
-  jobs: "Job queue, leases, and results across agents",
-  catalog: "Known actions and required capabilities (by agent)",
-  exchange: "Mail, calendars, and shared mailbox controls",
-  onedrive: "Drive operations, permissions, and sync",
-  sharepoint: "Sites, lists, and pages management",
-  teams: "Teams, channels, and messaging",
-  entra: "Directory, groups, and app inventory",
-  azure: "Subscription and infrastructure inventory",
-  defender: "Defender for Cloud",
-  powerplatform: "Power Platform admin",
-  localad: "Local Active Directory (on-prem)",
-  endpoint: "Endpoint inventory and diagnostics",
-  domaincontroller: "Domain controller replication and health",
-  printers: "On-prem print servers and GPO checks",
-  network: "On-prem network adapters and IP settings",
-  ssh: "Remote workstation sessions over SSH",
-  fileserver: "On-prem file share enumeration",
-  topology: "Live on-prem device and service topology",
-  remote_workflows: "Remote-only workflows with explainable guidance",
-  time: "Time sync and drift intelligence",
-  certificates: "Certificate inventory and TLS trust",
-  processes: "Process, service, and binary reality checks",
-  baselines: "Golden baselines and drift comparison",
-  snapshots: "Snapshot history, diffs, and coverage",
-  eventlogs: "Event log summaries and EVTX evidence",
-  registry: "Registry watchlists and exports",
-  reports: "Audit-ready reports and summaries",
-  purview: "Compliance and data governance",
-  settings: "Local session and credentials",
-  controlplane: "Agent fleet status and job queue",
-  help: "In-app documentation and how-to guidance",
-};
-
-const serviceLabels = {
-  incidents: "Incidents",
-  investigations: "Investigations",
-  workspaces: "Workspaces",
-  actionpacks: "Action Packs",
-  quickactions: "Quick Actions",
-  healthcheck: "Health Check",
-  auditlog: "Audit Log",
-  vision: "Vision",
-  tools: "Tools Catalog",
-  bootstrap: "Runner Bootstrap",
-  actionrequests: "Action Requests",
-  agents: "Agents",
-  jobs: "Jobs",
-  catalog: "Action Catalog",
-  onedrive: "OneDrive",
-  sharepoint: "SharePoint",
-  powerplatform: "Power Platform",
-  localad: "Local AD",
-  endpoint: "Endpoints",
-  domaincontroller: "Domain Controller",
-  printers: "Printers",
-  network: "Network",
-  ssh: "SSH",
-  fileserver: "File Server",
-  topology: "Network Topology",
-  remote_workflows: "Remote Workflows",
-  defender: "Defender for Cloud",
-  time: "Time & Drift",
-  certificates: "Certificates",
-  processes: "Processes",
-  baselines: "Baselines",
-  snapshots: "Snapshots",
-  eventlogs: "Event Logs",
-  registry: "Registry",
-  help: "Help",
-};
 
 const ACTIONS_UI = {
   exchange: {
@@ -5708,7 +5908,7 @@ function populateQuickActionEditor() {
   services.forEach((service) => {
     const option = document.createElement("option");
     option.value = service;
-    option.textContent = service.charAt(0).toUpperCase() + service.slice(1);
+    option.textContent = formatServiceLabel(service);
     quickActionServiceSelect.appendChild(option);
   });
 
@@ -8126,7 +8326,7 @@ function populatePackStepBuilder() {
   services.forEach((service) => {
     const option = document.createElement("option");
     option.value = service;
-    option.textContent = service.charAt(0).toUpperCase() + service.slice(1);
+    option.textContent = formatServiceLabel(service);
     packStepServiceSelect.appendChild(option);
   });
 
@@ -8172,7 +8372,7 @@ function populatePresetStepBuilder() {
   services.forEach((service) => {
     const option = document.createElement("option");
     option.value = service;
-    option.textContent = service.charAt(0).toUpperCase() + service.slice(1);
+    option.textContent = formatServiceLabel(service);
     presetStepServiceSelect.appendChild(option);
   });
 
@@ -16162,6 +16362,8 @@ const WORKSPACE_TILE_OVERRIDES = {
   },
 };
 
+const SERVICE_SHELL_WORKSPACE_ALIASES = SERVICE_SHELLS_API?.legacyWorkspaceBlocks || {};
+
 const TILE_CATEGORY_LABELS = {
   observe: "Observe",
   analyze: "Analyze",
@@ -16262,7 +16464,8 @@ function buildTileRegistry() {
 const TILE_REGISTRY = buildTileRegistry();
 
 function getWorkspaceBlock(blockType) {
-  return TILE_REGISTRY[blockType] || null;
+  const resolvedBlockType = SERVICE_SHELL_WORKSPACE_ALIASES[blockType] || blockType;
+  return TILE_REGISTRY[resolvedBlockType] || null;
 }
 
 function listWorkspaceBlocks() {
@@ -17407,10 +17610,50 @@ function runNonBlockingNavigationTask(task, label) {
   }
 }
 
+const SECTION_ROUTE_PATHS = {
+  help: "/help",
+  investigations: "/investigations",
+  workspaces: "/workspaces",
+};
+
+const SECTION_NAVIGATION_TASKS = {
+  controlplane: {
+    default: [
+      ["fetchAgents", () => fetchAgents()],
+      ["fetchJobs", () => fetchJobs()],
+      ["fetchCatalog", () => fetchCatalog()],
+      ["refreshActionRequests", () => refreshActionRequests()],
+    ],
+    bySection: {
+      vision: [["fetchVisionSignals", () => fetchVisionSignals()]],
+    },
+  },
+  actionpacks: {
+    default: [
+      ["fetchAgents", () => fetchAgents()],
+      ["fetchCatalog", () => fetchCatalog()],
+    ],
+  },
+};
+
+function getSectionRoutePath(section) {
+  return SECTION_ROUTE_PATHS[String(section || "").trim()] || null;
+}
+
+function runSectionNavigationTasks(section, resolvedPanel) {
+  const config = SECTION_NAVIGATION_TASKS[resolvedPanel];
+  if (!config) return;
+  (config.default || []).forEach(([label, task]) => runNonBlockingNavigationTask(task, label));
+  const sectionTasks = config.bySection?.[section] || [];
+  sectionTasks.forEach(([label, task]) => runNonBlockingNavigationTask(task, label));
+}
+
 function setSection(section, opts = {}) {
   if (!section || typeof section !== "string") return;
-  const resolved = SECTION_ALIASES[section] || section;
-  updateModeHeader(section, resolved);
+  const sectionMeta = resolveSectionMeta(section);
+  const resolved = sectionMeta.panel || section;
+  updateModeHeader(sectionMeta, resolved);
+  updateSectionContext(section, sectionMeta);
   navLinks.forEach((link) => link.classList.toggle("active", link.dataset.section === section));
   const activeLink = document.querySelector(`.nav-link.active[data-section="${section}"]`);
   if (activeLink) {
@@ -17432,16 +17675,14 @@ function setSection(section, opts = {}) {
       panel.style.display = "none";
     }
   });
-  pageTitle.textContent =
-    serviceLabels?.[section] ||
-    serviceLabels?.[resolved] ||
-    section.charAt(0).toUpperCase() + section.slice(1);
-  pageSubtitle.textContent = subtitles[section] || subtitles[resolved] || "";
+  pageTitle.textContent = sectionMeta.label || formatSectionKeyLabel(section);
+  pageSubtitle.textContent = sectionMeta.subtitle || "";
   updateRouteForSection(section);
   sidebar.classList.remove("open");
 
-  if (opts.scrollTarget) {
-    const target = document.getElementById(opts.scrollTarget);
+  const scrollTarget = opts.scrollTarget ?? sectionMeta.scrollTarget;
+  if (scrollTarget) {
+    const target = document.getElementById(scrollTarget);
     if (target) {
       setTimeout(() => {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -17449,27 +17690,29 @@ function setSection(section, opts = {}) {
     }
   }
 
-  if (resolved === "controlplane") {
-    runNonBlockingNavigationTask(() => fetchAgents(), "fetchAgents");
-    runNonBlockingNavigationTask(() => fetchJobs(), "fetchJobs");
-    runNonBlockingNavigationTask(() => fetchCatalog(), "fetchCatalog");
-    runNonBlockingNavigationTask(() => refreshActionRequests(), "refreshActionRequests");
-    if (section === "vision") {
-      runNonBlockingNavigationTask(() => fetchVisionSignals(), "fetchVisionSignals");
-    }
-  }
-
-  if (resolved === "actionpacks") {
-    // Action Packs v2 uses the control plane agent+tool catalog.
-    runNonBlockingNavigationTask(() => fetchAgents(), "fetchAgents");
-    runNonBlockingNavigationTask(() => fetchCatalog(), "fetchCatalog");
-  }
+  runSectionNavigationTasks(section, resolved);
 }
 
-function updateModeHeader(section, resolvedSection) {
+function updateSectionContext(section, sectionMeta) {
+  if (!pageContext || !pageContextSurface || !pageContextCopy) return;
+  const context = getSharedPanelContext(section);
+  if (!context) {
+    pageContext.classList.add("hidden");
+    pageContextSurface.textContent = "";
+    pageContextCopy.textContent = "";
+    return;
+  }
+  pageContext.classList.remove("hidden");
+  pageContextSurface.textContent = context.label || sectionMeta?.sharedPanelLabel || "";
+  pageContextCopy.textContent =
+    context.copy ||
+    `This section opens a focused view inside the shared ${pageContextSurface.textContent || "surface"}.`;
+}
+
+function updateModeHeader(sectionMeta, resolvedSection) {
   if (!modePill || !modeTitle || !modeSubtitle) return;
-  const modeKey = MODE_MAP[section] || MODE_MAP[resolvedSection] || "observe";
-  const meta = MODE_META[modeKey] || MODE_META.observe;
+  const modeKey = sectionMeta?.mode || MODE_MAP[resolvedSection] || "observe";
+  const meta = getModeMeta(modeKey) || MODE_META.observe;
   modePill.textContent = meta.label;
   modePill.className = `mode-pill ${modeKey}`;
   modeTitle.textContent = meta.label;
@@ -17478,37 +17721,21 @@ function updateModeHeader(section, resolvedSection) {
 
 function updateRouteForSection(section) {
   if (!window.history || !window.history.pushState) return;
-  if (section === "help") {
-    if (!window.location.pathname.startsWith("/help")) {
-      window.history.pushState({ section }, "", "/help");
+  const targetPath = getSectionRoutePath(section);
+  if (targetPath) {
+    if (!window.location.pathname.startsWith(targetPath)) {
+      window.history.pushState({ section }, "", targetPath);
     }
     return;
   }
-  if (section === "investigations") {
-    if (!window.location.pathname.startsWith("/investigations")) {
-      window.history.pushState({ section }, "", "/investigations");
-    }
-    return;
-  }
-  if (section === "workspaces") {
-    if (!window.location.pathname.startsWith("/workspaces")) {
-      window.history.pushState({ section }, "", "/workspaces");
-    }
-    return;
-  }
-  if (
-    window.location.pathname.startsWith("/help") ||
-    window.location.pathname.startsWith("/workspaces") ||
-    window.location.pathname.startsWith("/investigations")
-  ) {
+  if (Object.values(SECTION_ROUTE_PATHS).some((path) => window.location.pathname.startsWith(path))) {
     window.history.pushState({ section }, "", "/");
   }
 }
 
 function resolveSectionFromPath() {
-  if (window.location.pathname.startsWith("/help")) return "help";
-  if (window.location.pathname.startsWith("/workspaces")) return "workspaces";
-  if (window.location.pathname.startsWith("/investigations")) return "investigations";
+  const matched = Object.entries(SECTION_ROUTE_PATHS).find(([, path]) => window.location.pathname.startsWith(path));
+  if (matched) return matched[0];
   return "dashboard";
 }
 
@@ -23417,37 +23644,60 @@ function resolveTargetSelection(service, action) {
   return { type: "local" };
 }
 
+function actionSupportsLocalTarget(allowedTargets) {
+  return allowedTargets.includes("local") || allowedTargets.includes("graph");
+}
+
+function appendLocalRunnerTargetOption(select) {
+  const option = document.createElement("option");
+  option.value = "local";
+  option.textContent = "Local machine";
+  select.appendChild(option);
+}
+
+function appendSshRunnerTargetOptions(select) {
+  sshTargets.forEach((target) => {
+    const option = document.createElement("option");
+    option.value = `ssh:${target.id}`;
+    option.textContent = target.name || formatSshTargetLabel({ type: "ssh", ...target });
+    select.appendChild(option);
+  });
+}
+
+function syncRunnerTargetSelect(select, service, action, options = {}) {
+  const allowedTargets = options.allowedTargets || getActionAllowedTargets(service, action);
+  const currentSelection = options.currentSelection || runnerTargetSelections[service] || "local";
+  const allowLocal = actionSupportsLocalTarget(allowedTargets);
+
+  select.innerHTML = "";
+  if (allowLocal) {
+    appendLocalRunnerTargetOption(select);
+  }
+  if (allowedTargets.includes("ssh")) {
+    appendSshRunnerTargetOptions(select);
+  }
+
+  if (allowedTargets.includes("ssh") && currentSelection.startsWith("ssh:")) {
+    select.value = currentSelection;
+  } else if (allowLocal) {
+    select.value = "local";
+    if (options.persistLocalFallback) {
+      runnerTargetSelections[service] = "local";
+    }
+  } else if (allowedTargets.includes("ssh") && sshTargets.length) {
+    select.value = `ssh:${sshTargets[0].id}`;
+    runnerTargetSelections[service] = select.value;
+  }
+
+  select.disabled = !allowedTargets.includes("ssh") && allowLocal && allowedTargets.length === 1;
+  return { allowLocal };
+}
+
 function refreshRunnerTargets() {
   document.querySelectorAll(".runner-target-select").forEach((select) => {
     const service = select.dataset.service;
     const action = select.dataset.action;
-    const allowed = getActionAllowedTargets(service, action);
-    const current = runnerTargetSelections[service] || "local";
-    select.innerHTML = "";
-    const allowLocal = allowed.includes("local") || allowed.includes("graph");
-    if (allowLocal) {
-      const localOption = document.createElement("option");
-      localOption.value = "local";
-      localOption.textContent = "Local machine";
-      select.appendChild(localOption);
-    }
-    if (allowed.includes("ssh")) {
-      sshTargets.forEach((target) => {
-        const option = document.createElement("option");
-        option.value = `ssh:${target.id}`;
-        option.textContent = target.name || formatSshTargetLabel({ type: "ssh", ...target });
-        select.appendChild(option);
-      });
-    }
-    select.disabled = !allowed.includes("ssh") && allowLocal && allowed.length === 1;
-    if (allowed.includes("ssh") && current.startsWith("ssh:")) {
-      select.value = current;
-    } else if (allowLocal) {
-      select.value = "local";
-    } else if (allowed.includes("ssh") && sshTargets.length) {
-      select.value = `ssh:${sshTargets[0].id}`;
-      runnerTargetSelections[service] = select.value;
-    }
+    syncRunnerTargetSelect(select, service, action);
   });
 }
 
@@ -23717,19 +23967,162 @@ function setupOutputViews() {
   });
 }
 
-function populateRunner(service) {
-  const form = document.querySelector(`.runner[data-service="${service}"]`);
-  if (!form) return;
+function createRunnerMetaLine(className, text) {
+  const line = document.createElement("div");
+  line.classList.add(className);
+  line.textContent = text;
+  return line;
+}
 
-  const select = form.querySelector(".action-select");
-  const container = form.querySelector(".runner-fields");
-  const actions = ACTIONS_UI[service] || {};
-  const runButton = form.querySelector(".runner-run");
-  const resetButton = form.querySelector(".runner-reset");
+function appendRunnerRiskLine(container, risk) {
+  const riskLine = document.createElement("div");
+  riskLine.classList.add("runner-risk", `risk-${risk}`);
+  const riskLabel = document.createElement("span");
+  riskLabel.classList.add("risk-label");
+  riskLabel.textContent = "Risk";
+  const riskValue = document.createElement("span");
+  riskValue.classList.add("risk-value", `risk-${risk}`);
+  riskValue.textContent = formatRiskLabel(risk);
+  riskLine.appendChild(riskLabel);
+  riskLine.appendChild(riskValue);
+  container.appendChild(riskLine);
+}
+
+function appendRunnerModeLine(container, mode) {
+  container.appendChild(createRunnerMetaLine("runner-mode", `Mode: ${modeLabel(mode)}`));
+}
+
+function buildRunnerTargetRow(service, action) {
+  const allowedTargets = getActionAllowedTargets(service, action);
+  const targetRow = document.createElement("div");
+  targetRow.classList.add("runner-target-row");
+
+  const targetLabel = document.createElement("span");
+  targetLabel.classList.add("runner-target-label");
+  targetLabel.textContent = "Execution target";
+
+  const targetSelect = document.createElement("select");
+  targetSelect.classList.add("runner-target-select");
+  targetSelect.dataset.service = service;
+  targetSelect.dataset.action = action;
+  syncRunnerTargetSelect(targetSelect, service, action, { allowedTargets, persistLocalFallback: true });
+
+  targetRow.appendChild(targetLabel);
+  targetRow.appendChild(targetSelect);
+
+  if (!allowedTargets.includes("ssh")) {
+    return targetRow;
+  }
+
+  const targetActions = document.createElement("div");
+  targetActions.classList.add("runner-target-actions");
+
+  const manageButton = document.createElement("button");
+  manageButton.type = "button";
+  manageButton.classList.add("ghost", "small");
+  manageButton.textContent = "Manage targets";
+  manageButton.addEventListener("click", () => {
+    setSection("settings", { scrollTarget: "ssh-targets-panel" });
+  });
+
+  const testButton = document.createElement("button");
+  testButton.type = "button";
+  testButton.classList.add("ghost", "small");
+  testButton.textContent = "Test connection";
+  testButton.disabled = !targetSelect.value.startsWith("ssh:");
+  testButton.addEventListener("click", () => {
+    const target = resolveTargetSelection(service, action);
+    if (target.type !== "ssh") {
+      showToast("Select an SSH target first");
+      return;
+    }
+    testSshTarget(target);
+  });
+
+  targetSelect.addEventListener("change", () => {
+    runnerTargetSelections[service] = targetSelect.value;
+    testButton.disabled = !targetSelect.value.startsWith("ssh:");
+  });
+
+  targetActions.appendChild(manageButton);
+  targetActions.appendChild(testButton);
+  targetRow.appendChild(targetActions);
+  return targetRow;
+}
+
+function appendRunnerField(container, field) {
+  const wrapper = document.createElement("label");
+  wrapper.classList.add("field");
+  wrapper.dataset.field = field.key;
+
+  if (field.type === "checkbox") {
+    wrapper.classList.add("checkbox");
+    if (field.sendFalse) {
+      wrapper.dataset.sendFalse = "true";
+    }
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(field.defaultChecked);
+    const span = document.createElement("span");
+    span.textContent = field.label;
+    wrapper.appendChild(input);
+    wrapper.appendChild(span);
+    container.appendChild(wrapper);
+    return;
+  }
+
+  wrapper.textContent = field.label;
+  let input;
+  if (field.type === "textarea") {
+    input = document.createElement("textarea");
+    input.rows = field.rows || 6;
+  } else {
+    input = document.createElement("input");
+    input.type = field.type || "text";
+  }
+  if (field.placeholder) {
+    input.placeholder = field.placeholder;
+  }
+  prefillRunnerInputFromContext(field, input, wrapper);
+  wrapper.appendChild(input);
+  container.appendChild(wrapper);
+}
+
+function setRunnerUnavailableState(select, container, runButton, resetButton) {
+  select.innerHTML = "";
+  const option = document.createElement("option");
+  option.value = "";
+  option.textContent = "No actions configured";
+  select.appendChild(option);
+  select.disabled = true;
+  if (runButton) runButton.disabled = true;
+  if (resetButton) resetButton.disabled = true;
+  container.innerHTML = "";
+  container.appendChild(createRunnerMetaLine("runner-mode", "No actions configured yet."));
+}
+
+function setRunnerAvailability(select, runButton, resetButton) {
+  select.disabled = false;
+  if (runButton) runButton.disabled = false;
+  if (resetButton) resetButton.disabled = false;
+}
+
+function populateRunnerActionSelect(select, service, actions) {
+  select.innerHTML = "";
+  Object.entries(actions).forEach(([action, meta]) => {
+    const option = document.createElement("option");
+    option.value = action;
+    const risk = formatRiskLabel(getActionRisk(service, action));
+    option.textContent = `${meta.label} · ${modeLabel(meta.mode)} · ${risk}`;
+    select.appendChild(option);
+  });
+}
+
+function ensureRunnerUtilityButtons(form, service) {
   const actionsRow = form.querySelector(".runner-actions");
   if (actionsRow) actionsRow.classList.add("execution-bar");
+
   let cancelButton = form.querySelector(".runner-cancel");
-  let pinButton = form.querySelector(".runner-pin");
   if (!cancelButton && actionsRow) {
     cancelButton = document.createElement("button");
     cancelButton.type = "button";
@@ -23743,6 +24136,8 @@ function populateRunner(service) {
     cancelButton.dataset.bound = "true";
     cancelButton.addEventListener("click", () => cancelAction(service));
   }
+
+  let pinButton = form.querySelector(".runner-pin");
   if (!pinButton && actionsRow) {
     pinButton = document.createElement("button");
     pinButton.type = "button";
@@ -23756,171 +24151,42 @@ function populateRunner(service) {
     pinButton.addEventListener("click", () => pinLatestResultToInvestigation(service));
   }
   if (pinButton) updateRunnerPinButton(service);
+}
+
+function renderRunnerFieldsForAction(container, service, action, actions) {
+  container.innerHTML = "";
+  const meta = actions[action];
+  const fields = meta?.fields || [];
+  const risk = getActionRisk(service, action);
+
+  appendRunnerRiskLine(container, risk);
+  appendRunnerModeLine(container, meta?.mode);
+  container.appendChild(buildRunnerTargetRow(service, action));
+  fields.forEach((field) => appendRunnerField(container, field));
+}
+
+function populateRunner(service) {
+  const form = document.querySelector(`.runner[data-service="${service}"]`);
+  if (!form) return;
+
+  const select = form.querySelector(".action-select");
+  const container = form.querySelector(".runner-fields");
+  const actions = ACTIONS_UI[service] || {};
+  const runButton = form.querySelector(".runner-run");
+  const resetButton = form.querySelector(".runner-reset");
+  ensureRunnerUtilityButtons(form, service);
 
   if (!Object.keys(actions).length) {
-    select.innerHTML = "";
-    const option = document.createElement("option");
-    option.value = "";
-    option.textContent = "No actions configured";
-    select.appendChild(option);
-    select.disabled = true;
-    if (runButton) runButton.disabled = true;
-    if (resetButton) resetButton.disabled = true;
-    container.innerHTML = "";
-    const note = document.createElement("div");
-    note.classList.add("runner-mode");
-    note.textContent = "No actions configured yet.";
-    container.appendChild(note);
+    setRunnerUnavailableState(select, container, runButton, resetButton);
     return;
   }
 
-  select.disabled = false;
-  if (runButton) runButton.disabled = false;
-  if (resetButton) resetButton.disabled = false;
+  setRunnerAvailability(select, runButton, resetButton);
+  populateRunnerActionSelect(select, service, actions);
 
-  select.innerHTML = "";
-  Object.entries(actions).forEach(([action, meta]) => {
-    const option = document.createElement("option");
-    option.value = action;
-    const risk = formatRiskLabel(getActionRisk(service, action));
-    option.textContent = `${meta.label} · ${modeLabel(meta.mode)} · ${risk}`;
-    select.appendChild(option);
-  });
-
-  function renderFields(action) {
-    container.innerHTML = "";
-    const meta = actions[action];
-    const fields = meta?.fields || [];
-    const risk = getActionRisk(service, action);
-
-    const riskLine = document.createElement("div");
-    riskLine.classList.add("runner-risk", `risk-${risk}`);
-    const riskLabel = document.createElement("span");
-    riskLabel.classList.add("risk-label");
-    riskLabel.textContent = "Risk";
-    const riskValue = document.createElement("span");
-    riskValue.classList.add("risk-value", `risk-${risk}`);
-    riskValue.textContent = formatRiskLabel(risk);
-    riskLine.appendChild(riskLabel);
-    riskLine.appendChild(riskValue);
-    container.appendChild(riskLine);
-
-    const modeLine = document.createElement("div");
-    modeLine.classList.add("runner-mode");
-    modeLine.textContent = `Mode: ${modeLabel(meta?.mode)}`;
-    container.appendChild(modeLine);
-
-    const allowedTargets = getActionAllowedTargets(service, action);
-    const targetRow = document.createElement("div");
-    targetRow.classList.add("runner-target-row");
-    const targetLabel = document.createElement("span");
-    targetLabel.classList.add("runner-target-label");
-    targetLabel.textContent = "Execution target";
-    const targetSelect = document.createElement("select");
-    targetSelect.classList.add("runner-target-select");
-    targetSelect.dataset.service = service;
-    targetSelect.dataset.action = action;
-    const allowLocal = allowedTargets.includes("local") || allowedTargets.includes("graph");
-    if (allowLocal) {
-      const localOption = document.createElement("option");
-      localOption.value = "local";
-      localOption.textContent = "Local machine";
-      targetSelect.appendChild(localOption);
-    }
-    if (allowedTargets.includes("ssh")) {
-      sshTargets.forEach((target) => {
-        const option = document.createElement("option");
-        option.value = `ssh:${target.id}`;
-        option.textContent = target.name || formatSshTargetLabel({ type: "ssh", ...target });
-        targetSelect.appendChild(option);
-      });
-    }
-    const currentTarget = runnerTargetSelections[service] || "local";
-    if (allowedTargets.includes("ssh") && currentTarget.startsWith("ssh:")) {
-      targetSelect.value = currentTarget;
-    } else if (allowLocal) {
-      targetSelect.value = "local";
-      runnerTargetSelections[service] = "local";
-    } else if (allowedTargets.includes("ssh") && sshTargets.length) {
-      targetSelect.value = `ssh:${sshTargets[0].id}`;
-      runnerTargetSelections[service] = targetSelect.value;
-    }
-    targetSelect.disabled = !allowedTargets.includes("ssh") && allowLocal && allowedTargets.length === 1;
-    const targetActions = document.createElement("div");
-    targetActions.classList.add("runner-target-actions");
-    const manageButton = document.createElement("button");
-    manageButton.type = "button";
-    manageButton.classList.add("ghost", "small");
-    manageButton.textContent = "Manage targets";
-    manageButton.addEventListener("click", () => {
-      setSection("settings", { scrollTarget: "ssh-targets-panel" });
-    });
-    const testButton = document.createElement("button");
-    testButton.type = "button";
-    testButton.classList.add("ghost", "small");
-    testButton.textContent = "Test connection";
-    testButton.disabled = !targetSelect.value.startsWith("ssh:");
-    testButton.addEventListener("click", () => {
-      const target = resolveTargetSelection(service, action);
-      if (target.type !== "ssh") {
-        showToast("Select an SSH target first");
-        return;
-      }
-      testSshTarget(target);
-    });
-    targetSelect.addEventListener("change", () => {
-      runnerTargetSelections[service] = targetSelect.value;
-      testButton.disabled = !targetSelect.value.startsWith("ssh:");
-    });
-    if (allowedTargets.includes("ssh")) {
-      targetActions.appendChild(manageButton);
-      targetActions.appendChild(testButton);
-    }
-    targetRow.appendChild(targetLabel);
-    targetRow.appendChild(targetSelect);
-    if (allowedTargets.includes("ssh")) {
-      targetRow.appendChild(targetActions);
-    }
-    container.appendChild(targetRow);
-
-    fields.forEach((field) => {
-      const wrapper = document.createElement("label");
-      wrapper.classList.add("field");
-      wrapper.dataset.field = field.key;
-      if (field.type === "checkbox") {
-        wrapper.classList.add("checkbox");
-        if (field.sendFalse) {
-          wrapper.dataset.sendFalse = "true";
-        }
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.checked = Boolean(field.defaultChecked);
-        const span = document.createElement("span");
-        span.textContent = field.label;
-        wrapper.appendChild(input);
-        wrapper.appendChild(span);
-      } else {
-        wrapper.textContent = field.label;
-        let input;
-        if (field.type === "textarea") {
-          input = document.createElement("textarea");
-          input.rows = field.rows || 6;
-        } else {
-          input = document.createElement("input");
-          input.type = field.type || "text";
-        }
-        if (field.placeholder) {
-          input.placeholder = field.placeholder;
-        }
-        prefillRunnerInputFromContext(field, input, wrapper);
-        wrapper.appendChild(input);
-      }
-      container.appendChild(wrapper);
-    });
-  }
-
-  renderFields(select.value);
-  select.addEventListener("change", () => renderFields(select.value));
+  const renderFields = () => renderRunnerFieldsForAction(container, service, select.value, actions);
+  renderFields();
+  select.addEventListener("change", renderFields);
   attachAdvancedControls(service);
   updatePresetOptions(service);
   select.addEventListener("change", () => updatePresetOptions(service));
@@ -24259,9 +24525,11 @@ function inferSnapshotSubjectFromPanel(service) {
 }
 
 navLinks.forEach((link) => {
-  link.addEventListener("click", () =>
-    setSection(link.dataset.section, { scrollTarget: link.dataset.scroll })
-  );
+  link.addEventListener("click", () => {
+    const section = link.dataset.section;
+    const sectionMeta = getSectionMeta(section);
+    setSection(section, { scrollTarget: link.dataset.scroll || sectionMeta?.scrollTarget });
+  });
 });
 
 navGroupToggles.forEach((toggle) => {

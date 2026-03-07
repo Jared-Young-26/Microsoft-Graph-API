@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Refactor"
+  short_description: "Behavior-preserving cleanup for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Perform a behavior-preserving refactor for the current Graph Admin Studio task and update the refactor report."
+policy:
+  allow_implicit_invocation: true

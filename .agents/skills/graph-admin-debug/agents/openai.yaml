@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Debug"
+  short_description: "Root-cause-first debugging for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Debug the current issue in Microsoft Graph Admin Studio, find the root cause, and document a clean handoff."
+policy:
+  allow_implicit_invocation: true

@@ -782,6 +782,42 @@ button,
   font-size: 14px;
 }
 
+.page-context {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.page-context.hidden {
+  display: none;
+}
+
+.page-context-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(127, 209, 255, 0.28);
+  background: rgba(127, 209, 255, 0.08);
+  color: rgba(207, 227, 255, 0.95);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.page-context-surface {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.page-context-copy {
+  color: var(--muted);
+}
+
 .topbar-right {
   display: flex;
   align-items: center;

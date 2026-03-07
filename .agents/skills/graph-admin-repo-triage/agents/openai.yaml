@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Repo Triage"
+  short_description: "Repo health and backlog triage workflow."
+  brand_color: "#2563EB"
+  default_prompt: "Perform a repo triage pass for Microsoft Graph Admin Studio and update the high-level /ai docs."
+policy:
+  allow_implicit_invocation: false

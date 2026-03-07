@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Test & Verify"
+  short_description: "Testing and validation workflow for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Verify the current Graph Admin Studio task and update the test report with the smallest adequate validation."
+policy:
+  allow_implicit_invocation: true

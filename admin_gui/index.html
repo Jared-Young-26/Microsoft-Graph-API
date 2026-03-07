@@ -148,6 +148,11 @@
             <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">Menu</button>
             <div class="page-title" id="page-title">Dashboard</div>
             <div class="page-subtitle" id="page-subtitle">Graph-first operations with PowerShell fallback</div>
+            <div class="page-context hidden" id="page-context" aria-live="polite">
+              <span class="page-context-badge">Focused view</span>
+              <span class="page-context-surface" id="page-context-surface"></span>
+              <span class="page-context-copy" id="page-context-copy"></span>
+            </div>
           </div>
           <div class="topbar-right">
             <button class="ghost icon" id="help-link" aria-label="Help">?</button>
@@ -315,531 +320,20 @@
             <ul class="history-list" id="recent-snapshots-list"></ul>
           </div>
 
-          <div class="card" data-panel="exchange">
-            <div class="card-title">Exchange toolkit</div>
-            <div class="card-subtitle">Mail, calendars, shared mailbox admin</div>
-            <div class="stack">
-              <button class="chip" data-service="exchange" data-action="list_mail_folders">List mail folders</button>
-              <button class="chip" data-service="exchange" data-action="list_messages">Search messages</button>
-              <button class="chip" data-service="exchange" data-action="list_events">Calendar view</button>
-              <button class="chip" data-service="exchange" data-action="enable_shared_sent_items">Enable shared sent items (PS)</button>
-            </div>
-          </div>
+          <div data-service-shell="exchange"></div>
+          <div data-service-shell="onedrive"></div>
+          <div data-service-shell="sharepoint"></div>
+          <div data-service-shell="teams"></div>
+          <div data-service-shell="entra"></div>
+          <div data-service-shell="azure"></div>
+          <div data-service-shell="defender"></div>
+          <div data-service-shell="powerplatform"></div>
 
-          <div class="card form-card" data-panel="exchange">
-            <div class="card-title">Exchange task runner</div>
-            <div class="card-subtitle">Fine-grained controls</div>
-            <form class="runner" data-service="exchange">
-              <label>
-                Action
-                <select class="action-select" data-service="exchange"></select>
-              </label>
-              <div class="runner-fields" data-service="exchange"></div>
-              <div class="runner-actions execution-bar">
-                <button type="button" class="ghost small runner-reset" data-service="exchange">Reset</button>
-                <button type="button" class="primary runner-run" data-service="exchange">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find Exchange IDs</summary>
-              <ul>
-                <li><strong>Shared mailbox UPN</strong>: Exchange admin center → Recipients → Shared → select mailbox → Primary SMTP address.</li>
-                <li><strong>User ID / UPN</strong>: Entra admin center → Users → select user → copy UPN or Object ID.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="exchange">
-            <div class="card-title">Exchange output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="exchange"></pre>
-            <button class="ghost small clear-output" data-output-target="exchange">Clear</button>
-          </div>
-
-          <div class="card" data-panel="onedrive">
-            <div class="card-title">OneDrive toolkit</div>
-            <div class="card-subtitle">Drive operations and sync</div>
-            <div class="stack">
-              <button class="chip" data-service="onedrive" data-action="list_drive_items">List root items</button>
-              <button class="chip" data-service="onedrive" data-action="create_upload_session">Create upload session</button>
-              <button class="chip" data-service="onedrive" data-action="list_personal_sites">List personal sites (PS)</button>
-              <button class="chip" data-service="onedrive" data-action="drive_cache_status" data-run-now="true">
-                Drive cache status
-              </button>
-              <button class="chip" data-service="onedrive" data-action="warm_drive_cache" data-run-now="true">
-                Warm drive cache now
-              </button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="onedrive">
-            <div class="card-title">OneDrive task runner</div>
-            <div class="card-subtitle">Targeted file operations</div>
-            <form class="runner" data-service="onedrive">
-              <label>
-                Action
-                <select class="action-select" data-service="onedrive"></select>
-              </label>
-              <div class="runner-fields" data-service="onedrive"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="onedrive">Reset</button>
-                <button type="button" class="primary runner-run" data-service="onedrive">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find OneDrive IDs</summary>
-              <ul>
-                <li><strong>OneDrive drive ID</strong>: Graph Explorer → <code>GET /users/{userId}/drive</code> → copy <code>id</code>.</li>
-                <li><strong>User ID / UPN</strong>: Entra admin center → Users → select user → copy UPN or Object ID.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="onedrive">
-            <div class="card-title">OneDrive output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="onedrive"></pre>
-            <button class="ghost small clear-output" data-output-target="onedrive">Clear</button>
-          </div>
-
-          <div class="card" data-panel="sharepoint">
-            <div class="card-title">SharePoint toolkit</div>
-            <div class="card-subtitle">Sites, lists, and pages</div>
-            <div class="stack">
-              <button class="chip" data-service="sharepoint" data-action="list_sites">List sites</button>
-              <button class="chip" data-service="sharepoint" data-action="create_list">Create list</button>
-              <button class="chip" data-service="sharepoint" data-action="list_list_items">List list items</button>
-              <button class="chip" data-service="sharepoint" data-action="list_sites_admin">SPO admin (PS)</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="sharepoint">
-            <div class="card-title">SharePoint task runner</div>
-            <div class="card-subtitle">List and site management</div>
-            <form class="runner" data-service="sharepoint">
-              <label>
-                Action
-                <select class="action-select" data-service="sharepoint"></select>
-              </label>
-              <div class="runner-fields" data-service="sharepoint"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="sharepoint">Reset</button>
-                <button type="button" class="primary runner-run" data-service="sharepoint">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find SharePoint IDs</summary>
-              <ul>
-                <li><strong>Site ID</strong>: Graph Explorer → <code>GET /sites?search=*</code> → copy <code>id</code>.</li>
-                <li><strong>List ID</strong>: Graph Explorer → <code>GET /sites/{siteId}/lists</code> → copy list <code>id</code>.</li>
-                <li><strong>Admin URL</strong>: <code>https://&lt;tenant&gt;-admin.sharepoint.com</code>.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="sharepoint">
-            <div class="card-title">SharePoint output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="sharepoint"></pre>
-            <button class="ghost small clear-output" data-output-target="sharepoint">Clear</button>
-          </div>
-
-          <div class="card" data-panel="teams">
-            <div class="card-title">Teams toolkit</div>
-            <div class="card-subtitle">Teams, channels, chats</div>
-            <div class="stack">
-              <button class="chip" data-service="teams" data-action="list_teams">List teams</button>
-              <button class="chip" data-service="teams" data-action="list_team_members">List team members</button>
-              <button class="chip" data-service="teams" data-action="create_channel">Create channel</button>
-              <button class="chip" data-service="teams" data-action="list_chat_messages">List chat messages</button>
-              <button class="chip" data-service="teams" data-action="ps_list_policies">Policies (PS)</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="teams">
-            <div class="card-title">Teams task runner</div>
-            <div class="card-subtitle">Channel and chat tools</div>
-            <form class="runner" data-service="teams">
-              <label>
-                Action
-                <select class="action-select" data-service="teams"></select>
-              </label>
-              <div class="runner-fields" data-service="teams"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="teams">Reset</button>
-                <button type="button" class="primary runner-run" data-service="teams">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find Teams IDs</summary>
-              <ul>
-                <li><strong>Team ID</strong>: Teams admin center → Teams → Manage teams → select team → Group ID.</li>
-                <li><strong>Chat ID</strong>: Graph Explorer → <code>GET /chats</code> (delegated) → copy <code>id</code>.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="teams">
-            <div class="card-title">Teams output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="teams"></pre>
-            <button class="ghost small clear-output" data-output-target="teams">Clear</button>
-          </div>
-
-          <div class="card" data-panel="entra">
-            <div class="card-title">Entra toolkit</div>
-            <div class="card-subtitle">Users, groups, apps</div>
-            <div class="stack">
-              <button class="chip" data-service="entra" data-action="list_users">List users</button>
-              <button class="chip" data-service="entra" data-action="get_user">Get user</button>
-              <button class="chip" data-service="entra" data-action="create_user">Create user</button>
-              <button class="chip" data-service="entra" data-action="update_user">Update user</button>
-              <button class="chip" data-service="entra" data-action="delete_user">Delete user</button>
-              <button class="chip" data-service="entra" data-action="add_group_member">Add group member</button>
-              <button class="chip" data-service="entra" data-action="list_service_principals">List service principals</button>
-              <button class="chip" data-service="entra" data-action="set_user_license">Set user license (PS)</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="entra">
-            <div class="card-title">Entra task runner</div>
-            <div class="card-subtitle">Directory operations</div>
-            <form class="runner" data-service="entra">
-              <label>
-                Action
-                <select class="action-select" data-service="entra"></select>
-              </label>
-              <div class="runner-fields" data-service="entra"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="entra">Reset</button>
-                <button type="button" class="primary runner-run" data-service="entra">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find Entra IDs</summary>
-              <ul>
-                <li><strong>User ID</strong>: Entra admin center → Users → select user → Object ID.</li>
-                <li><strong>Group ID</strong>: Entra admin center → Groups → select group → Object ID.</li>
-                <li><strong>App/Service principal ID</strong>: Entra admin center → App registrations / Enterprise apps → select app → Object ID.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="entra">
-            <div class="card-title">Entra output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="entra"></pre>
-            <button class="ghost small clear-output" data-output-target="entra">Clear</button>
-          </div>
-
-          <div class="card" data-panel="azure">
-            <div class="card-title">Azure toolkit</div>
-            <div class="card-subtitle">Subscriptions and inventory</div>
-            <div class="stack">
-              <button class="chip" data-service="azure" data-action="list_subscriptions">List subscriptions</button>
-              <button class="chip" data-service="azure" data-action="list_resource_groups">List resource groups</button>
-              <button class="chip" data-service="azure" data-action="list_virtual_machines">List VMs</button>
-              <button class="chip" data-service="azure" data-action="list_key_vaults">List Key Vaults</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="azure">
-            <div class="card-title">Azure task runner</div>
-            <div class="card-subtitle">Inventory and metadata</div>
-            <form class="runner" data-service="azure">
-              <label>
-                Action
-                <select class="action-select" data-service="azure"></select>
-              </label>
-              <div class="runner-fields" data-service="azure"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="azure">Reset</button>
-                <button type="button" class="primary runner-run" data-service="azure">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find Azure IDs</summary>
-              <ul>
-                <li><strong>Subscription ID</strong>: Azure portal → Subscriptions → copy Subscription ID.</li>
-                <li><strong>Resource group</strong>: Azure portal → Resource groups → copy name.</li>
-                <li><strong>Key Vault name</strong>: Azure portal → Key vaults → copy name.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="azure">
-            <div class="card-title">Azure output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="azure"></pre>
-            <button class="ghost small clear-output" data-output-target="azure">Clear</button>
-          </div>
-
-          <div class="card" data-panel="defender">
-            <div class="card-title">Defender for Cloud</div>
-            <div class="card-subtitle">Security posture and cloud workload protection</div>
-            <div class="stack">
-              <button class="chip" data-service="defender" data-action="secure_score_summary">
-                Secure score summary
-              </button>
-              <button class="chip" data-service="defender" data-action="recommendations_list">
-                Recommendations list
-              </button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="defender">
-            <div class="card-title">Defender task runner</div>
-            <div class="card-subtitle">Add actions as they are implemented</div>
-            <form class="runner" data-service="defender">
-              <label>
-                Action
-                <select class="action-select" data-service="defender"></select>
-              </label>
-              <div class="runner-fields" data-service="defender"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="defender">Reset</button>
-                <button type="button" class="primary runner-run" data-service="defender">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="defender">
-            <div class="card-title">Defender output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="defender"></pre>
-            <button class="ghost small clear-output" data-output-target="defender">Clear</button>
-          </div>
-
-          <div class="card" data-panel="powerplatform">
-            <div class="card-title">Power Platform</div>
-            <div class="card-subtitle">Admin operations for Power Apps &amp; Power Automate</div>
-            <div class="stack">
-              <button class="chip" data-service="powerplatform" data-action="list_environments">
-                List environments
-              </button>
-              <button class="chip" data-service="powerplatform" data-action="list_flows">
-                List flows (environment)
-              </button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="powerplatform">
-            <div class="card-title">Power Platform task runner</div>
-            <div class="card-subtitle">Add actions as they are implemented</div>
-            <form class="runner" data-service="powerplatform">
-              <label>
-                Action
-                <select class="action-select" data-service="powerplatform"></select>
-              </label>
-              <div class="runner-fields" data-service="powerplatform"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="powerplatform">Reset</button>
-                <button type="button" class="primary runner-run" data-service="powerplatform">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="powerplatform">
-            <div class="card-title">Power Platform output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="powerplatform"></pre>
-            <button class="ghost small clear-output" data-output-target="powerplatform">Clear</button>
-          </div>
-
-          <div class="card" data-panel="localad">
-            <div class="card-title">Local Active Directory</div>
-            <div class="card-subtitle">On-prem AD users, groups, OUs, GPOs</div>
-            <div class="stack">
-              <button class="chip" data-service="localad" data-action="list_gpos">List GPOs</button>
-              <button class="chip" data-service="localad" data-action="gpo_inheritance">GPO inheritance</button>
-              <button class="chip" data-service="localad" data-action="gpo_links">GPO links</button>
-              <button class="chip" data-service="localad" data-action="gpo_report">GPO report</button>
-              <button class="chip" data-service="localad" data-action="gppref_registry">GPP registry values</button>
-              <button class="chip" data-service="localad" data-action="gpresult_report">GPResult report</button>
-              <div class="note">Requires PowerShell on a domain-joined host with RSAT / ActiveDirectory + GroupPolicy modules.</div>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="localad">
-            <div class="card-title">Local AD task runner</div>
-            <div class="card-subtitle">Local-only PowerShell actions</div>
-            <form class="runner" data-service="localad">
-              <label>
-                Action
-                <select class="action-select" data-service="localad"></select>
-              </label>
-              <div class="runner-fields" data-service="localad"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="localad">Reset</button>
-                <button type="button" class="primary runner-run" data-service="localad">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="localad">
-            <div class="card-title">Local AD output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="localad"></pre>
-            <button class="ghost small clear-output" data-output-target="localad">Clear</button>
-          </div>
-
-          <div class="card" data-panel="endpoint">
-            <div class="card-title">Endpoint toolkit</div>
-            <div class="card-subtitle">Workstation inventory, logs, patching, and GPO context</div>
-            <div class="stack">
-              <button class="chip" data-service="endpoint" data-action="computer_info">Computer info</button>
-              <button class="chip" data-service="endpoint" data-action="cim_summary">CIM summary</button>
-              <button class="chip" data-service="endpoint" data-action="systeminfo">Systeminfo baseline</button>
-              <button class="chip" data-service="endpoint" data-action="list_processes">Top processes</button>
-              <button class="chip" data-service="endpoint" data-action="list_services">List services</button>
-              <button class="chip" data-service="endpoint" data-action="query_event_logs">Query event logs</button>
-              <button class="chip" data-service="endpoint" data-action="list_hotfixes">Hotfix inventory</button>
-              <button class="chip" data-service="endpoint" data-action="whoami_all">Whoami /all</button>
-              <button class="chip" data-service="endpoint" data-action="gpresult_report">GPResult report</button>
-              <div class="note">Best run on the target workstation (or a remote session) with GroupPolicy module available for RSoP.</div>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="endpoint">
-            <div class="card-title">Endpoint task runner</div>
-            <div class="card-subtitle">System identity, event logs, updates, and policy reports</div>
-            <form class="runner" data-service="endpoint">
-              <label>
-                Action
-                <select class="action-select" data-service="endpoint"></select>
-              </label>
-              <div class="runner-fields" data-service="endpoint"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="endpoint">Reset</button>
-                <button type="button" class="primary runner-run" data-service="endpoint">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>What these checks tell you</summary>
-              <ul>
-                <li><strong>System identity</strong>: hardware, OS build, uptime, domain join status.</li>
-                <li><strong>Logs &amp; services</strong>: rapid fault isolation and service health.</li>
-                <li><strong>Updates &amp; policy</strong>: patch status plus applied GPO context.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="endpoint">
-            <div class="card-title">Endpoint output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="endpoint"></pre>
-            <button class="ghost small clear-output" data-output-target="endpoint">Clear</button>
-          </div>
-
-          <div class="card" data-panel="domaincontroller">
-            <div class="card-title">Domain controller toolkit</div>
-            <div class="card-subtitle">Replication, topology, and forest/domain health</div>
-            <div class="stack">
-              <button class="chip" data-service="domaincontroller" data-action="list_domain_controllers">List domain controllers</button>
-              <button class="chip" data-service="domaincontroller" data-action="replication_health_summary">Replication summary</button>
-              <button class="chip" data-service="domaincontroller" data-action="show_replication_partners">Show replication partners</button>
-              <button class="chip" data-service="domaincontroller" data-action="dc_diagnostics">Run dcdiag</button>
-              <button class="chip" data-service="domaincontroller" data-action="list_fsmo_roles">List FSMO roles</button>
-              <button class="chip" data-service="domaincontroller" data-action="time_sync_status">Time sync status</button>
-              <div class="note">Best run on a domain-joined admin workstation with RSAT + ActiveDirectory module.</div>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="domaincontroller">
-            <div class="card-title">Domain controller task runner</div>
-            <div class="card-subtitle">repadmin, dcdiag, nltest, AD replication cmdlets, and time health</div>
-            <form class="runner" data-service="domaincontroller">
-              <label>
-                Action
-                <select class="action-select" data-service="domaincontroller"></select>
-              </label>
-              <div class="runner-fields" data-service="domaincontroller"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="domaincontroller">Reset</button>
-                <button type="button" class="primary runner-run" data-service="domaincontroller">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Why these checks help</summary>
-              <ul>
-                <li><strong>Replication summary/partners</strong>: finds stale DC links and failure hotspots quickly.</li>
-                <li><strong>dcdiag</strong>: surfaces DNS/service/advertising issues that break auth and policy flow.</li>
-                <li><strong>FSMO/time checks</strong>: catches role holder and time skew problems that impact Kerberos.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="domaincontroller">
-            <div class="card-title">Domain controller output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="domaincontroller"></pre>
-            <button class="ghost small clear-output" data-output-target="domaincontroller">Clear</button>
-          </div>
-
-          <div class="card" data-panel="printers">
-            <div class="card-title">Printers</div>
-            <div class="card-subtitle">Print server inventory and GPO cross-checks</div>
-            <div class="stack">
-              <button class="chip" data-service="printers" data-action="list_printers">List printers</button>
-              <button class="chip" data-service="printers" data-action="list_gpo_printer_mappings">List GPO printer mappings</button>
-              <button class="chip" data-service="printers" data-action="cross_reference_printers_gpo">Cross-reference printers vs GPOs</button>
-              <div class="note">Requires PrintManagement + GroupPolicy modules on a domain-joined host.</div>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="printers">
-            <div class="card-title">Printer task runner</div>
-            <div class="card-subtitle">PowerShell-only printer controls</div>
-            <form class="runner" data-service="printers">
-              <label>
-                Action
-                <select class="action-select" data-service="printers"></select>
-              </label>
-              <div class="runner-fields" data-service="printers"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="printers">Reset</button>
-                <button type="button" class="primary runner-run" data-service="printers">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find printer details</summary>
-              <ul>
-                <li><strong>Printer names/shares</strong>: Print Management → Printers → Name / Share name.</li>
-                <li><strong>GPO printer deployments</strong>: Group Policy Management → GPO → User/Computer Configuration → Printers.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="printers">
-            <div class="card-title">Printers output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="printers"></pre>
-            <button class="ghost small clear-output" data-output-target="printers">Clear</button>
-          </div>
-
-          <div class="card" data-panel="network">
-            <div class="card-title">Network adapters</div>
-            <div class="card-subtitle">On-prem interface inventory and configuration</div>
-            <div class="stack">
-              <button class="chip" data-service="network" data-action="list_adapters">List adapters</button>
-              <button class="chip" data-service="network" data-action="get_adapter_config">Get adapter config</button>
-              <button class="chip" data-service="network" data-action="set_dhcp">Enable/disable DHCP</button>
-              <button class="chip" data-service="network" data-action="set_dns_servers">Set DNS servers</button>
-              <button class="chip" data-service="network" data-action="ping_host">Ping host</button>
-              <button class="chip" data-service="network" data-action="resolve_dns_name">Resolve hostname</button>
-              <button class="chip" data-service="network" data-action="test_port">Test port</button>
-              <button class="chip" data-service="network" data-action="trace_route">Trace route</button>
-              <button class="chip" data-service="network" data-action="list_routes">Route table</button>
-              <button class="chip" data-service="network" data-action="firewall_profiles">Firewall profiles</button>
-              <button class="chip" data-service="network" data-action="smb_connections">SMB connections</button>
-              <div class="note">Requires admin rights for most changes. Uses NetAdapter/NetTCPIP plus optional NetSecurity, DnsServer, SmbShare modules.</div>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="network">
-            <div class="card-title">Network task runner</div>
-            <div class="card-subtitle">PowerShell-only network actions</div>
-            <form class="runner" data-service="network">
-              <label>
-                Action
-                <select class="action-select" data-service="network"></select>
-              </label>
-              <div class="runner-fields" data-service="network"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="network">Reset</button>
-                <button type="button" class="primary runner-run" data-service="network">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find adapter details</summary>
-              <ul>
-                <li><strong>Adapter name</strong>: Get-NetAdapter → Name column.</li>
-                <li><strong>IPv4 settings</strong>: Get-NetIPConfiguration → IPv4Address / IPv4DefaultGateway.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="network">
-            <div class="card-title">Network output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="network"></pre>
-            <button class="ghost small clear-output" data-output-target="network">Clear</button>
-          </div>
+          <div data-service-shell="localad"></div>
+          <div data-service-shell="endpoint"></div>
+          <div data-service-shell="domaincontroller"></div>
+          <div data-service-shell="printers"></div>
+          <div data-service-shell="network"></div>
 
           <div class="card" data-panel="remote_workflows">
             <div class="card-title">Remote workflows</div>
@@ -960,42 +454,7 @@
             </div>
           </div>
 
-          <div class="card" data-panel="fileserver">
-            <div class="card-title">File server</div>
-            <div class="card-subtitle">Enumerate files on UNC shares</div>
-            <div class="stack">
-              <button class="chip" data-service="fileserver" data-action="list_files">List files in share</button>
-              <div class="note">Uses PowerShell on the local host. Provide a UNC path (\\\\server\\share).</div>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="fileserver">
-            <div class="card-title">File server task runner</div>
-            <div class="card-subtitle">Share enumeration with optional credentials</div>
-            <form class="runner" data-service="fileserver">
-              <label>
-                Action
-                <select class="action-select" data-service="fileserver"></select>
-              </label>
-              <div class="runner-fields" data-service="fileserver"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="fileserver">Reset</button>
-                <button type="button" class="primary runner-run" data-service="fileserver">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>UNC path format</summary>
-              <ul>
-                <li><strong>UNC</strong>: \\\\server\\share (e.g., \\\\files01\\Accounting).</li>
-                <li><strong>Credentials</strong>: domain\\user or user@domain.com.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="fileserver">
-            <div class="card-title">File server output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="fileserver"></pre>
-            <button class="ghost small clear-output" data-output-target="fileserver">Clear</button>
-          </div>
+          <div data-service-shell="fileserver"></div>
 
           <div class="card" data-panel="topology">
             <div class="card-title">Network topology</div>
@@ -1121,189 +580,12 @@
             <ul class="timeline" id="topology-timeline"></ul>
           </div>
 
-          <div class="card" data-panel="time">
-            <div class="card-title">Time &amp; drift toolkit</div>
-            <div class="card-subtitle">NTP, DC offsets, and drift checks</div>
-            <div class="stack">
-              <button class="chip" data-service="time" data-action="time_chain">Run time chain</button>
-              <button class="chip" data-service="time" data-action="time_drift_history">View drift history</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="time">
-            <div class="card-title">Time &amp; drift runner</div>
-            <div class="card-subtitle">Fine-grained time probes</div>
-            <form class="runner" data-service="time">
-              <label>
-                Action
-                <select class="action-select" data-service="time"></select>
-              </label>
-              <div class="runner-fields" data-service="time"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="time">Reset</button>
-                <button type="button" class="primary runner-run" data-service="time">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="time">
-            <div class="card-title">Time output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="time"></pre>
-            <button class="ghost small clear-output" data-output-target="time">Clear</button>
-          </div>
-
-          <div class="card" data-panel="certificates">
-            <div class="card-title">Certificates toolkit</div>
-            <div class="card-subtitle">Machine store inventory and TLS trust</div>
-            <div class="stack">
-              <button class="chip" data-service="certificates" data-action="list_machine_certificates">List certificates</button>
-              <button class="chip" data-service="certificates" data-action="tls_probe">TLS trust probe</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="certificates">
-            <div class="card-title">Certificates runner</div>
-            <div class="card-subtitle">Targeted certificate checks</div>
-            <form class="runner" data-service="certificates">
-              <label>
-                Action
-                <select class="action-select" data-service="certificates"></select>
-              </label>
-              <div class="runner-fields" data-service="certificates"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="certificates">Reset</button>
-                <button type="button" class="primary runner-run" data-service="certificates">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="certificates">
-            <div class="card-title">Certificates output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="certificates"></pre>
-            <button class="ghost small clear-output" data-output-target="certificates">Clear</button>
-          </div>
-
-          <div class="card" data-panel="processes">
-            <div class="card-title">Processes toolkit</div>
-            <div class="card-subtitle">Process inventory and service mapping</div>
-            <div class="stack">
-              <button class="chip" data-service="processes" data-action="process_inventory">Process inventory</button>
-              <button class="chip" data-service="processes" data-action="service_process_map">Service → process map</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="processes">
-            <div class="card-title">Processes runner</div>
-            <div class="card-subtitle">Binary and service reality checks</div>
-            <form class="runner" data-service="processes">
-              <label>
-                Action
-                <select class="action-select" data-service="processes"></select>
-              </label>
-              <div class="runner-fields" data-service="processes"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="processes">Reset</button>
-                <button type="button" class="primary runner-run" data-service="processes">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="processes">
-            <div class="card-title">Processes output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="processes"></pre>
-            <button class="ghost small clear-output" data-output-target="processes">Clear</button>
-          </div>
-
-          <div class="card" data-panel="baselines">
-            <div class="card-title">Baselines toolkit</div>
-            <div class="card-subtitle">Golden snapshots and comparisons</div>
-            <div class="stack">
-              <button class="chip" data-service="baselines" data-action="list_golden">List golden baselines</button>
-              <button class="chip" data-service="baselines" data-action="compare_golden">Compare to golden</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="baselines">
-            <div class="card-title">Baselines runner</div>
-            <div class="card-subtitle">Set and compare golden baselines</div>
-            <form class="runner" data-service="baselines">
-              <label>
-                Action
-                <select class="action-select" data-service="baselines"></select>
-              </label>
-              <div class="runner-fields" data-service="baselines"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="baselines">Reset</button>
-                <button type="button" class="primary runner-run" data-service="baselines">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="baselines">
-            <div class="card-title">Baselines output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="baselines"></pre>
-            <button class="ghost small clear-output" data-output-target="baselines">Clear</button>
-          </div>
-
-          <div class="card" data-panel="eventlogs">
-            <div class="card-title">Event Logs toolkit</div>
-            <div class="card-subtitle">Summaries, exports, and incident attachments</div>
-            <div class="stack">
-              <button class="chip" data-service="eventlogs" data-action="eventlog_summary">Last 24h summary</button>
-              <button class="chip" data-service="eventlogs" data-action="eventlog_gpo_failures">GPO failures summary</button>
-              <button class="chip" data-service="eventlogs" data-action="eventlog_print_failures">Print failures summary</button>
-              <button class="chip" data-service="eventlogs" data-action="eventlog_rdp_failures">RDP/logon failures summary</button>
-              <button class="chip" data-service="eventlogs" data-action="eventlog_windows_update_failures">Windows Update failures</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="eventlogs">
-            <div class="card-title">Event Logs runner</div>
-            <div class="card-subtitle">Query and export event data</div>
-            <form class="runner" data-service="eventlogs">
-              <label>
-                Action
-                <select class="action-select" data-service="eventlogs"></select>
-              </label>
-              <div class="runner-fields" data-service="eventlogs"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="eventlogs">Reset</button>
-                <button type="button" class="primary runner-run" data-service="eventlogs">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="eventlogs">
-            <div class="card-title">Event Logs output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="eventlogs"></pre>
-            <button class="ghost small clear-output" data-output-target="eventlogs">Clear</button>
-          </div>
-
-          <div class="card" data-panel="registry">
-            <div class="card-title">Registry toolkit</div>
-            <div class="card-subtitle">Watchlists, snapshots, and exports</div>
-            <div class="stack">
-              <button class="chip" data-service="registry" data-action="list_watchlists">List watchlists</button>
-              <button class="chip" data-service="registry" data-action="capture_watchlist">Capture watchlist snapshot</button>
-              <button class="chip" data-service="registry" data-action="diff_watchlist">Diff watchlist snapshots</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="registry">
-            <div class="card-title">Registry runner</div>
-            <div class="card-subtitle">Watchlists and exports</div>
-            <form class="runner" data-service="registry">
-              <label>
-                Action
-                <select class="action-select" data-service="registry"></select>
-              </label>
-              <div class="runner-fields" data-service="registry"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="registry">Reset</button>
-                <button type="button" class="primary runner-run" data-service="registry">Run</button>
-              </div>
-            </form>
-          </div>
-          <div class="card output-card" data-panel="registry">
-            <div class="card-title">Registry output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="registry"></pre>
-            <button class="ghost small clear-output" data-output-target="registry">Clear</button>
-          </div>
+          <div data-service-shell="time"></div>
+          <div data-service-shell="certificates"></div>
+          <div data-service-shell="processes"></div>
+          <div data-service-shell="baselines"></div>
+          <div data-service-shell="eventlogs"></div>
+          <div data-service-shell="registry"></div>
 
           <div class="card" data-panel="reports">
             <div class="card-title">Reports toolkit</div>
@@ -2071,44 +1353,7 @@
             <ul class="history-list" id="snapshot-history-list"></ul>
           </div>
 
-          <div class="card" data-panel="purview">
-            <div class="card-title">Purview toolkit</div>
-            <div class="card-subtitle">Compliance and eDiscovery</div>
-            <div class="stack">
-              <button class="chip" data-service="purview" data-action="list_retention_policies">List retention policies</button>
-              <button class="chip" data-service="purview" data-action="create_compliance_search">Create compliance search</button>
-              <button class="chip" data-service="purview" data-action="list_dlp_policies">List DLP policies</button>
-              <button class="chip" data-service="purview" data-action="list_compliance_actions">Compliance actions</button>
-            </div>
-          </div>
-          <div class="card form-card" data-panel="purview">
-            <div class="card-title">Purview task runner</div>
-            <div class="card-subtitle">Compliance tasks</div>
-            <form class="runner" data-service="purview">
-              <label>
-                Action
-                <select class="action-select" data-service="purview"></select>
-              </label>
-              <div class="runner-fields" data-service="purview"></div>
-              <div class="runner-actions">
-                <button type="button" class="ghost small runner-reset" data-service="purview">Reset</button>
-                <button type="button" class="primary runner-run" data-service="purview">Run</button>
-              </div>
-            </form>
-            <details class="info">
-              <summary>Where to find Purview items</summary>
-              <ul>
-                <li><strong>Retention/DLP policy names</strong>: Microsoft Purview compliance portal → Data lifecycle / DLP.</li>
-                <li><strong>Compliance searches</strong>: Purview portal → eDiscovery → Content search.</li>
-              </ul>
-            </details>
-          </div>
-          <div class="card output-card" data-panel="purview">
-            <div class="card-title">Purview output</div>
-            <div class="card-subtitle">Latest response</div>
-            <pre class="output" data-output="purview"></pre>
-            <button class="ghost small clear-output" data-output-target="purview">Clear</button>
-          </div>
+          <div data-service-shell="purview"></div>
 
 	          <div class="card full" data-panel="settings">
 	            <div class="card-title">Environment</div>
@@ -3038,9 +2283,56 @@
 
     <div class="toast" id="toast">Action queued</div>
 
+    <template id="service-shell-template">
+      <div class="card" data-shell-card="toolkit" data-shell-panel>
+        <div class="card-title" data-shell-text="toolkit-title"></div>
+        <div class="card-subtitle" data-shell-text="toolkit-subtitle"></div>
+        <div class="stack" data-shell-slot="toolkit-body"></div>
+      </div>
+      <div class="card form-card" data-shell-card="runner" data-shell-panel>
+        <div class="card-title" data-shell-text="runner-title"></div>
+        <div class="card-subtitle" data-shell-text="runner-subtitle"></div>
+        <form class="runner" data-shell-runner>
+          <label>
+            Action
+            <select class="action-select" data-shell-action-select></select>
+          </label>
+          <div class="runner-fields" data-shell-runner-fields></div>
+          <div class="runner-actions" data-shell-runner-actions>
+            <button type="button" class="ghost small runner-reset" data-shell-runner-reset>Reset</button>
+            <button type="button" class="primary runner-run" data-shell-runner-run>Run</button>
+          </div>
+        </form>
+        <details class="info" data-shell-info>
+          <summary data-shell-info-summary></summary>
+          <ul data-shell-info-list></ul>
+        </details>
+      </div>
+      <div class="card output-card" data-shell-card="output" data-shell-panel>
+        <div class="card-title" data-shell-text="output-title"></div>
+        <div class="card-subtitle" data-shell-text="output-subtitle"></div>
+        <pre class="output" data-shell-output></pre>
+        <button class="ghost small clear-output" data-shell-clear>Clear</button>
+      </div>
+    </template>
+
+    <template id="service-shell-chip-template">
+      <button type="button" class="chip"></button>
+    </template>
+
+    <template id="service-shell-note-template">
+      <div class="note"></div>
+    </template>
+
+    <template id="service-shell-info-item-template">
+      <li></li>
+    </template>
+
     <script src="triage.js"></script>
     <script src="investigation_summary.js"></script>
     <script src="next_steps.js"></script>
+    <script src="portal_schema.js"></script>
+    <script src="service_shells.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

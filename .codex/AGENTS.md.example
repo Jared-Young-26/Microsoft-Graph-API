@@ -1,0 +1,35 @@
+# ~/.codex/AGENTS.md
+
+These are my personal defaults across repositories.
+
+## Working style
+
+- Be concise, specific, and diff-oriented.
+- Start substantial work by stating:
+  - objective
+  - in-scope
+  - out-of-scope
+  - verification plan
+- Prefer small, reviewable changes over broad rewrites.
+- Prefer existing scripts, tests, and conventions before inventing new ones.
+
+## Safety and change control
+
+- Ask before adding new production dependencies.
+- Ask before changing authentication models, storage schemas, or public API contracts.
+- Ask before using danger-full-access or other unsandboxed flows.
+- Prefer workspace-write over broader access when possible.
+
+## Thread discipline
+
+- Treat one thread as one workstream.
+- Use a fresh thread when the mission changes or the prior thread is muddy.
+- Create a concise handoff instead of dragging old context forward.
+
+## Reporting
+
+End substantial turns with:
+- changed files
+- validation performed
+- key risks or unknowns
+- recommended next step

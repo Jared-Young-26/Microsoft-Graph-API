@@ -1,0 +1,7 @@
+interface:
+  display_name: "Graph Admin Architect"
+  short_description: "Design and planning workflow for this repo."
+  brand_color: "#2563EB"
+  default_prompt: "Design the next phase of work for Microsoft Graph Admin Studio and update the durable-memory files."
+policy:
+  allow_implicit_invocation: true

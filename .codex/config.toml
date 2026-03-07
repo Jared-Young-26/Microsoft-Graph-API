@@ -1,0 +1,25 @@
+# Project-scoped Codex configuration for Microsoft Graph Admin Studio.
+# Drop this file into ./.codex/config.toml in the repo root.
+#
+# This is tuned for a "hands-off but not reckless" workflow:
+# - Codex can write inside the workspace
+# - risky commands can still trigger approval
+# - repo docs have a bit more room
+# - skill and AGENTS guidance stay project-local
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Increase room for repo guidance if you later add nested AGENTS files.
+project_doc_max_bytes = 49152
+
+# Optional fallbacks if you ever add directory-local docs where AGENTS.md is absent.
+project_doc_fallback_filenames = ["PROMPT.md", "PLAN.md"]
+
+# Leave web search on cached by default. Switch to "live" if you frequently
+# want current docs or package information in-code.
+web_search = "cached"
+
+[agents]
+max_threads = 6
+max_depth = 2
