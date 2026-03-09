@@ -71,8 +71,10 @@ from . import control_plane
 from .graph_runner_dispatch import GraphRunnerError
 from .artifact_retention import ensure_artifact_retention_reaper
 from . import workflows_v2
+from .frontend_allowlist import ROOT, classify_browser_path
+from .frontend_shell import render_index_html
+from .operator_auth import OperatorAuthError, enforce_operator_auth
 
-ROOT = Path(__file__).resolve().parents[1]
 
 # Disable Flask's built-in static route so SPA fallbacks can handle deep links.
 app = Flask(__name__, static_folder=None)
@@ -93,6 +95,14 @@ def _disable_caching(response):
     return response
 
 
+@app.before_request
+def _require_operator_auth_for_privileged_routes():
+    try:
+        enforce_operator_auth(request.method, request.path, request.headers)
+    except OperatorAuthError as exc:
+        return jsonify(exc.to_payload()), exc.status_code
+
+
 def _render_index_html() -> Response:
     """Render index.html with a cache-busting query string for UI assets.
 
@@ -100,32 +110,7 @@ def _render_index_html() -> Response:
     during rapid iteration). Adding a simple version query string makes it
     unambiguous which build is loaded.
     """
-
-    index_path = ROOT / "index.html"
-    html = index_path.read_text(encoding="utf-8")
-    try:
-        version = int(
-            max(
-                (ROOT / "styles.css").stat().st_mtime,
-                (ROOT / "portal_schema.js").stat().st_mtime,
-                (ROOT / "service_shells.js").stat().st_mtime,
-                (ROOT / "app.js").stat().st_mtime,
-                (ROOT / "triage.js").stat().st_mtime,
-                (ROOT / "investigation_summary.js").stat().st_mtime,
-                (ROOT / "next_steps.js").stat().st_mtime,
-            )
-        )
-    except Exception:
-        version = int(index_path.stat().st_mtime)
-    qs = f"?v={version}"
-    html = html.replace('href="styles.css"', f'href="styles.css{qs}"')
-    html = html.replace('src="portal_schema.js"', f'src="portal_schema.js{qs}"')
-    html = html.replace('src="service_shells.js"', f'src="service_shells.js{qs}"')
-    html = html.replace('src="triage.js"', f'src="triage.js{qs}"')
-    html = html.replace('src="investigation_summary.js"', f'src="investigation_summary.js{qs}"')
-    html = html.replace('src="next_steps.js"', f'src="next_steps.js{qs}"')
-    html = html.replace('src="app.js"', f'src="app.js{qs}"')
-    return Response(html, mimetype="text/html")
+    return Response(render_index_html(), mimetype="text/html")
 
 
 @app.get("/api/status")
@@ -1366,21 +1351,28 @@ def help_page(_path=None):
     return _render_index_html()
 
 
+def _browser_not_found():
+    """Return a plain 404 for denied browser paths."""
+    return Response("Not found", status=404, mimetype="text/plain")
+
+
 @app.get("/<path:path>")
 def spa_fallback(path):
     """Run spa fallback."""
     if path.startswith("api/"):
         return jsonify({"ok": False, "error": "Not found"}), 404
-    candidate = ROOT / path
-    if candidate.exists() and candidate.is_file():
+    decision = classify_browser_path(path)
+    if decision.kind == "index":
+        return _render_index_html()
+    if decision.kind == "file" and decision.relative_path:
         # Always return the file (no conditional 304 responses) so UI updates are
         # immediately visible during local development.
         try:
-            return send_from_directory(str(ROOT), path, conditional=False, max_age=0)
+            return send_from_directory(str(ROOT), decision.relative_path, conditional=False, max_age=0)
         except TypeError:
             # Flask <2.2 uses cache_timeout instead of max_age.
-            return send_from_directory(str(ROOT), path, conditional=False, cache_timeout=0)
-    return _render_index_html()
+            return send_from_directory(str(ROOT), decision.relative_path, conditional=False, cache_timeout=0)
+    return _browser_not_found()
 
 
 if __name__ == "__main__":

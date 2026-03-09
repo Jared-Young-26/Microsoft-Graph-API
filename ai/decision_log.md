@@ -56,3 +56,37 @@ A small shared helper or mirrored constant is justified for the allowlist bounda
 
 **Files affected**
 `ai/active_task.md`, `ai/architecture.md`, `ai/repo_map.md`, `ai/task_breakdown.md`, `ai/plans/current_plan.md`, `ai/handoff.md`, `ai/status.md`, future `admin_gui/backend/flask_app.py`, future `admin_gui/backend/fastapi_app.py`
+
+### 2026-03-07 — Use a shared header-based operator token for human privileged routes
+
+**Context**
+The remaining `P0` is unauthenticated human mutation access. The repo needed the smallest server-side operator auth model that works in both Flask and FastAPI without entangling existing agent-token routes or the FastAPI break-glass terminal WebSocket flow.
+
+**Decision**
+The next implementation thread should add one shared operator-auth helper that protects human privileged routes with an explicit operator token carried in a dedicated request header such as `X-Operator-Token`. The token should come from an environment variable such as `GAS_OPERATOR_TOKEN`, and the frontend should keep it in memory only after an operator prompt. Agent-authenticated routes stay on the existing agent-token model, and the operator terminal WebSocket stays gated indirectly through the authenticated terminal-start route instead of taking the operator token directly.
+
+**Why**
+This closes the `P0` with the fewest moving parts. It avoids a broader cookie/session/CSRF subsystem, avoids persisting a long-lived operator credential in browser storage, keeps Flask and FastAPI aligned through one shared helper, and preserves the repo's local-first workflow better than a heavier identity integration.
+
+**Consequences**
+The implementation thread must touch both backend transports and add a small frontend unlock/header path, but it can stay review-sized. Protected routes should fail closed when the operator token is not configured. Read-only human GET routes and the separate frontend browser-storage cleanup remain follow-up work, not part of this `P0` implementation.
+
+**Files affected**
+`ai/architecture.md`, `ai/plans/current_plan.md`, `ai/task_breakdown.md`, `ai/active_task.md`, `ai/status.md`, `ai/handoff.md`, future `admin_gui/backend/flask_app.py`, future `admin_gui/backend/fastapi_app.py`, future small shared auth helper, future `admin_gui/app.js`
+
+### 2026-03-09 — Store recurring repo-automation memory under `/ai/automation_memory/` when external automation memory is blocked
+
+**Context**
+Recurring automation runs benefit from run-to-run memory, but the external automation memory location under `~/.codex/automations/` is not always writable from the active sandboxed repo session.
+
+**Decision**
+For recurring automations that operate on this repository, use repo-local memory files under `/ai/automation_memory/` as the fallback and preferred repo-scoped source of run history when external automation storage is unavailable or not desirable.
+
+**Why**
+This keeps automation context versioned with the repository, avoids sandbox friction around home-directory writes, and makes recurring automation state visible to later repo threads.
+
+**Consequences**
+Recurring automation prompts should name their repo-local memory file explicitly and update it at the end of each run. The memory becomes repo-scoped instead of global app-scoped, which is acceptable for project-specific automations like nightly triage.
+
+**Files affected**
+`AGENTS.md`, `ai/automation_memory/README.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/automation_prompts/nightly_repo_triage.prompt.md`, `ai/repo_map.md`

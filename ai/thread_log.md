@@ -94,3 +94,80 @@ Use this file to keep a lightweight record of Codex sessions.
 - Outcome: `/ai` task docs now target the static-file allowlist P0 specifically, and the handoff is resume-ready for a direct implementation pass
 - Files touched: `/ai/active_task.md`, `/ai/task_breakdown.md`, `/ai/status.md`, `/ai/plans/current_plan.md`, `/ai/handoff.md`, `/ai/thread_log.md`
 - Risks / follow-up: the exact allowlist still needs to be derived from the live browser surface; operator auth and FastAPI cache-busting parity remain follow-up threads
+
+### 2026-03-07 - Browser allowlist hardening
+- Role: Implementation Engineer
+- Objective: close the arbitrary browser file-exposure finding by restricting Flask and FastAPI browser serving to an explicit frontend asset allowlist
+- Outcome: shared allowlist logic landed, FastAPI's broad `/static` mount was removed, focused allow/deny tests passed, and the docs were advanced to the next `P0`
+- Files touched: `admin_gui/backend/frontend_allowlist.py`, `admin_gui/backend/flask_app.py`, `admin_gui/backend/fastapi_app.py`, `admin_gui/backend/test_browser_allowlist.py`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: server-side operator auth remained the top open `P0`; FastAPI cache-busting parity still lags Flask
+
+### 2026-03-07 - Security review and next-task re-prioritization
+- Role: Security Reviewer / next-task prep
+- Objective: verify the repo after the allowlist change and choose the highest-value remaining thread
+- Outcome: the allowlist fix was confirmed, missing server-side operator auth remained the highest-severity finding, and the next task shifted to defining the smallest shared operator-auth model
+- Files touched: `ai/reviews/security_report.md`, `ai/architecture.md`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: human mutation routes were still unauthenticated server-side; frontend secret persistence remained a separate medium-risk follow-up
+
+### 2026-03-07 - Operator auth architecture decision
+- Role: Software Architect
+- Objective: choose the smallest shared auth model that closes the human-route `P0` without disturbing agent or terminal flows
+- Outcome: the repo now standardizes on an env-backed `GAS_OPERATOR_TOKEN` carried in `X-Operator-Token`, kept in frontend memory only, with `/api/terminal/{agent_id}/start` guarded and `/ws/terminal/{session_id}` left on the existing session-id boundary
+- Files touched: `ai/architecture.md`, `ai/plans/current_plan.md`, `ai/decision_log.md`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: the exact protected-route list and failure contract still need to be encoded consistently in Flask and FastAPI during implementation
+
+### 2026-03-07 - Operator auth implementation handoff refresh
+- Role: Handoff prep
+- Objective: leave a dense, resume-ready baton pass for the operator-auth implementation thread
+- Outcome: `ai/handoff.md` now cleanly captures the chosen model, invariants, open questions, and exact next step, and the thread log matches the latest repo state
+- Files touched: `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: the implementation thread still needs to land the shared guard in both backends, the minimal in-memory frontend unlock/header flow, and focused protected/exempt tests
+
+### 2026-03-08 - Nightly repo triage pass
+- Role: Repo Triage
+- Objective: run autonomous health/doc triage across repo state, current diffs, and durable-memory alignment
+- Outcome: confirmed `/ai` docs broadly match the current hardening batch, recorded two immediate blockers (missing local `pytest` and large uncommitted diff stack), and reaffirmed the next focused thread as validation workflow codification
+- Files touched: `ai/status.md`, `ai/thread_log.md`
+- Risks / follow-up: backend regression checks cannot be executed in this environment until `pytest` is available; backlog completion labeling for already-mitigated hardening items should be cleaned up in a doc-sync pass
+
+### 2026-03-08 - Validation workflow codification
+- Role: Implementation Engineer
+- Objective: implement one canonical, repo-native validation entrypoint for frontend and backend checks
+- Outcome: added `scripts/validate.sh` plus `npm run validate`/`validate:frontend`/`validate:backend`, documented usage in `README.md`, and verified the entrypoint passes in this environment (frontend + backend subset)
+- Files touched: `scripts/validate.sh`, `package.json`, `README.md`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/reviews/test_report.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: backlog completion-status labeling for already-mitigated hardening items remains a doc-sync follow-up
+
+### 2026-03-09 - Nightly repo triage pass
+- Role: Repo Triage
+- Objective: run autonomous repo health triage, verify current validation path, and identify stale durable-memory docs
+- Outcome: confirmed `npm run validate` still passes end-to-end (`failures=0`, `skipped=0`), removed stale blocker assumptions from status, and identified doc drift in backlog completion metadata plus repo-map wording about package scripts
+- Files touched: `ai/status.md`, `ai/thread_log.md`
+- Risks / follow-up: review risk remains elevated until the large uncommitted hardening/docs stack is split or committed; next best thread is a doc-sync pass before the next implementation task
+
+### 2026-03-09 - Backlog completion metadata sync
+- Role: Doc Sync
+- Objective: align backlog status metadata with mitigated hardening work already reflected in risk/status docs
+- Outcome: added explicit completion-status lines for completed hardening items that were missing them (`P0` operator auth, `P0` browser allowlist, `P2` validation workflow), kept existing `P1` FastAPI parity status metadata, and cleared stale backlog-refresh guidance from status
+- Files touched: `ai/backlog.md`, `ai/status.md`, `ai/thread_log.md`
+- Risks / follow-up: `ai/repo_map.md` still contains stale wording about package script wrappers and should be synced next
+
+### 2026-03-09 - Repo-map and plan doc sync
+- Role: Doc Sync
+- Objective: remove remaining stale workflow references after validation-entrypoint and backlog metadata completion
+- Outcome: repo map now documents `npm run validate` scripts, current plan sequence now marks completed steps through validation codification, status/handoff now point to the next implementation thread instead of completed doc-sync cleanup
+- Files touched: `ai/repo_map.md`, `ai/plans/current_plan.md`, `ai/status.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: large uncommitted worktree remains the primary process risk until reviewed and committed in smaller batches
+
+### 2026-03-09 - Nightly regression triage validation sweep
+- Role: Test/Verify
+- Objective: run the smallest adequate regression sweep for the active risky area using the canonical validation path
+- Outcome: `npm run validate` passed (`failures=0`, `skipped=0`) across frontend suites, frontend syntax checks, and backend hardening subset; Playwright remained unavailable in this workspace
+- Files touched: `ai/reviews/test_report.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: browser-level smoke coverage is still deferred until Playwright is installed
+
+### 2026-03-09 - Repo-local automation memory setup
+- Role: Doc Sync
+- Objective: replace blocked external automation-memory usage with a repo-local equivalent for recurring triage runs
+- Outcome: added `/ai/automation_memory/` plus a seeded nightly triage memory file, updated the stored nightly triage automation prompt to read/write it, and documented the workflow in `AGENTS.md`, `ai/repo_map.md`, and `ai/decision_log.md`
+- Files touched: `AGENTS.md`, `ai/automation_memory/README.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/automation_prompts/nightly_repo_triage.prompt.md`, `ai/repo_map.md`, `ai/decision_log.md`, `ai/thread_log.md`
+- Risks / follow-up: future recurring automation prompts should explicitly name a repo-local memory file if they need run-to-run state

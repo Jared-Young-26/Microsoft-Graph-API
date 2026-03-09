@@ -256,6 +256,39 @@ function loadServiceShellsOrFail() {
   return serviceShells;
 }
 
+function loadPersistenceSecurityOrFail() {
+  const prefix = "[Graph Admin Studio boot]";
+  const fail = (reason) => {
+    const message = `${prefix} ${reason}`;
+    renderBootFailure(message);
+    throw new Error(message);
+  };
+
+  if (typeof window === "undefined") {
+    fail("Browser window is unavailable.");
+  }
+
+  const security = window.GraphAdminPersistenceSecurity;
+  if (!security || typeof security !== "object") {
+    fail("Missing window.GraphAdminPersistenceSecurity. Load admin_gui/persistence_security.js before admin_gui/app.js.");
+  }
+  const requiredFunctions = [
+    "isSecretLikeKey",
+    "sanitizeProfileConfig",
+    "sanitizeProfiles",
+    "sanitizeActionPackParamsPayload",
+    "sanitizeActionPackParamsStore",
+    "sanitizeActionPackHistoryEntry",
+    "sanitizeActionPackHistory",
+  ];
+  requiredFunctions.forEach((name) => {
+    if (typeof security[name] !== "function") {
+      fail(`Invalid window.GraphAdminPersistenceSecurity: missing ${name}().`);
+    }
+  });
+  return security;
+}
+
 function formatSectionKeyLabel(value) {
   return String(value || "")
     .replace(/_/g, " ")
@@ -305,6 +338,7 @@ function buildSectionCompatibilityMaps(schema) {
 
 const PORTAL_SCHEMA = loadPortalSchemaOrFail();
 const SERVICE_SHELLS_API = loadServiceShellsOrFail();
+const PERSISTENCE_SECURITY = loadPersistenceSecurityOrFail();
 const PORTAL_SECTIONS = PORTAL_SCHEMA.sections || {};
 const PORTAL_MODES = PORTAL_SCHEMA.modes || {};
 const {
@@ -2715,7 +2749,6 @@ const PROFILE_STORAGE_KEY = "configProfiles";
 const PROFILE_ENV_MAP = {
   TENANT_ID: "tenant_id",
   CLIENT_ID: "client_id",
-  CLIENT_SECRET: "client_secret",
   GRAPH_USER_ID: "graph_user_id",
   ONEDRIVE_DRIVE_ID: "onedrive_drive_id",
   SPO_ADMIN_URL: "spo_admin_url",
@@ -3781,6 +3814,119 @@ async function selectModal({ title, subtitle, label, options = [], defaultValue,
   });
   if (!values) return null;
   return values.selection;
+}
+
+const OPERATOR_TOKEN_HEADER = "X-Operator-Token";
+const OPERATOR_PROTECTED_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
+const OPERATOR_EXEMPT_ROUTE_PATTERNS = [
+  /^\/api\/agents\/register$/,
+  /^\/api\/agents\/heartbeat$/,
+  /^\/api\/agents\/[^/]+\/job-result$/,
+  /^\/api\/artifacts\/upload$/,
+  /^\/api\/signals\/visual$/,
+  /^\/ingest\/perception$/,
+];
+
+let operatorToken = "";
+let operatorTokenPromptPromise = null;
+const nativeFetch = typeof window !== "undefined" && typeof window.fetch === "function" ? window.fetch.bind(window) : null;
+
+function hasOperatorToken() {
+  return Boolean(String(operatorToken || "").trim());
+}
+
+function getFetchRequestInfo(input, init) {
+  const method = String(init?.method || (input instanceof Request ? input.method : "GET") || "GET").toUpperCase();
+  const rawUrl = input instanceof Request ? input.url : input;
+  try {
+    return {
+      method,
+      url: new URL(String(rawUrl), window.location.origin),
+    };
+  } catch (err) {
+    return { method, url: null };
+  }
+}
+
+function shouldAttachOperatorToken(input, init) {
+  const { method, url } = getFetchRequestInfo(input, init);
+  if (!url || url.origin !== window.location.origin) return false;
+  if (!OPERATOR_PROTECTED_METHODS.has(method)) return false;
+  const path = url.pathname || "/";
+  if (!path.startsWith("/api/")) return false;
+  return !OPERATOR_EXEMPT_ROUTE_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+async function ensureOperatorToken() {
+  if (hasOperatorToken()) return operatorToken;
+  if (operatorTokenPromptPromise) return operatorTokenPromptPromise;
+  operatorTokenPromptPromise = (async () => {
+    const values = await openFormModal({
+      title: "Unlock operator actions",
+      subtitle: "Required for protected admin actions in this tab.",
+      confirmLabel: "Unlock",
+      cancelLabel: "Cancel",
+      size: "small",
+      fields: [
+        {
+          key: "token",
+          label: "Operator token",
+          type: "password",
+          required: true,
+          hint: "Stored in memory only until this page is reloaded.",
+        },
+      ],
+    });
+    const value = String(values?.token || "").trim();
+    if (!value) {
+      showToast("Operator token required");
+      return null;
+    }
+    operatorToken = value;
+    return operatorToken;
+  })().finally(() => {
+    operatorTokenPromptPromise = null;
+  });
+  return operatorTokenPromptPromise;
+}
+
+function clearOperatorToken() {
+  operatorToken = "";
+}
+
+async function fetchWithOperatorToken(input, init) {
+  if (!nativeFetch || !shouldAttachOperatorToken(input, init)) {
+    return nativeFetch ? nativeFetch(input, init) : Promise.reject(new Error("window.fetch unavailable"));
+  }
+
+  const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+  if (!headers.get(OPERATOR_TOKEN_HEADER)) {
+    const token = await ensureOperatorToken();
+    if (!token) {
+      throw new Error("Operator token required");
+    }
+    headers.set(OPERATOR_TOKEN_HEADER, token);
+  }
+
+  let requestInput = input;
+  let requestInit = {
+    ...(init || {}),
+    headers,
+  };
+  if (input instanceof Request) {
+    requestInput = new Request(input, requestInit);
+    requestInit = undefined;
+  }
+
+  const response = await nativeFetch(requestInput, requestInit);
+  if (response.status === 401) {
+    clearOperatorToken();
+  }
+  return response;
+}
+
+if (nativeFetch) {
+  window.fetch = fetchWithOperatorToken;
 }
 
 function setRunnerRunning(service, running) {
@@ -6115,14 +6261,19 @@ function loadActionPackParams() {
   try {
     const raw = localStorage.getItem(ACTION_PACK_PARAMS_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? parsed : {};
+    const sanitized = PERSISTENCE_SECURITY.sanitizeActionPackParamsStore(parsed);
+    if (raw && JSON.stringify(sanitized) !== JSON.stringify(parsed)) {
+      saveActionPackParams(sanitized);
+    }
+    return sanitized;
   } catch (err) {
     return {};
   }
 }
 
 function saveActionPackParams(data) {
-  localStorage.setItem(ACTION_PACK_PARAMS_KEY, JSON.stringify(data));
+  const sanitized = PERSISTENCE_SECURITY.sanitizeActionPackParamsStore(data);
+  localStorage.setItem(ACTION_PACK_PARAMS_KEY, JSON.stringify(sanitized));
 }
 
 function getPackParams(packId) {
@@ -6140,19 +6291,24 @@ function loadActionPackHistory() {
   try {
     const raw = localStorage.getItem(ACTION_PACK_HISTORY_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    const sanitized = PERSISTENCE_SECURITY.sanitizeActionPackHistory(parsed);
+    if (raw && JSON.stringify(sanitized) !== JSON.stringify(parsed)) {
+      saveActionPackHistory(sanitized);
+    }
+    return sanitized;
   } catch (err) {
     return [];
   }
 }
 
 function saveActionPackHistory(items) {
-  localStorage.setItem(ACTION_PACK_HISTORY_KEY, JSON.stringify(items));
+  const sanitized = PERSISTENCE_SECURITY.sanitizeActionPackHistory(items);
+  localStorage.setItem(ACTION_PACK_HISTORY_KEY, JSON.stringify(sanitized));
 }
 
 function addActionPackHistory(entry) {
   const items = loadActionPackHistory();
-  items.unshift(entry);
+  items.unshift(PERSISTENCE_SECURITY.sanitizeActionPackHistoryEntry(entry));
   saveActionPackHistory(items.slice(0, 20));
   renderActionPackHistory();
 }
@@ -6736,16 +6892,7 @@ function _investigationContextSignature(ctx) {
 }
 
 function isSensitiveFieldKey(key) {
-  const k = String(key || "").toLowerCase();
-  if (!k) return false;
-  return (
-    k.includes("password") ||
-    k.includes("secret") ||
-    k.includes("token") ||
-    k.includes("client_secret") ||
-    k.includes("refresh_token") ||
-    k.includes("access_token")
-  );
+  return PERSISTENCE_SECURITY.isSecretLikeKey(key);
 }
 
 function _contextKeysForRunnerField(field) {
@@ -13160,9 +13307,10 @@ function importEncryptedConfigFile(file) {
 
 function normalizeProfileConfig(config) {
   const normalized = {};
+  const source = PERSISTENCE_SECURITY.sanitizeProfileConfig(config);
   Object.values(PROFILE_ENV_MAP).forEach((key) => {
-    if (config[key] !== undefined) {
-      normalized[key] = config[key];
+    if (source[key] !== undefined) {
+      normalized[key] = source[key];
     }
   });
   return normalized;
@@ -13173,7 +13321,16 @@ function loadProfiles() {
     const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     if (Array.isArray(parsed)) {
-      return parsed.filter((profile) => profile?.name && profile?.config);
+      const sanitized = PERSISTENCE_SECURITY.sanitizeProfiles(parsed)
+        .map((profile) => ({
+          name: profile?.name,
+          config: normalizeProfileConfig(profile?.config || {}),
+        }))
+        .filter((profile) => profile?.name && profile?.config);
+      if (raw && JSON.stringify(sanitized) !== JSON.stringify(parsed)) {
+        saveProfiles(sanitized);
+      }
+      return sanitized;
     }
   } catch (err) {
     return [];
@@ -13182,7 +13339,13 @@ function loadProfiles() {
 }
 
 function saveProfiles(profiles) {
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles));
+  const sanitized = PERSISTENCE_SECURITY.sanitizeProfiles(profiles)
+    .map((profile) => ({
+      name: profile?.name,
+      config: normalizeProfileConfig(profile?.config || {}),
+    }))
+    .filter((profile) => profile?.name && profile?.config);
+  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(sanitized));
 }
 
 function renderProfileSelect() {
@@ -17988,7 +18151,7 @@ async function fetchConfig() {
     if (packScopeSelect && packScopeSelect.value === "tenant" && !currentTenantId) {
       packScopeSelect.value = "global";
     }
-    if (data.tenant_id && data.client_id && data.client_secret_set) {
+    if (data.tenant_id && data.client_id && data.client_secret_set && hasOperatorToken()) {
       loadTenantInfo({ silent: true });
     } else {
       renderTenantInfo(null);
@@ -24670,7 +24833,7 @@ if (profileApplyButton) {
     }
     applyConfigToForm(profile.config || {});
     if (!profile.config?.client_secret) {
-      showToast("Client secret not stored; enter it and Save & Reload.");
+      showToast("Client secret is not stored in profiles; enter it and Save & Reload.");
       return;
     }
     await saveConfig();

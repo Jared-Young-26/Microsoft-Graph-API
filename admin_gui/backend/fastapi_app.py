@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Response, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Any
 from dataclasses import dataclass, field
@@ -84,8 +83,10 @@ from . import control_plane
 from .graph_runner_dispatch import GraphRunnerError
 from .artifact_retention import ensure_artifact_retention_reaper
 from . import workflows_v2
+from .frontend_allowlist import ROOT, classify_browser_path, resolve_browser_file
+from .frontend_shell import render_index_html
+from .operator_auth import OperatorAuthError, enforce_operator_auth
 
-ROOT = Path(__file__).resolve().parents[1]
 
 app = FastAPI(title="Graph Admin Studio API")
 ensure_snapshot_scheduler()
@@ -100,6 +101,15 @@ app.add_middleware(
     allow_methods=["*"] ,
     allow_headers=["*"] ,
 )
+
+
+@app.middleware("http")
+async def require_operator_auth_for_privileged_routes(request: Request, call_next):
+    try:
+        enforce_operator_auth(request.method, request.url.path, request.headers)
+    except OperatorAuthError as exc:
+        return JSONResponse(status_code=exc.status_code, content=exc.to_payload())
+    return await call_next(request)
 
 
 class TaskRequest(BaseModel):
@@ -1370,7 +1380,12 @@ def add_topology_history(payload: dict):
 @app.get("/help/{path:path}")
 def help_page(path: str = ""):
     """Run help page."""
-    return FileResponse(ROOT / "index.html")
+    return Response(content=render_index_html(), media_type="text/html")
+
+
+def _browser_not_found() -> Response:
+    """Return a plain 404 for denied browser paths."""
+    return Response(content="Not found", status_code=404, media_type="text/plain")
 
 
 @app.get("/{path:path}")
@@ -1378,13 +1393,13 @@ def spa_fallback(path: str):
     """Run spa fallback."""
     if path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
-    candidate = ROOT / path
-    if candidate.exists() and candidate.is_file():
+    decision = classify_browser_path(path)
+    if decision.kind == "index":
+        return Response(content=render_index_html(), media_type="text/html")
+    candidate = resolve_browser_file(path)
+    if candidate is not None:
         return FileResponse(candidate)
-    return FileResponse(ROOT / "index.html")
-
-
-app.mount("/static", StaticFiles(directory=ROOT, html=True), name="static")
+    return _browser_not_found()
 
 
 def _build_ssh_command(payload):

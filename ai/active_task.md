@@ -1,49 +1,52 @@
 # Active Task
 
 ## Title
-Restrict Flask and FastAPI browser-serving paths to an explicit frontend asset allowlist
+Codify repeatable validation entrypoints for frontend and backend checks
 
 ## Goal
-Close direct browser access to `admin_gui/backend/` runtime state and other non-frontend files by replacing the current Flask catch-all and FastAPI catch-all plus `/static` file-serving behavior with an explicit allowlist that still preserves the SPA shell, boot assets, and supported deep links.
+Create one lightweight, repo-native validation workflow that runs the canonical frontend Node suites and the key backend Python suites with clear prerequisites/fallback messaging, so implementation threads no longer guess which checks to run.
+
+## Status
+Completed on 2026-03-08.
 
 ## Why This Task Now
-- `ai/risk_register.md` tracks this as `RISK-001`, a `P0` exposure that is already narrowed to one implementation-ready thread.
-- The scope is bounded to the backend browser-serving boundary plus focused tests, so it is the smallest high-value step that can close a live trust-boundary gap.
-- The other open `P0` on operator auth still needs a separate server-side trust-model decision and should not be bundled into this pass.
+- `ai/risk_register.md` shows P0/P1 hardening risks as mitigated; the highest practical follow-through is reducing verification drift.
+- `ai/status.md` identifies validation workflow codification as the next recommended task.
+- The scope is small, low ambiguity, and can complete in one focused thread.
 
 ## In Scope
-- `admin_gui/backend/flask_app.py`
-- `admin_gui/backend/fastapi_app.py`
-- a small shared helper only if it keeps allowlist behavior aligned across both transports
-- focused backend tests for allowed frontend assets and denied backend/state paths
-- `/ai/*` docs touched by the thread
+- a lightweight validation entrypoint (script and/or npm task) that orchestrates existing direct commands
+- explicit frontend command set (`node admin_gui/*.test.js` and selected `node --check` guards)
+- explicit backend command set (`python3 -m unittest ...`) with clear environment prerequisite notes
+- brief docs updates that point contributors to the new canonical validation path
 
 ## Out of Scope
-- server-side operator auth/authorization for human mutation routes
-- FastAPI cache-busting/version parity beyond what is required to keep current boot assets reachable
-- moving runtime state out of `admin_gui/backend/`
-- frontend redesign, DOM changes, or script-order changes
+- product feature changes in `admin_gui/app.js` or backend route logic
+- CI pipeline redesign
+- dependency/platform migration work
+- broad test refactors or new end-to-end suites
 
 ## Invariants
-- Preserve current boot asset filenames and the `index.html` script order.
-- Preserve `/`, `/help`, `/help/*`, `/investigations`, and `/workspaces` as supported browser entrypoints.
-- Keep Flask and FastAPI aligned on which browser-served paths are allowed, including FastAPI's `/static/*` surface.
-- Do not change API payload shapes, agent-token behavior, or WebSocket SSH behavior in this thread.
-
-## Inputs
-- `ai/reviews/security_report.md`
-- `ai/architecture.md`
-- `ai/repo_map.md`
-- `admin_gui/index.html`
-- `admin_gui/docs/help/`
-- `admin_gui/install/windows.ps1`
-- current browser-serving behavior in `admin_gui/backend/flask_app.py` and `admin_gui/backend/fastapi_app.py`, including FastAPI's `/static` mount
+- Preserve existing test behavior and command semantics; wrap, do not reinterpret.
+- Keep Flask/FastAPI coverage expectations aligned.
+- Do not change stable frontend IDs/selectors/contracts.
+- Do not introduce heavy new tooling.
 
 ## Deliverables
-- an explicit browser asset/deep-link allowlist for both backend entrypoints
-- denied access to representative backend config/db/log/source paths
-- focused regression tests covering allow vs. deny behavior
-- updated status/handoff/docs as needed
+- One obvious command path to run the canonical validation subset for normal implementation threads.
+- Clear pass/fail output that distinguishes skipped backend checks due to missing local prerequisites.
+- `/ai` docs updated with the canonical validation path and known environment constraints.
 
-## Done When
-Requests such as `/backend/config.json`, `/backend/control_plane.sqlite`, `/static/backend/config.json`, and other non-frontend source/state paths are denied in both Flask and FastAPI, while `/`, `/help`, `/help/*`, `/investigations`, `/workspaces`, boot-critical JS/CSS assets, and required help/install files still resolve correctly.
+### Delivered
+- `scripts/validate.sh` now runs a canonical frontend suite, frontend syntax checks, and a backend unittest subset with explicit run/pass/fail/skip logging.
+- `package.json` now provides `npm run validate`, `npm run validate:frontend`, and `npm run validate:backend`.
+- `README.md` now documents the canonical validation entrypoint and backend prerequisites/skip behavior.
+- validation evidence for the new entrypoint was recorded in `ai/reviews/test_report.md`.
+
+## Validation
+- Run the new validation entrypoint directly.
+- Confirm it executes the expected frontend and backend suites in this environment (including prerequisite handling behavior).
+
+## Done
+- A fresh contributor can identify and run the canonical validation command without guessing.
+- Frontend and backend verification commands are discoverable in one place and consistent with existing test files.

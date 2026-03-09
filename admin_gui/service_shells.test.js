@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const shells = require("./service_shells.js");
 
@@ -121,5 +123,23 @@ assert.equal(shells.legacyWorkspaceBlocks["registry.registry-runner"], "registry
 
 assert.equal(shells.getServiceShell("baselines").toolkit.subtitle, "Golden snapshots and comparisons");
 assert.equal(shells.getServiceShell("baselines").runner.subtitle, "Set and compare golden baselines");
+
+assert.deepEqual(
+  shells.parseRunnerInfoItemMarkup("<strong>Logs &amp; services</strong>: use <code>GET /users/{id}</code> &rarr; confirm."),
+  [
+    { type: "strong", value: "Logs & services" },
+    { type: "text", value: ": use " },
+    { type: "code", value: "GET /users/{id}" },
+    { type: "text", value: " → confirm." },
+  ],
+);
+
+assert.deepEqual(shells.parseRunnerInfoItemMarkup("<img src=x onerror=1><strong>Safe</strong>"), [
+  { type: "text", value: "<img src=x onerror=1>" },
+  { type: "strong", value: "Safe" },
+]);
+
+const serviceShellSource = fs.readFileSync(path.join(__dirname, "service_shells.js"), "utf8");
+assert.equal(serviceShellSource.includes("innerHTML"), false);
 
 console.log("service shell tests passed");

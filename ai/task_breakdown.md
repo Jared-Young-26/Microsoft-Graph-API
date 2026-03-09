@@ -1,64 +1,70 @@
 # Task Breakdown
 
-This file is the implementation task list for the current static-file allowlist thread.
+This file records execution for the validation-workflow codification thread completed on 2026-03-08.
 
 ## Objective
 
-Replace the current arbitrary-file SPA/static fallback and FastAPI `/static` mount with an explicit, test-covered browser asset allowlist in both backend transports, without breaking the portal shell, supported deep links, or required help/install downloads.
+Implement a single lightweight validation entrypoint that standardizes the repo's existing frontend and backend verification commands, with explicit prerequisite messaging for local environments missing Python test tooling.
 
-## Scope
+## Scope Executed
 
-- Keep the vanilla HTML/CSS/JS frontend intact.
-- Preserve current route names, payload shapes, boot asset names, deep-link URLs, and agent APIs.
-- Keep Flask and FastAPI aligned on which browser paths are allowed, including any explicit static mount behavior.
-- Treat `admin_gui/backend/` runtime state, config, DBs, logs, and non-frontend source files as denied by default.
-- Do not solve operator auth in this thread unless a tiny shared helper overlap is unavoidable and documented separately.
+1. Baseline command inventory
+   - Confirm the canonical frontend Node test/check commands from current test files and reports.
+   - Confirm the canonical backend Python unittest targets currently used in hardening threads.
 
-## Explicit Deferrals
+2. Lightweight entrypoint implementation
+   - Add one minimal runner path (script and/or npm command) that executes the canonical command sets in a clear order.
+   - Keep behavior transparent (show underlying commands and outcomes).
+   - Include prerequisite handling for missing backend tooling so failures are explicit and actionable.
 
-- Leave operator auth/authorization to its own follow-up architecture and implementation threads; the trust model is still unresolved.
-- Leave FastAPI boot-asset cache-busting parity to a later thread once the file-serving boundary is explicit.
-- Do not expand this thread into state relocation, frontend cleanup, or broader backend redesign.
+3. Documentation alignment
+   - Update the most relevant contributor-facing docs to reference the new canonical validation entrypoint.
+   - Keep docs concise and avoid duplicating long command lists in multiple places.
 
-## Implementation Sequence
+4. Focused verification
+   - Run the new entrypoint in this environment.
+   - Confirm expected behavior for frontend execution and backend prerequisite handling.
 
-1. Freeze the current browser-facing surface before editing.
-   - Enumerate boot-critical assets referenced by `admin_gui/index.html`.
-   - Enumerate browser entrypoints and support files that must remain reachable: `/`, `/help`, `/help/*`, `/investigations`, `/workspaces`, root boot assets, help docs/manifest, and install helpers.
-   - Enumerate representative deny cases such as `backend/config.json`, `backend/control_plane.sqlite`, `backend/*.jsonl`, backend Python modules, and stray source files that are not meant to be browser assets.
-   - Confirm whether any live browser path still depends on `/static/*`; if not, treat that mount as a pure exposure surface to remove or narrow.
+## In Scope Files (actual)
 
-2. Define one explicit allowlist model both transports can share.
-   - Prefer a shared helper or clearly mirrored constant if that keeps Flask and FastAPI behavior identical.
-   - Keep SPA deep-link routing explicit instead of falling through to arbitrary file-existence checks.
-   - Model the boundary in path classes: SPA shell routes, allowlisted root assets, allowlisted help/install files, and denied backend/state/source paths.
+- `scripts/validate.sh`
+- `package.json`
+- `README.md`
+- `ai/reviews/test_report.md`
+- `ai/active_task.md`
+- `ai/task_breakdown.md`
+- `ai/status.md`
+- `ai/handoff.md`
+- `ai/thread_log.md`
 
-3. Update Flask browser-serving behavior.
-   - Allow the SPA shell plus allowlisted static/help/install assets only.
-   - Return a deny response for backend/state/source paths instead of serving files directly.
+## Out of Scope
 
-4. Update FastAPI browser-serving behavior to the same allowlist.
-   - Keep API routes and the SSH WebSocket path untouched.
-   - Preserve current HTML-shell and deep-link behavior even if raw-file serving changes.
-   - Remove or narrow the `/static` mount so it cannot bypass the same allowlist.
+- application logic changes in frontend/backend product code
+- CI provider configuration changes
+- broad testing framework migration
 
-5. Add focused regression tests.
-   - Cover allowed responses for representative assets and deep links.
-   - Cover denied responses for backend state/config/db/log/source paths in both transports, including FastAPI `/static/backend/...` probes.
-   - Keep the tests tight enough that benign markup changes do not create churn.
+## Risks To Control
 
-6. Validate with the smallest effective set.
-   - Run the targeted backend tests added or updated for Flask and FastAPI static serving.
-   - Smoke-check `/`, `/help`, `/investigations`, and `/workspaces` on one backend runtime if automated deep-link coverage remains partial.
-
-7. Stop when the file-exposure boundary is closed in both transports.
-   - Do not leave one backend still serving raw paths under `admin_gui/`.
-   - Do not leave FastAPI's `/static` mount bypassing the new boundary.
-   - Hand off operator auth and FastAPI cache-busting parity as separate follow-up work.
+- Wrapper drift from underlying canonical commands.
+- Silent backend skip behavior that hides missing prerequisites.
+- Overgrown runner script that exceeds one-thread maintainability scope.
 
 ## Completion Criteria
 
-- Both Flask and FastAPI serve only the explicit browser asset/deep-link set.
-- Direct requests to representative backend config/db/log/source paths are denied, including FastAPI `/static/backend/...` paths.
-- The main SPA shell plus `/help`, `/help/*`, `/investigations`, and `/workspaces` still load.
-- Focused backend tests covering allow and deny behavior pass.
+- One clear validation command exists and is documented.
+- The command runs canonical frontend checks and canonical backend checks (or clearly reports why backend checks could not run).
+- Output is explicit enough that a reviewer can tell what executed and what did not.
+
+## Validation Performed
+
+- `npm run validate`
+  - frontend suites: 8/8 passed
+  - frontend syntax checks: 4/4 passed
+  - backend unittest subset: 24 tests passed
+  - runner summary: `failures=0 skipped=0`
+
+## Resume Point
+
+This thread is complete. Next thread should either:
+- run a compact doc-sync pass to mark completed backlog hardening items more consistently, or
+- start a small implementation thread from backlog `P1`/`P2`.

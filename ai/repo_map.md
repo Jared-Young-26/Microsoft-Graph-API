@@ -30,8 +30,8 @@ boot order, or stable contracts change.
   - Python dependency set for the toolkit, backend, and agent.
 
 - `package.json`, `package-lock.json`
-  - Node-side dependency manifest for frontend contract tests.
-  - Currently just `jsdom`; there is still no package-script wrapper.
+  - Node-side dependency manifest for frontend contract tests and the canonical validation entrypoints.
+  - Includes `validate`, `validate:frontend`, and `validate:backend` scripts that call `scripts/validate.sh`.
 
 - `docker-compose.yml`, `Dockerfile.controlplane`
   - Containerized control-plane/runtime entrypoints.
@@ -106,6 +106,8 @@ boot order, or stable contracts change.
     - fetch orchestration
     - output renderers
     - help center loading
+    - in-memory operator-token prompt/header flow for protected requests
+    - profile and Action Pack persistence wiring through `persistence_security.js`
     - SSH/WebSocket wiring
     - control-plane tables
     - localStorage-backed history/state
@@ -122,6 +124,11 @@ boot order, or stable contracts change.
   - Registry + DOM renderer for the repeated toolkit/runner/output triplet pattern.
   - Boot-critical.
   - Also owns compatibility aliases for workspace block IDs via `legacyWorkspaceBlocks`.
+
+- `admin_gui/persistence_security.js`
+  - Small browser/Node-safe helper for frontend persistence sanitization.
+  - Boot-critical.
+  - Owns `client_secret` removal from profile persistence plus secret-like Action Pack param/history filtering.
 
 - `admin_gui/triage.js`
   - Deterministic diff triage logic for report/snapshot comparisons.
@@ -149,7 +156,7 @@ boot order, or stable contracts change.
 
 - `admin_gui/*.test.js`
   - Frontend contract tests run directly with `node`.
-  - There is no `npm test` wrapper today.
+  - The canonical wrapper is `npm run validate` (plus `validate:frontend` and `validate:backend`), not `npm test`.
 
 ### Repeated service-shell surfaces
 
@@ -220,24 +227,48 @@ boot order, or stable contracts change.
 - `admin_gui/backend/flask_app.py`
   - Flask transport layer.
   - Serves the UI plus API routes.
-  - Rewrites `index.html` to add a shared `?v=` token to:
+  - Serves the SPA shell through `frontend_shell.py`, which versions:
     - `styles.css`
     - `portal_schema.js`
     - `service_shells.js`
+    - `persistence_security.js`
     - `triage.js`
     - `investigation_summary.js`
     - `next_steps.js`
     - `app.js`
   - Has a focused regression test for that boot-asset versioning path.
-  - The SPA fallback currently serves any existing file under `admin_gui/`, so local-only bind/trust assumptions are still doing security work until an allowlist lands.
+  - The SPA fallback now delegates browser paths to `frontend_allowlist.py`, so only explicit shell routes and allowlisted frontend/help/install files are served.
   - Does not support the FastAPI WebSocket SSH terminal path.
 
 - `admin_gui/backend/fastapi_app.py`
   - FastAPI transport layer.
   - Exposes near-parity API routes plus WebSocket-backed SSH terminal support.
-  - Currently serves raw `index.html`/files instead of using Flask's cache-busting rewrite path.
-  - Its SPA fallback also serves arbitrary existing files under `admin_gui/`.
-  - It also mounts `/static` to the full `admin_gui/` tree today, so the allowlist thread must close or narrow both public file-serving surfaces.
+  - Serves the SPA shell through the same `frontend_shell.py` helper Flask uses, so boot-asset versioning stays aligned across transports.
+  - Now uses the same `frontend_allowlist.py` browser boundary as Flask for its SPA fallback.
+  - Shares the operator-auth boundary with Flask through `operator_auth.py` plus HTTP middleware.
+  - No longer mounts `/static` to the full `admin_gui/` tree; `/static/*` is denied unless a narrower allowlisted surface is introduced later.
+
+- `admin_gui/backend/frontend_shell.py`
+  - Shared HTML-shell renderer for Flask and FastAPI.
+  - Owns the shared boot-asset `?v=` query-string rewrite across the SPA shell.
+
+- `admin_gui/backend/frontend_allowlist.py`
+  - Shared browser allowlist classifier for Flask and FastAPI.
+  - Owns the explicit shell-route set and the allowed boot-asset/help/install file surface.
+
+- `admin_gui/backend/operator_auth.py`
+  - Shared operator-auth classifier and validator for Flask and FastAPI.
+  - Owns the protected/exempt route boundary, `X-Operator-Token` extraction, and fail-closed auth errors.
+
+- `admin_gui/backend/test_browser_allowlist.py`
+  - Focused Flask/FastAPI regression coverage for allowed shell/assets and denied backend/state/source paths.
+  - Includes `/static/*` deny probes so FastAPI cannot silently re-open the old broad mount.
+
+- `admin_gui/backend/test_operator_auth.py`
+  - Focused Flask/FastAPI regression coverage for protected human routes, exempt agent/machine routes, and preserved terminal-session behavior.
+
+- `admin_gui/backend/test_fastapi_app_cache_busting.py`
+  - Focused FastAPI regression coverage for versioned SPA shell boot assets.
 
 - `admin_gui/backend/control_plane.py`
   - SQLite-backed control plane for agents, jobs, pairing codes, artifacts, and terminal sessions.
@@ -347,6 +378,10 @@ boot order, or stable contracts change.
 ## `ai/`
 
 - Current AI operating docs, backlog, plans, handoff, and review notes.
+- `automation_prompts/`
+  - Repo-stored prompt bodies for recurring automations.
+- `automation_memory/`
+  - Repo-local run-to-run memory for recurring automations when external automation storage is unavailable or intentionally avoided.
 
 ## Repeated Shell Patterns
 
@@ -371,8 +406,9 @@ boot order, or stable contracts change.
   - `docker compose up --build`
 
 - Frontend validation
-  - Direct `node` execution of `admin_gui/*.test.js`
-  - There is no package-script wrapper today.
+  - Canonical wrapper: `npm run validate` (or `npm run validate:frontend`)
+  - Direct `node` execution of `admin_gui/*.test.js` remains valid for targeted checks.
 
 - Python validation
-  - Direct `pytest` runs against `admin_gui/backend/`, `platform_core/tests/`, and `agent/test_agent_chassis.py`
+  - Canonical wrapper includes backend subset via `python3 -m unittest` (`npm run validate` or `npm run validate:backend`).
+  - Broader direct Python validation remains available for focused backend/platform/agent test workstreams.

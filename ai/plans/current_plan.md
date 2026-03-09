@@ -1,7 +1,7 @@
 # Current Plan
 
 ## Active Objective
-Harden the backend trust boundary in focused steps: close browser file exposure first, then add operator auth, then return to backend asset-delivery parity work from a safer baseline.
+Keep post-hardening work on focused, reviewable threads: maintain doc accuracy, preserve validation hygiene, and execute the highest-value remaining `P1`/`P2` implementation tasks.
 
 ## Guardrails
 
@@ -14,9 +14,12 @@ Harden the backend trust boundary in focused steps: close browser file exposure 
 
 ## Sequence
 
-1. Reconfirm the exact browser-served file set, supported deep links, and representative deny cases in both backend transports, including any `/static/*` browser dependency on FastAPI.
-2. Replace raw `admin_gui/` file fallback and any equivalent FastAPI `/static` exposure with an explicit allowlist for frontend assets and help/install files.
-3. Add focused backend regression tests for allowed assets/deep links and blocked backend-file access, including `/static/backend/...` deny probes on FastAPI.
-4. Re-run a deep-link smoke check of the main SPA entrypoints and update `/ai` docs with the final allowlist assumptions.
-5. Implement the smallest shared server-side operator guard that removes the current UI-only trust assumption.
-6. Bring FastAPI boot-asset versioning to parity with Flask once the serving boundary is explicit.
+1. Completed 2026-03-07: replace raw `admin_gui/` file fallback and the equivalent FastAPI `/static` exposure with an explicit allowlist for frontend assets and help/install files.
+2. Completed 2026-03-07: add focused backend regression tests for allowed assets/deep links and blocked backend-file access, including `/static/backend/...` deny probes.
+3. Completed 2026-03-07: choose a shared header-based operator token model for human privileged routes, with agent-token and terminal-session flows kept separate.
+4. Completed 2026-03-07: implement that operator guard in Flask and FastAPI, plus the minimum frontend changes needed to send the operator token from memory only.
+5. Completed 2026-03-07: remove `client_secret` and secret-like Action Pack inputs from frontend persistence.
+6. Completed 2026-03-07: bring FastAPI boot-asset versioning to parity with Flask through the shared `frontend_shell.py` helper.
+7. Completed 2026-03-07: replace the `service_shells.js` help-item `innerHTML` path with structured DOM/text rendering without changing the current presentation.
+8. Completed 2026-03-08: codify canonical validation entrypoints through `scripts/validate.sh` and `npm run validate` (`validate:frontend`, `validate:backend`).
+9. Next: execute the highest-value remaining implementation task (`P1` cross-file boot contract tests or `P1` bounded `app.js` split), keeping `/ai` docs synced as work lands.

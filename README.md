@@ -52,6 +52,32 @@ pip install -r requirements.txt
 - Azure: `Az.Accounts`
 - On‑prem: `ActiveDirectory`, `GroupPolicy`, `PrintManagement`, `NetAdapter`, `NetTCPIP`
 
+## Validation
+
+Use one canonical repo command:
+
+```
+npm run validate
+```
+
+The validation runner (`scripts/validate.sh`) executes:
+- frontend Node suites under `admin_gui/*.test.js`
+- frontend syntax guards (`node --check` for boot-critical JS)
+- backend hardening subset via `python3 -m unittest`
+
+Optional modes:
+
+```
+npm run validate:frontend
+npm run validate:backend
+```
+
+Backend validation prerequisites:
+- `python3` on PATH
+- project Python dependencies installed (`pip install -r requirements.txt`)
+
+If backend prerequisites are missing, the runner prints an explicit `SKIP` with a hint, while still reporting frontend results.
+
 ## Optional local UI env
 
 Set the following (if you’re using the admin GUI):

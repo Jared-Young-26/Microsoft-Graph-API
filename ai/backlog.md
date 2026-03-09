@@ -24,7 +24,8 @@ This file contains candidate work items.
 
 ### [P0] Add server-side operator auth/authorization for human mutation routes
 - Goal: stop relying on Observe-vs-Act UI metadata as the only boundary for config changes, task execution, pairing-code minting, job enqueue, and other human-triggered mutations.
-- Why it matters: the current backend exposes mutating human/operator routes without a server-side operator guard, which makes the local listener itself the only trust boundary.
+- Status: completed 2026-03-07 via shared `admin_gui/backend/operator_auth.py` plus Flask/FastAPI transport integration and focused tests.
+- Why it mattered: the backend previously exposed mutating human/operator routes without a shared server-side operator guard, which left the local listener as the trust boundary.
 - In scope:
   - `admin_gui/backend/flask_app.py`
   - `admin_gui/backend/fastapi_app.py`
@@ -47,7 +48,8 @@ This file contains candidate work items.
 
 ### [P0] Restrict Flask and FastAPI browser-serving paths to an explicit frontend asset allowlist
 - Goal: stop direct GET access to `admin_gui/backend` local state and any other non-frontend files under `admin_gui/`.
-- Why it matters: both backend entrypoints currently serve arbitrary files from the `admin_gui/` tree, while config, SQLite DBs, and audit logs live under `admin_gui/backend/`.
+- Status: completed 2026-03-07 via shared `admin_gui/backend/frontend_allowlist.py` and focused allow/deny regression tests.
+- Why it mattered: both backend entrypoints previously served arbitrary files from the `admin_gui/` tree, while config, SQLite DBs, and audit logs live under `admin_gui/backend/`.
 - In scope:
   - `admin_gui/backend/flask_app.py`
   - `admin_gui/backend/fastapi_app.py`
@@ -68,7 +70,8 @@ This file contains candidate work items.
 
 ### [P1] Bring FastAPI frontend asset serving to parity with Flask
 - Goal: make both backend entrypoints serve the same frontend boot assets with the same cache-busting/versioning contract.
-- Why it matters: the frontend now depends on boot-critical JS staying aligned, and FastAPI still serves raw files while Flask rewrites `index.html` with a shared `?v=` token.
+- Status: completed 2026-03-07 via shared `admin_gui/backend/frontend_shell.py`.
+- Why it mattered: the frontend depends on boot-critical JS staying aligned, and FastAPI previously served raw shell HTML while Flask rewrote `index.html` with a shared `?v=` token.
 - In scope:
   - `admin_gui/backend/flask_app.py`
   - `admin_gui/backend/fastapi_app.py`
@@ -143,7 +146,8 @@ This file contains candidate work items.
   - tests cover the adopted contract
 
 ### [P2] Codify repeated validation commands into a lightweight dev workflow
-- Goal: make validation repeatable without making contributors guess which direct `node` and `pytest` commands to run.
+- Goal: make validation repeatable without making contributors guess which direct `node` and Python test commands to run.
+- Status: completed 2026-03-08 via `scripts/validate.sh` and `npm run validate` (`validate:frontend`, `validate:backend`).
 - Why it matters: the repo has test files, but no single wrapper script or documented validation entrypoint.
 - In scope:
   - direct validation command docs or a small wrapper

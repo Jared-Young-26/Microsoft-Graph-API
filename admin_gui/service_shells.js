@@ -855,6 +855,75 @@
     target.appendChild(node);
   }
 
+  const RUNNER_INFO_INLINE_MARKUP_PATTERN = /(<\/?(?:strong|code)>)/i;
+  const RUNNER_INFO_ENTITY_MAP = {
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+    "&rarr;": "→",
+  };
+
+  function decodeRunnerInfoEntities(text) {
+    return String(text || "").replace(/&(amp|lt|gt|quot|#39|rarr);/gi, (entity) => {
+      const normalized = entity.toLowerCase();
+      return RUNNER_INFO_ENTITY_MAP[normalized] || entity;
+    });
+  }
+
+  function parseRunnerInfoItemMarkup(item) {
+    const segments = String(item || "").split(RUNNER_INFO_INLINE_MARKUP_PATTERN);
+    const parts = [];
+    let activeInlineTag = null;
+    segments.forEach((segment) => {
+      if (!segment) return;
+      const normalized = segment.toLowerCase();
+      if (normalized === "<strong>") {
+        activeInlineTag = "strong";
+        return;
+      }
+      if (normalized === "</strong>") {
+        activeInlineTag = null;
+        return;
+      }
+      if (normalized === "<code>") {
+        activeInlineTag = "code";
+        return;
+      }
+      if (normalized === "</code>") {
+        activeInlineTag = null;
+        return;
+      }
+      const value = decodeRunnerInfoEntities(segment);
+      if (!value) return;
+      parts.push({
+        type: activeInlineTag || "text",
+        value,
+      });
+    });
+    return parts;
+  }
+
+  function renderRunnerInfoItem(itemNode, item) {
+    itemNode.textContent = "";
+    const itemParts = parseRunnerInfoItemMarkup(item);
+    const doc = itemNode?.ownerDocument;
+    if (!doc || typeof doc.createElement !== "function" || typeof doc.createTextNode !== "function") {
+      itemNode.textContent = itemParts.map((part) => part.value).join("");
+      return;
+    }
+    itemParts.forEach((part) => {
+      if (part.type === "text") {
+        itemNode.appendChild(doc.createTextNode(part.value));
+        return;
+      }
+      const inlineElement = doc.createElement(part.type);
+      inlineElement.textContent = part.value;
+      itemNode.appendChild(inlineElement);
+    });
+  }
+
   function renderToolkitBody(root, shellRoot, shell) {
     const stack = shellRoot.querySelector("[data-shell-slot='toolkit-body']");
     if (!stack) return;
@@ -887,7 +956,7 @@
     if (!list) return;
     infoMeta.items.forEach((item) => {
       appendClonedNode(root, "service-shell-info-item-template", "li", list, (itemNode) => {
-        itemNode.innerHTML = item;
+        renderRunnerInfoItem(itemNode, item);
       });
     });
   }
@@ -948,6 +1017,7 @@
     legacyWorkspaceBlocks,
     getServiceShell,
     getWorkspaceBlockIds,
+    parseRunnerInfoItemMarkup,
     validateServiceShellRegistry,
     validateRenderedServiceShells,
     renderServiceShells,

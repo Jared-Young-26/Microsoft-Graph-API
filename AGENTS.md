@@ -17,6 +17,7 @@ The old `/ai/prompts/*.md` files are reference material only. The active operati
 - Prefer **incremental edits** over broad rewrites.
 - Do not redesign architecture during a debug or test task unless the user explicitly requests it.
 - Update durable-memory files when the truth changes.
+- For recurring repo automations, prefer repo-local memory under `/ai/automation_memory/` when run-to-run context is needed and external automation storage is unavailable or blocked.
 - Never ask the user to copy/paste old role prompts into a new thread. Use the repo files and skills instead.
 - When selecting tasks, prioritize items that mitigate risks in ai/risk_register.md,
 ordered by severity (P0–P3) and scope clarity.
@@ -37,6 +38,7 @@ ordered by severity (P0–P3) and scope clarity.
 - `/ai/decision_log.md` when a durable design decision is relevant
 - `/ai/plans/current_plan.md` for architecture work or any task that spans multiple milestones
 - `/ai/reviews/test_report.md`, `/ai/reviews/security_report.md`, `/ai/reviews/refactor_report.md` when continuing those workstreams
+- `/ai/automation_memory/*.md` when running or resuming a recurring repo automation
 
 ## Source-of-truth precedence
 

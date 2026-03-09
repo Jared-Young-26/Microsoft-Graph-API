@@ -117,6 +117,7 @@ This file describes the real current Graph Admin Studio architecture, not an asp
    - `next_steps.js`
    - `portal_schema.js`
    - `service_shells.js`
+   - `persistence_security.js`
    - `app.js`
 4. `service_shells.js` must run before `app.js`.
    - It renders the service-shell placeholders immediately when `document` is present.
@@ -135,20 +136,21 @@ This file describes the real current Graph Admin Studio architecture, not an asp
 
 - Flask and FastAPI are intended to expose near-parity HTTP APIs over shared backend logic.
 - FastAPI is required for the interactive SSH WebSocket flow.
-- Flask currently rewrites `index.html` to add a shared `?v=` token to:
+- Flask and FastAPI now share `admin_gui/backend/frontend_shell.py` to rewrite `index.html` with one shared `?v=` token across:
   - `styles.css`
   - `portal_schema.js`
   - `service_shells.js`
+  - `persistence_security.js`
   - `triage.js`
   - `investigation_summary.js`
   - `next_steps.js`
   - `app.js`
-- FastAPI currently serves raw `index.html` and static files without that rewrite path.
-- Flask currently exposes browser files through its `/{path}` SPA fallback.
-- FastAPI currently exposes browser files through both its `/{path}` SPA fallback and `app.mount("/static", StaticFiles(directory=ROOT, html=True))`.
-- Both backend entrypoints currently resolve arbitrary existing paths under `admin_gui/`; on FastAPI the `/static` mount is a second path to the same tree.
-- Because `admin_gui/backend/` also holds local config, SQLite DBs, and audit logs, static-file allowlisting is a backend trust-boundary requirement, not a cosmetic cleanup.
-- There is already a focused Flask regression test for boot-asset cache busting; FastAPI does not yet have equivalent behavior.
+- Flask and FastAPI now share an explicit browser allowlist via `admin_gui/backend/frontend_allowlist.py`.
+- Supported SPA shell entrypoints are `/`, `/index.html`, `/help`, `/help/*`, `/investigations`, and `/workspaces`.
+- Allowed browser-served files are restricted to the boot-critical root assets, `docs/help/help_manifest.json`, Markdown help pages under `docs/help/`, and `install/windows.ps1`.
+- FastAPI no longer mounts `/static` to the full `admin_gui/` tree; `/static/*` is denied unless a future thread intentionally reintroduces a narrower, allowlist-governed surface.
+- Non-frontend source/state paths such as `admin_gui/backend/`, SQLite DBs, config JSON, logs, and stray docs/helpers are denied by default.
+- There are focused Flask and FastAPI cache-busting regression tests plus shared Flask/FastAPI browser allowlist regression coverage.
 
 ## Backend Boundaries
 
@@ -176,6 +178,79 @@ This file describes the real current Graph Admin Studio architecture, not an asp
 
 - `graph_runner_dispatch.py` is the bridge from selected portal actions to remote graph-runner jobs.
 
+## Operator Auth Boundary
+
+Graph Admin Studio now enforces one shared operator-auth layer for human privileged mutation routes in both backend transports.
+
+### Objective
+
+- Protect human/operator mutation and secret-export routes with one shared server-side rule in both Flask and FastAPI.
+- Preserve the existing agent-token flows and the FastAPI terminal/WebSocket mechanics.
+- Keep the frontend token in memory only and scoped to the current page session.
+
+### Chosen Model
+
+- Credential:
+  - Use an explicit operator token supplied out-of-band through an environment variable such as `GAS_OPERATOR_TOKEN`.
+  - Human privileged requests must send that token in a dedicated header such as `X-Operator-Token`.
+  - The browser UI should prompt once per page load and keep the token in memory only.
+  - Do not persist the operator token in `localStorage`, `sessionStorage`, saved profiles, or exported config.
+
+- Server behavior:
+  - `admin_gui/backend/operator_auth.py` is the shared helper/module for operator-token extraction, constant-time validation, and route classification.
+  - Flask applies the guard via `@app.before_request`; FastAPI applies the same boundary via `@app.middleware("http")`.
+  - Protected human requests fail closed with `401` for missing/invalid credentials and `503` when `GAS_OPERATOR_TOKEN` is not configured.
+
+- Browser/CSRF posture:
+  - Phase 1 remains header-based and cookie-free.
+- `admin_gui/app.js` now prompts for the operator token on the first protected request, stores it in memory only, and attaches it only to same-origin protected mutating `/api/*` requests.
+- Passive page boot no longer auto-runs the background tenant-info `POST /api/task` call until the operator token has been entered, which avoids prompting on initial page load.
+- `admin_gui/persistence_security.js` now strips `client_secret` and secret-like Action Pack param keys from browser persistence paths before data is written back to `localStorage`.
+
+### Route Classes
+
+- Human privileged routes that require operator auth in phase 1:
+  - all human `POST` / `PUT` / `DELETE` `/api/...` routes except the explicit exemptions below
+  - `POST /api/task`
+  - config mutation and config import/export routes
+  - job enqueue and Action Pack v2 compile/validate/run routes
+  - investigation / incident / snapshot / topology mutation routes
+  - `POST /api/terminal/{agent_id}/start`
+  - transport-specific human mutation routes such as Flask `POST /api/exchange/send-mail`
+
+- Agent-authenticated routes that remain separate:
+  - agent register / heartbeat / next-job / job-result
+  - artifact upload
+  - terminal session lease for agents
+  - agent-authenticated terminal WebSocket behavior
+
+- Human read-only routes left unchanged in phase 1:
+  - status, summary, public config, audits, job lists/details, traces, graph reliability, snapshots/history reads, investigations/incidents reads, and browser shell/static routes
+  - these can be revisited later if the trust model needs to expand beyond mutation control
+
+- Explicit phase-1 exemptions from operator auth because they are not human UI mutation routes:
+  - `/ingest/perception`
+  - `POST /api/signals/visual`
+  - the operator side of `/ws/terminal/{session_id}` remains gated indirectly by the authenticated terminal-start route and the unguessable `session_id`
+
+### Terminal / Interactive Flow
+
+- `POST /api/terminal/{agent_id}/start` should require:
+  - operator token auth
+  - existing `interactive_scope=true`
+  - existing localhost/operator allowlist checks
+
+- `/ws/terminal/{session_id}` does not require the operator token directly in phase 1.
+  - The authenticated start route is the human authorization boundary.
+  - The existing agent Bearer-token behavior on the WebSocket stays unchanged.
+
+### Rollout Constraints
+
+- The implementation thread should avoid broad middleware that accidentally intercepts agent routes or browser file-serving paths.
+- Route classification must be explicit enough that Flask and FastAPI do not drift.
+- If `GAS_OPERATOR_TOKEN` is absent, protected routes should fail clearly rather than silently remaining open.
+- Operator auth, browser-storage cleanup, and boot-asset versioning now land as separate completed hardening threads.
+
 ## Secret and State Rules
 
 - Secrets belong in:
@@ -183,14 +258,15 @@ This file describes the real current Graph Admin Studio architecture, not an asp
   - local `config.json` / keychain-backed config handling
   - agent-host files under `~/.gas`
 - Secrets do not belong in the control-plane DB.
+- Secrets do not belong in frontend profile persistence, Action Pack param persistence, or exported profile files.
 - Runtime state currently lives under `admin_gui/backend/`:
   - SQLite DBs
   - audit log
   - config JSON
 - Treat those files as local state, not stable source modules.
 - Do not assume path secrecy for those files.
-  - Both backend entrypoints currently serve from the broader `admin_gui/` tree unless explicit allowlisting is added.
-  - On FastAPI, both the catch-all browser route and `/static` mount currently point at that same tree.
+  - Flask and FastAPI now enforce `frontend_allowlist.py` before serving browser files.
+  - Backend/state paths and the old FastAPI `/static/*` alias are denied by default.
 
 ## Repeated Shell Patterns
 
@@ -209,12 +285,7 @@ This file describes the real current Graph Admin Studio architecture, not an asp
 
 - `admin_gui/app.js` is large and central.
   - Refactor in bounded slices only, with no selector/API churn.
-- Human/operator mutation routes still rely on local-listener trust.
-  - Observe-vs-Act is a UI distinction today, not a server-side permission boundary.
-- Both backend entrypoints can currently expose arbitrary files under `admin_gui/` if reached directly.
-- FastAPI currently has two browser file-serving surfaces to close or narrow together:
-  - `/{path}`
-  - `/static/*`
-- FastAPI and Flask frontend asset handling are not fully aligned.
+- `service_shells.js` still renders runner help items with `innerHTML`.
+  - The current registry is local and hard-coded, but this remains the next low-risk XSS cleanup candidate if those strings ever become data-driven.
 - `json_inspector.js` and `help_parser.js` exist as standalone modules while `app.js` still carries the live implementations.
 - Shared-panel navigation depends on both schema metadata and DOM target IDs staying aligned.

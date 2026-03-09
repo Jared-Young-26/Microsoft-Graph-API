@@ -11,12 +11,15 @@ class TestFlaskAppCacheBusting(unittest.TestCase):
         app_match = re.search(r'src="app\.js\?v=(\d+)"', html)
         schema_match = re.search(r'src="portal_schema\.js\?v=(\d+)"', html)
         shells_match = re.search(r'src="service_shells\.js\?v=(\d+)"', html)
+        persistence_match = re.search(r'src="persistence_security\.js\?v=(\d+)"', html)
 
         self.assertIsNotNone(app_match)
         self.assertIsNotNone(schema_match)
         self.assertIsNotNone(shells_match)
+        self.assertIsNotNone(persistence_match)
         self.assertEqual(schema_match.group(1), app_match.group(1))
         self.assertEqual(shells_match.group(1), app_match.group(1))
+        self.assertEqual(persistence_match.group(1), app_match.group(1))
 
 
 if __name__ == "__main__":  # pragma: no cover
