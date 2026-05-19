@@ -49,6 +49,7 @@ run_step() {
 run_frontend_suite() {
   echo
   echo "[validate] === Frontend validation ==="
+  run_step "boot_contract.test.js" node admin_gui/boot_contract.test.js
   run_step "help_center.test.js" node admin_gui/help_center.test.js
   run_step "investigation_summary.test.js" node admin_gui/investigation_summary.test.js
   run_step "json_inspector.test.js" node admin_gui/json_inspector.test.js

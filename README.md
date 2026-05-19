@@ -61,6 +61,7 @@ npm run validate
 ```
 
 The validation runner (`scripts/validate.sh`) executes:
+- the cross-file boot contract suite for `index.html`, `portal_schema.js`, and `service_shells.js`
 - frontend Node suites under `admin_gui/*.test.js`
 - frontend syntax guards (`node --check` for boot-critical JS)
 - backend hardening subset via `python3 -m unittest`
