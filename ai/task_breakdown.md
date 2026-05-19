@@ -1,70 +1,48 @@
 # Task Breakdown
 
-This file records execution for the validation-workflow codification thread completed on 2026-03-08.
-
 ## Objective
+Execute one bounded first slice of `admin_gui/app.js` modularization by extracting boot/preflight logic into `admin_gui/app_boot.js` while preserving behavior and contracts.
 
-Implement a single lightweight validation entrypoint that standardizes the repo's existing frontend and backend verification commands, with explicit prerequisite messaging for local environments missing Python test tooling.
+## Prepared
+- Originally prepared: 2026-03-11
+- Automation refresh: 2026-03-12
 
-## Scope Executed
+## Why This Slice
+- It directly targets the largest remaining maintainability risk (`app.js` size/coupling).
+- It has explicit guardrails from `admin_gui/boot_contract.test.js`.
+- It is small enough for one focused thread and unblocks later bounded extractions.
 
-1. Baseline command inventory
-   - Confirm the canonical frontend Node test/check commands from current test files and reports.
-   - Confirm the canonical backend Python unittest targets currently used in hardening threads.
-
-2. Lightweight entrypoint implementation
-   - Add one minimal runner path (script and/or npm command) that executes the canonical command sets in a clear order.
-   - Keep behavior transparent (show underlying commands and outcomes).
-   - Include prerequisite handling for missing backend tooling so failures are explicit and actionable.
-
-3. Documentation alignment
-   - Update the most relevant contributor-facing docs to reference the new canonical validation entrypoint.
-   - Keep docs concise and avoid duplicating long command lists in multiple places.
-
-4. Focused verification
-   - Run the new entrypoint in this environment.
-   - Confirm expected behavior for frontend execution and backend prerequisite handling.
-
-## In Scope Files (actual)
-
-- `scripts/validate.sh`
-- `package.json`
-- `README.md`
-- `ai/reviews/test_report.md`
-- `ai/active_task.md`
-- `ai/task_breakdown.md`
-- `ai/status.md`
-- `ai/handoff.md`
-- `ai/thread_log.md`
+## Scope For This Thread
+- `admin_gui/app_boot.js` (new): extracted boot/preflight functions and minimal validators.
+- `admin_gui/app.js`: replace inline boot/preflight code with usage of extracted API.
+- `admin_gui/index.html`: include `app_boot.js` in the boot sequence.
+- `admin_gui/backend/frontend_shell.py`: add `app_boot.js` to shared version-token rewrite list.
+- `admin_gui/boot_contract.test.js`: assert the updated script order contract.
 
 ## Out of Scope
+- Any extraction beyond boot/preflight responsibilities.
+- Refactoring business logic, action handlers, or rendering flows.
+- Backend/API behavior changes beyond frontend asset serving parity.
 
-- application logic changes in frontend/backend product code
-- CI provider configuration changes
-- broad testing framework migration
+## Execution Plan
+1. Isolate current top-of-file boot/preflight functions in `admin_gui/app.js` and define the minimal public API for extraction.
+2. Create `admin_gui/app_boot.js` with the extracted logic and stable global exposure pattern compatible with existing non-module script loading.
+3. Update `admin_gui/index.html` and `admin_gui/backend/frontend_shell.py` so both transports serve/version the new asset consistently.
+4. Update `admin_gui/app.js` to consume the extracted boot API and remove duplicated inline preflight logic.
+5. Update `admin_gui/boot_contract.test.js` expected script order and rerun targeted + canonical validation.
+6. Refresh `/ai` docs after implementation lands.
 
-## Risks To Control
+## Validation Plan
+- Targeted: `node admin_gui/boot_contract.test.js`
+- Canonical: `npm run validate`
 
-- Wrapper drift from underlying canonical commands.
-- Silent backend skip behavior that hides missing prerequisites.
-- Overgrown runner script that exceeds one-thread maintainability scope.
+## Risks To Watch
+- Boot-order drift between `index.html`, `boot_contract.test.js`, and `frontend_shell.py`.
+- Accidentally changing boot failure messaging/timing.
+- Introducing a global-name mismatch between `app_boot.js` and `app.js`.
 
-## Completion Criteria
-
-- One clear validation command exists and is documented.
-- The command runs canonical frontend checks and canonical backend checks (or clearly reports why backend checks could not run).
-- Output is explicit enough that a reviewer can tell what executed and what did not.
-
-## Validation Performed
-
-- `npm run validate`
-  - frontend suites: 8/8 passed
-  - frontend syntax checks: 4/4 passed
-  - backend unittest subset: 24 tests passed
-  - runner summary: `failures=0 skipped=0`
-
-## Resume Point
-
-This thread is complete. Next thread should either:
-- run a compact doc-sync pass to mark completed backlog hardening items more consistently, or
-- start a small implementation thread from backlog `P1`/`P2`.
+## Done Criteria
+- Preflight logic is extracted into `admin_gui/app_boot.js` and consumed by `app.js`.
+- Boot script contract assertions pass with the new explicit order.
+- `npm run validate` remains green without reducing coverage.
+- No selector, API, or auth-flow behavior changes are introduced.

@@ -131,6 +131,8 @@ This file describes the real current Graph Admin Studio architecture, not an asp
    - `/help/...`
    - `/investigations`
    - `/workspaces`
+9. A direct Node boot-contract suite now guards this boundary across `admin_gui/index.html`, `admin_gui/portal_schema.js`, and `admin_gui/service_shells.js`.
+   - It checks script order, required service-shell templates/mounts, schema-to-nav/panel alignment, and rendered service-shell validity.
 
 ## Backend Serving Notes
 
@@ -276,16 +278,20 @@ Graph Admin Studio now enforces one shared operator-auth layer for human privile
   - `python -m agent --config agent/config.example.json`
   - `docker compose up --build`
 
-- Validation is split by runtime:
-  - frontend contract tests are direct `node admin_gui/<name>.test.js`
-  - Python/backend/platform tests are direct `pytest ...`
-- There is no single package-script wrapper today; threads should call the specific command they need.
+- Canonical validation entrypoints:
+  - `npm run validate`
+  - `npm run validate:frontend`
+  - `npm run validate:backend`
+- Direct targeted validation still exists for focused threads:
+  - `node admin_gui/boot_contract.test.js` guards the cross-file boot contract
+  - frontend contract tests can still run via direct `node admin_gui/<name>.test.js`
+  - broader Python/backend/platform work can still use direct targeted Python test commands when the canonical wrapper is not enough
 
 ## Current Structural Risks Worth Remembering
 
 - `admin_gui/app.js` is large and central.
   - Refactor in bounded slices only, with no selector/API churn.
-- `service_shells.js` still renders runner help items with `innerHTML`.
-  - The current registry is local and hard-coded, but this remains the next low-risk XSS cleanup candidate if those strings ever become data-driven.
+- `admin_gui/boot_contract.test.js` now guards the cross-file boot boundary spanning `index.html`, `portal_schema.js`, and `service_shells.js`.
+  - Future frontend refactors should keep this suite green instead of weakening the boot contract.
 - `json_inspector.js` and `help_parser.js` exist as standalone modules while `app.js` still carries the live implementations.
 - Shared-panel navigation depends on both schema metadata and DOM target IDs staying aligned.

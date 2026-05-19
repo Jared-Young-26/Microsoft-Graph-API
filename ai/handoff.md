@@ -1,50 +1,40 @@
 # Handoff
 
 ## Objective
-Capture a resume-ready state after completing the validation-workflow codification thread.
-
-## 2026-03-08 Nightly Regression Triage Update
-- Ran the canonical sweep with `npm run validate`; frontend + backend subset passed with `failures=0 skipped=0`.
-- Probed Playwright availability for browser-level follow-up; Playwright is currently unavailable in this workspace.
-- No new regressions were detected in the active risky validation surface.
+Leave the repo in a resume-ready state after completing the cross-file boot contract test thread.
 
 ## Current Status
-Thread complete on 2026-03-08 with nightly validation still green. The repo has one canonical validation entrypoint with transparent run/pass/fail/skip output.
+The boot-contract safety-net stack has been validated and is ready to serve as the guardrail for the next `admin_gui/app.js` extraction thread.
 
 ## Confirmed Facts
-- `scripts/validate.sh` is the lightweight runner for canonical validation.
-- `package.json` now exposes:
+- `scripts/validate.sh` is the canonical validation runner.
+- `package.json` exposes:
   - `npm run validate`
   - `npm run validate:frontend`
   - `npm run validate:backend`
-- `README.md` now documents the canonical validation command and backend prerequisites.
-- `npm run validate` passed in this environment:
-  - all frontend Node suites passed
-  - frontend syntax checks passed
-  - backend unittest hardening subset passed (`24` tests)
-  - summary: `failures=0 skipped=0`
+- The latest documented landing check on 2026-05-19 (local EDT run) reported:
+  - `node admin_gui/boot_contract.test.js` passing
+  - `npm run validate` passing with `failures=0 skipped=1`
+  - backend validation skipped because this workspace is missing the Python module `flask`
+- `admin_gui/boot_contract.test.js` now guards:
+  - `index.html` script order
+  - required service-shell template IDs and selectors
+  - `data-service-shell` mount parity with `GraphAdminServiceShells.TARGET_SERVICES`
+  - rendered service-shell validity via `validateRenderedServiceShells()`
+  - schema-to-nav/panel/scroll-target alignment
+- `admin_gui/index.html` still carries the hard boot-order contract and the service-shell mount points that `service_shells.js` replaces before `app.js` continues boot.
+- Current frontend Node suites now include a direct cross-file boot-contract suite (`admin_gui/boot_contract.test.js`) in the canonical validation path.
 
-## Files Changed In This Thread
-- `scripts/validate.sh`
-- `package.json`
-- `README.md`
-- `ai/active_task.md`
-- `ai/task_breakdown.md`
-- `ai/status.md`
-- `ai/reviews/test_report.md`
-- `ai/handoff.md`
-- `ai/thread_log.md`
+## Clean Baseline Notes
+- No repo-state blocker is currently preventing the next implementation thread from starting.
+- Install `requirements.txt` before relying on the canonical runner for backend hardening coverage in this workspace.
 
-## Validation Performed
-- `npm run validate`
-- `node -e "try{require('playwright');...}catch(...)"` (tooling availability probe)
-
-## Remaining Risks Or Unknowns
-- There is still a large uncommitted worktree spanning product and `/ai` files; review/merge sequencing remains the main process risk.
-- Some durable-memory docs may still drift between threads if not refreshed after each merged implementation batch.
+## Validation Context
+- Most recent canonical validation evidence lives in `ai/reviews/test_report.md`.
+- Playwright remains optional follow-up rather than a prerequisite for the next thread.
 
 ## Exact Next Step
-Start a focused implementation thread for one remaining high-value backlog item (`P1` cross-file boot contract tests or `P1` bounded `app.js` split), then rerun `npm run validate` and refresh `/ai` docs at thread close.
+Start the bounded `admin_gui/app.js` modularization thread using `admin_gui/boot_contract.test.js` and `npm run validate` as the safety net.
 
 ## Resume-Ready
 Yes.

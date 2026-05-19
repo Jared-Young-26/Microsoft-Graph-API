@@ -22,4 +22,5 @@ Keep post-hardening work on focused, reviewable threads: maintain doc accuracy, 
 6. Completed 2026-03-07: bring FastAPI boot-asset versioning to parity with Flask through the shared `frontend_shell.py` helper.
 7. Completed 2026-03-07: replace the `service_shells.js` help-item `innerHTML` path with structured DOM/text rendering without changing the current presentation.
 8. Completed 2026-03-08: codify canonical validation entrypoints through `scripts/validate.sh` and `npm run validate` (`validate:frontend`, `validate:backend`).
-9. Next: execute the highest-value remaining implementation task (`P1` cross-file boot contract tests or `P1` bounded `app.js` split), keeping `/ai` docs synced as work lands.
+9. Completed 2026-03-10; validated for landing on 2026-05-19: added `P1` cross-file boot contract tests for `index.html`, `portal_schema.js`, and `service_shells.js`, and kept the canonical validation path aligned through `scripts/validate.sh`.
+10. Next: start the bounded `admin_gui/app.js` split with the stronger boot regression coverage in place.

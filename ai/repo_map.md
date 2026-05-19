@@ -157,6 +157,7 @@ boot order, or stable contracts change.
 - `admin_gui/*.test.js`
   - Frontend contract tests run directly with `node`.
   - The canonical wrapper is `npm run validate` (plus `validate:frontend` and `validate:backend`), not `npm test`.
+  - `boot_contract.test.js` is the direct cross-file suite for boot script order, service-shell templates/mounts, and schema-to-DOM alignment.
 
 ### Repeated service-shell surfaces
 
@@ -407,6 +408,7 @@ boot order, or stable contracts change.
 
 - Frontend validation
   - Canonical wrapper: `npm run validate` (or `npm run validate:frontend`)
+  - The wrapper now includes `node admin_gui/boot_contract.test.js` before the existing frontend module suites.
   - Direct `node` execution of `admin_gui/*.test.js` remains valid for targeted checks.
 
 - Python validation

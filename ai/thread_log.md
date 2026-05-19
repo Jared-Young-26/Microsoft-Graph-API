@@ -171,3 +171,59 @@ Use this file to keep a lightweight record of Codex sessions.
 - Outcome: added `/ai/automation_memory/` plus a seeded nightly triage memory file, updated the stored nightly triage automation prompt to read/write it, and documented the workflow in `AGENTS.md`, `ai/repo_map.md`, and `ai/decision_log.md`
 - Files touched: `AGENTS.md`, `ai/automation_memory/README.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/automation_prompts/nightly_repo_triage.prompt.md`, `ai/repo_map.md`, `ai/decision_log.md`, `ai/thread_log.md`
 - Risks / follow-up: future recurring automation prompts should explicitly name a repo-local memory file if they need run-to-run state
+
+### 2026-03-09 - Complete durable-memory doc sync
+- Role: Doc Sync
+- Objective: align the repo's durable-memory docs with the current clean repo baseline and next justified implementation thread
+- Outcome: active-task, handoff, task-breakdown, status, plan, and architecture docs now move past the completed validation thread, remove the stale uncommitted-worktree blocker, and point next work at `P1` cross-file boot contract tests before any bounded `app.js` split
+- Files touched: `ai/active_task.md`, `ai/task_breakdown.md`, `ai/handoff.md`, `ai/status.md`, `ai/plans/current_plan.md`, `ai/architecture.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: boot-contract coverage still does not exist in code yet; the next implementation thread should add it and then refresh `/ai` docs again
+
+### 2026-03-10 - Nightly repo triage pass
+- Role: Repo Triage
+- Objective: run autonomous nightly health/doc triage with repo-local memory and verify the canonical validation baseline
+- Outcome: `npm run validate` passed end-to-end (`failures=0`, `skipped=0`), durable-memory docs stayed aligned with the prepared `P1` boot-contract thread, and no new blocker or backlog-worthy risk was found
+- Files touched: `ai/status.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: cross-file boot-contract coverage is still the top open maintainability gap until the next implementation thread lands
+
+### 2026-03-10 - Nightly repo triage rerun (automation)
+- Role: Repo Triage
+- Objective: execute a fresh autonomous triage pass, validate current regression surface, and confirm whether any new stale-doc or backlog updates are required
+- Outcome: reran `npm run validate` successfully (`failures=0`, `skipped=0`), confirmed Playwright is still unavailable (`PLAYWRIGHT_MISSING`), and found no new blocker or concrete risk requiring backlog changes
+- Files touched: `ai/status.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: the highest remaining maintainability risk is still missing cross-file boot-contract coverage until the `P1` test thread lands
+
+### 2026-03-10 - Cross-file boot contract tests
+- Role: Implementation Engineer / Test Engineer
+- Objective: add one direct frontend suite that guards the boot contract across `admin_gui/index.html`, `admin_gui/portal_schema.js`, and `admin_gui/service_shells.js`, then verify it through the canonical runner
+- Outcome: added `admin_gui/boot_contract.test.js`, wired it into `scripts/validate.sh`, confirmed the new suite passes directly, and reran `npm run validate` successfully (`failures=0`, `skipped=0`)
+- Files touched: `admin_gui/boot_contract.test.js`, `scripts/validate.sh`, `README.md`, `ai/architecture.md`, `ai/repo_map.md`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/handoff.md`, `ai/reviews/test_report.md`, `ai/thread_log.md`
+- Risks / follow-up: Playwright/browser validation remains unavailable; the next bounded frontend maintainability task is the `admin_gui/app.js` split
+
+### 2026-03-10 - Nightly regression triage sweep (boot-contract active task)
+- Role: Test/Verify
+- Objective: run the smallest adequate validation sweep for the active boot-contract risk surface
+- Outcome: `node admin_gui/boot_contract.test.js` passed; `npm run validate` passed (`failures=0`, `skipped=0`) including the new `boot_contract` frontend suite; Playwright remained unavailable (`PLAYWRIGHT_MISSING`)
+- Files touched: `ai/reviews/test_report.md`, `ai/handoff.md`, `ai/thread_log.md`
+- Risks / follow-up: browser-level smoke coverage is still deferred until Playwright is installed; next repo step is reviewing/landing the active boot-contract implementation diff
+
+### 2026-03-11 - Nightly repo triage pass (automation)
+- Role: Repo Triage
+- Objective: run autonomous repo triage, verify current validation baseline, and refresh triage/status memory docs
+- Outcome: confirmed `admin_gui/app_boot.js` is not present yet (prepared task remains not started), reran `npm run validate` successfully (`failures=0`, `skipped=0`), and found no new concrete risk/task requiring backlog changes
+- Files touched: `ai/status.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: process risk remains around the existing uncommitted implementation/doc stack; next focused thread should implement the prepared `app_boot.js` extraction in reviewable commits
+
+### 2026-03-12 - Nightly repo triage pass (automation)
+- Role: Repo Triage
+- Objective: run autonomous repo triage, verify the canonical validation baseline, and refresh nightly triage docs/memory
+- Outcome: reran `npm run validate` successfully (`failures=0`, `skipped=0`), confirmed `admin_gui/app_boot.js` is still absent (prepared extraction not started), and found no new concrete blocker or backlog-worthy risk
+- Files touched: `ai/status.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: process risk remains the large uncommitted implementation/doc stack; best immediate action is splitting/committing it in reviewable batches before starting the `app_boot.js` extraction
+
+### 2026-05-19 - Land boot-contract safety-net stack
+- Role: Implementation Engineer / Test Engineer
+- Objective: stabilize and land the existing boot-contract validation/doc stack before starting new product work
+- Outcome: `node admin_gui/boot_contract.test.js` passed; `npm run validate` passed with `failures=0`, `skipped=1`; backend validation skipped because local Python dependencies are missing `flask`
+- Files touched: `admin_gui/boot_contract.test.js`, `scripts/validate.sh`, `README.md`, `ai/architecture.md`, `ai/repo_map.md`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/handoff.md`, `ai/reviews/test_report.md`, `ai/plans/current_plan.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: install `requirements.txt` before relying on backend hardening coverage; next focused work is the prepared `admin_gui/app_boot.js` extraction

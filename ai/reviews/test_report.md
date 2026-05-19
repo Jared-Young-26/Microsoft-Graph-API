@@ -1,5 +1,177 @@
 # Test Report
 
+## 2026-05-19 Boot-Contract Stack Landing Check
+
+### Scope
+- Validate the cross-file boot-contract suite before landing the current boot-contract safety-net stack.
+- Confirm the canonical validation runner still passes in this workspace.
+
+### Environment
+- Date: 2026-05-19 EDT
+- Workspace: `/Users/jaredyoung/Documents/Programs/GitHub/Microsoft-Graph-API`
+- Node: `v24.9.0`
+- Python: `3.13.12`
+
+### Cases Executed
+1. `node admin_gui/boot_contract.test.js`
+2. `npm run validate`
+
+### Results
+- PASS: `boot_contract.test.js` passed (`boot contract tests passed`).
+- PASS: `npm run validate` completed with `failures=0 skipped=1`.
+- PASS: Canonical frontend Node suites passed (`boot_contract`, `help_center`, `investigation_summary`, `json_inspector`, `next_steps`, `persistence_security`, `portal_schema`, `service_shells`, `triage`).
+- PASS: Frontend syntax checks passed (`app.js`, `portal_schema.js`, `service_shells.js`, `persistence_security.js`).
+- SKIP: Backend validation did not run because this environment is missing the Python module `flask`; install `requirements.txt` to run the backend hardening subset.
+
+### Coverage Gaps
+- Backend hardening tests were skipped in this environment due to missing local Python dependencies.
+- Browser-level Playwright validation was not run; this boot-contract landing check used the direct Node suite and canonical wrapper.
+
+### Confidence
+- High for the frontend boot-contract safety net.
+- Medium for the full canonical regression surface until backend dependencies are installed and `npm run validate` runs with `skipped=0`.
+
+## 2026-03-12 Nightly Regression Triage Sweep (Boot-Contract Active Task)
+
+### Scope
+- Re-validate the active risky surface while `admin_gui/app.js` modularization remains not started.
+- Confirm targeted boot-contract coverage and canonical validation runner health in the current worktree.
+
+### Environment
+- Date: 2026-03-12 EDT
+- Workspace: `/Users/jaredyoung/Documents/Programs/GitHub/Microsoft-Graph-API`
+- Node: `v24.9.0`
+- Python: `3.11.6`
+
+### Cases Executed
+1. `node -e "try{require('playwright');...}catch(...)"` (availability probe)
+2. `node admin_gui/boot_contract.test.js`
+3. `npm run validate`
+
+### Results
+- PASS: Playwright availability probe returned `PLAYWRIGHT_MISSING`.
+- PASS: `boot_contract.test.js` passed (`boot contract tests passed`).
+- PASS: `npm run validate` completed with `failures=0 skipped=0`.
+- PASS: Canonical frontend Node suites passed (`boot_contract`, `help_center`, `investigation_summary`, `json_inspector`, `next_steps`, `persistence_security`, `portal_schema`, `service_shells`, `triage`).
+- PASS: Frontend syntax checks passed (`app.js`, `portal_schema.js`, `service_shells.js`, `persistence_security.js`).
+- PASS: Backend unittest hardening subset passed (`24` tests):
+  - `admin_gui.backend.test_browser_allowlist`
+  - `admin_gui.backend.test_operator_auth`
+  - `admin_gui.backend.test_flask_app_cache_busting`
+  - `admin_gui.backend.test_fastapi_app_cache_busting`
+
+### Coverage Gaps
+- Playwright/browser validation was not run because Playwright is not installed in this workspace (`PLAYWRIGHT_MISSING`).
+- This sweep intentionally reused existing targeted + canonical validation and did not add broader backend integration/e2e coverage.
+
+### Confidence
+- High for the active boot-contract regression surface and canonical validation entrypoint.
+
+## 2026-03-11 Nightly Regression Triage Sweep (Boot-Contract Active Task)
+
+### Scope
+- Re-validate the active risky surface before starting `admin_gui/app.js` modularization.
+- Confirm targeted boot-contract coverage and canonical validation runner health in the current worktree.
+
+### Environment
+- Date: 2026-03-11 EDT
+- Workspace: `/Users/jaredyoung/Documents/Programs/GitHub/Microsoft-Graph-API`
+- Node: `v24.9.0`
+- Python: `3.11.6`
+
+### Cases Executed
+1. `node -e "try{require('playwright');...}catch(...)"` (availability probe)
+2. `node admin_gui/boot_contract.test.js`
+3. `npm run validate`
+
+### Results
+- PASS: Playwright availability probe returned `PLAYWRIGHT_MISSING`.
+- PASS: `boot_contract.test.js` passed (`boot contract tests passed`).
+- PASS: `npm run validate` completed with `failures=0 skipped=0`.
+- PASS: Canonical frontend Node suites passed (`boot_contract`, `help_center`, `investigation_summary`, `json_inspector`, `next_steps`, `persistence_security`, `portal_schema`, `service_shells`, `triage`).
+- PASS: Frontend syntax checks passed (`app.js`, `portal_schema.js`, `service_shells.js`, `persistence_security.js`).
+- PASS: Backend unittest hardening subset passed (`24` tests):
+  - `admin_gui.backend.test_browser_allowlist`
+  - `admin_gui.backend.test_operator_auth`
+  - `admin_gui.backend.test_flask_app_cache_busting`
+  - `admin_gui.backend.test_fastapi_app_cache_busting`
+
+### Coverage Gaps
+- Playwright/browser validation was not run because Playwright is not installed in this workspace (`PLAYWRIGHT_MISSING`).
+- This sweep intentionally reused existing targeted + canonical validation and did not add broader backend integration/e2e coverage.
+
+### Confidence
+- High for the active boot-contract regression surface and canonical validation entrypoint.
+
+## 2026-03-10 Nightly Regression Triage Sweep (Boot-Contract Active Task)
+
+### Scope
+- Validate the current active risky surface after boot-contract coverage landed in the worktree.
+- Confirm both targeted boot-contract behavior and canonical validation entrypoint health.
+
+### Environment
+- Date: 2026-03-10 EDT
+- Workspace: `/Users/jaredyoung/Documents/Programs/GitHub/Microsoft-Graph-API`
+- Node: `v24.9.0`
+- Python: `3.11.6`
+
+### Cases Executed
+1. `node admin_gui/boot_contract.test.js`
+2. `npm run validate`
+3. `node -e "try{require('playwright');...}catch(...)"` (availability probe)
+
+### Results
+- PASS: `boot_contract.test.js` passed (`boot contract tests passed`).
+- PASS: `npm run validate` completed with `failures=0 skipped=0`.
+- PASS: Canonical frontend Node suites passed (`boot_contract`, `help_center`, `investigation_summary`, `json_inspector`, `next_steps`, `persistence_security`, `portal_schema`, `service_shells`, `triage`).
+- PASS: Frontend syntax checks passed (`app.js`, `portal_schema.js`, `service_shells.js`, `persistence_security.js`).
+- PASS: Backend unittest hardening subset passed (`24` tests):
+  - `admin_gui.backend.test_browser_allowlist`
+  - `admin_gui.backend.test_operator_auth`
+  - `admin_gui.backend.test_flask_app_cache_busting`
+  - `admin_gui.backend.test_fastapi_app_cache_busting`
+
+### Coverage Gaps
+- Playwright/browser validation was not run because Playwright is not installed in this workspace (`PLAYWRIGHT_MISSING`).
+- This sweep intentionally reused the canonical validation subset and did not expand into broader backend integration/e2e flows.
+- The new suite is intentionally structural; it does not replace focused behavior tests inside `admin_gui/app.js`.
+
+### Confidence
+- High for the active boot-contract validation surface and the existing canonical regression subset.
+
+## 2026-03-10 Nightly Regression Triage Sweep
+
+### Scope
+- Re-run the canonical validation entrypoint for the current active risky surface (frontend boot shell plus backend allowlist/auth/cache-busting hardening subset).
+- Confirm regression status before starting the cross-file boot-contract test implementation thread.
+
+### Environment
+- Date: 2026-03-10 EDT
+- Workspace: `/Users/jaredyoung/Documents/Programs/GitHub/Microsoft-Graph-API`
+- Node: `v24.9.0`
+- Python: `3.11.6`
+
+### Cases Executed
+1. `npm run validate`
+2. `node -e "try{require('playwright');...}catch(...)"` (availability probe)
+
+### Results
+- PASS: `npm run validate` completed with `failures=0 skipped=0`.
+- PASS: Frontend Node suites passed (`help_center`, `investigation_summary`, `json_inspector`, `next_steps`, `persistence_security`, `portal_schema`, `service_shells`, `triage`).
+- PASS: Frontend syntax checks passed (`app.js`, `portal_schema.js`, `service_shells.js`, `persistence_security.js`).
+- PASS: Backend unittest hardening subset passed (`24` tests):
+  - `admin_gui.backend.test_browser_allowlist`
+  - `admin_gui.backend.test_operator_auth`
+  - `admin_gui.backend.test_flask_app_cache_busting`
+  - `admin_gui.backend.test_fastapi_app_cache_busting`
+
+### Coverage Gaps
+- Playwright/browser validation was not run because Playwright is not installed in this workspace (`PLAYWRIGHT_MISSING`).
+- This sweep intentionally reused the canonical validation subset and did not expand into broader backend integration/e2e flows.
+
+### Confidence
+- High for the current active validation surface and known high-risk regression paths covered by the canonical runner.
+
 ## 2026-03-08 Nightly Regression Triage Sweep
 
 ### Scope
