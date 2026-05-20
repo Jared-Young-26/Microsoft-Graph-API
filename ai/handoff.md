@@ -14,8 +14,9 @@ The boot-contract safety-net stack has been validated and is ready to serve as t
   - `npm run validate:backend`
 - The latest documented landing check on 2026-05-19 (local EDT run) reported:
   - `node admin_gui/boot_contract.test.js` passing
-  - `npm run validate` passing with `failures=0 skipped=1`
-  - backend validation skipped because this workspace is missing the Python module `flask`
+  - `requirements.txt` installed successfully into the `python3` environment used by `scripts/validate.sh`
+  - `npm run validate` passing with `failures=0 skipped=0`
+  - backend hardening subset passing (`24` tests)
 - `admin_gui/boot_contract.test.js` now guards:
   - `index.html` script order
   - required service-shell template IDs and selectors
@@ -27,7 +28,6 @@ The boot-contract safety-net stack has been validated and is ready to serve as t
 
 ## Clean Baseline Notes
 - No repo-state blocker is currently preventing the next implementation thread from starting.
-- Install `requirements.txt` before relying on the canonical runner for backend hardening coverage in this workspace.
 
 ## Validation Context
 - Most recent canonical validation evidence lives in `ai/reviews/test_report.md`.

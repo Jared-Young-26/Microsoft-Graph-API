@@ -7,6 +7,7 @@ Boot-contract safety net is complete and verified; the next prepared workstream 
 Prepared (not started): extract boot/preflight logic from `admin_gui/app.js` into `admin_gui/app_boot.js` while preserving script-order and runtime contracts.
 
 ## Recently completed
+- 2026-05-19 19:45 EDT: installed `requirements.txt` into the `python3` environment used by `scripts/validate.sh`; `npm run validate` now passes with `failures=0 skipped=0`, including the 24-test backend hardening subset.
 - 2026-05-19 EDT: landed the boot-contract safety-net stack in reviewable commits. `node admin_gui/boot_contract.test.js` passed, and `npm run validate` passed with `failures=0 skipped=1`; backend validation skipped because this environment is missing `flask`.
 - 2026-03-12 20:02 EDT: nightly repo triage reran `npm run validate`; canonical validation remained green (`failures=0`, `skipped=0`), confirmed `admin_gui/app_boot.js` is still absent (prepared extraction not started), and found no new backlog-worthy risk.
 - 2026-03-12 09:01 EDT: `prepare-next-task` reran and reconfirmed the highest-value next thread is the bounded boot/preflight extraction into `admin_gui/app_boot.js`; refreshed `/ai/active_task.md`, `/ai/task_breakdown.md`, and `/ai/status.md`.
@@ -19,7 +20,6 @@ Prepared (not started): extract boot/preflight logic from `admin_gui/app.js` int
 
 ## Current blockers
 - No repo-state blocker is known.
-- Backend validation currently skips in this workspace until Python dependencies from `requirements.txt` are installed (`flask` is missing).
 - Playwright remains unavailable in this workspace (`PLAYWRIGHT_MISSING`), but the next prepared task does not require browser automation.
 
 ## Next recommended tasks

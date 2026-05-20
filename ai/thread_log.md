@@ -227,3 +227,10 @@ Use this file to keep a lightweight record of Codex sessions.
 - Outcome: `node admin_gui/boot_contract.test.js` passed; `npm run validate` passed with `failures=0`, `skipped=1`; backend validation skipped because local Python dependencies are missing `flask`
 - Files touched: `admin_gui/boot_contract.test.js`, `scripts/validate.sh`, `README.md`, `ai/architecture.md`, `ai/repo_map.md`, `ai/active_task.md`, `ai/task_breakdown.md`, `ai/status.md`, `ai/handoff.md`, `ai/reviews/test_report.md`, `ai/plans/current_plan.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
 - Risks / follow-up: install `requirements.txt` before relying on backend hardening coverage; next focused work is the prepared `admin_gui/app_boot.js` extraction
+
+### 2026-05-19 - Install backend validation requirements
+- Role: Test/Verify
+- Objective: install `requirements.txt` for the canonical validation path and confirm backend hardening coverage runs
+- Outcome: `python3 -m pip install -r requirements.txt` completed successfully; `npm run validate` passed with `failures=0`, `skipped=0`, including the 24-test backend hardening subset
+- Files touched: `ai/status.md`, `ai/handoff.md`, `ai/reviews/test_report.md`, `ai/automation_memory/nightly_repo_triage.md`, `ai/thread_log.md`
+- Risks / follow-up: backend tests emitted existing Python warnings from `local_network.py` escape sequences and unclosed database ResourceWarnings; next focused work is still the prepared `admin_gui/app_boot.js` extraction

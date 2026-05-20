@@ -4,7 +4,47 @@
 
 ### Scope
 - Validate the cross-file boot-contract suite before landing the current boot-contract safety-net stack.
-- Confirm the canonical validation runner still passes in this workspace.
+- Confirm the canonical validation runner passes with both frontend and backend coverage in this workspace after installing `requirements.txt`.
+
+### Environment
+- Date: 2026-05-19 EDT
+- Workspace: `/Users/jaredyoung/Documents/Programs/GitHub/Microsoft-Graph-API`
+- Node: `v24.9.0`
+- Python: `3.13.12`
+
+### Cases Executed
+1. `python3 -m pip install -r requirements.txt`
+2. `node admin_gui/boot_contract.test.js`
+3. `npm run validate`
+
+### Results
+- PASS: `requirements.txt` installed successfully into the `python3` environment used by `scripts/validate.sh`.
+- PASS: `boot_contract.test.js` passed (`boot contract tests passed`).
+- PASS: `npm run validate` completed with `failures=0 skipped=0`.
+- PASS: Canonical frontend Node suites passed (`boot_contract`, `help_center`, `investigation_summary`, `json_inspector`, `next_steps`, `persistence_security`, `portal_schema`, `service_shells`, `triage`).
+- PASS: Frontend syntax checks passed (`app.js`, `portal_schema.js`, `service_shells.js`, `persistence_security.js`).
+- PASS: Backend unittest hardening subset passed (`24` tests):
+  - `admin_gui.backend.test_browser_allowlist`
+  - `admin_gui.backend.test_operator_auth`
+  - `admin_gui.backend.test_flask_app_cache_busting`
+  - `admin_gui.backend.test_fastapi_app_cache_busting`
+
+### Notes
+- Python emitted warnings during backend validation from existing code/dependencies:
+  - `SyntaxWarning: invalid escape sequence '\s'` in `local_network.py`
+  - `ResourceWarning: unclosed database` during imports/tests
+
+### Coverage Gaps
+- Browser-level Playwright validation was not run; this boot-contract landing check used the direct Node suite and canonical wrapper.
+
+### Confidence
+- High for the frontend boot-contract safety net and canonical backend hardening subset.
+
+## 2026-05-19 Pre-Install Boot-Contract Check
+
+### Scope
+- Validate the cross-file boot-contract suite before backend dependencies were installed.
+- Confirm the canonical validation runner still passed frontend checks even when backend prerequisites were missing.
 
 ### Environment
 - Date: 2026-05-19 EDT
